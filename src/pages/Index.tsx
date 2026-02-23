@@ -1,6 +1,7 @@
 import { MarketHeader } from '@/components/MarketHeader';
 import { PatternSummary } from '@/components/PatternSummary';
 import { StockTable } from '@/components/StockTable';
+import { SectorAnalysis } from '@/components/SectorAnalysis';
 import { demoStocks, demoMarket, getBuySignals, getSellSignals } from '@/lib/demo-data';
 import { Info } from 'lucide-react';
 
@@ -28,6 +29,9 @@ const Index = () => {
             <span className="font-semibold text-foreground">Wall Street Protocol</span> — Screener flaggar aktier i <span className="text-signal-buy font-medium">Climbing Pattern</span> med breakout ovan resistans, pris över 50/150 MA, volym ≥2x snitt och positiv Mansfield RS. Klicka på en rad för att se detaljerade entry/exit-kriterier. <span className="italic">Demo-data visas — anslut live-API för realtidsdata.</span>
           </div>
         </div>
+
+        {/* Sector analysis with live charts */}
+        <SectorAnalysis />
 
         {/* Stock screener table */}
         <StockTable stocks={demoStocks} />
