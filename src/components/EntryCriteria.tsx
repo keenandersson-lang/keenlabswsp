@@ -1,24 +1,30 @@
-import { StockData } from '@/lib/wsp-engine';
+import type { EvaluatedStock } from '@/lib/wsp-types';
 import { Check, X } from 'lucide-react';
 
 interface EntryCriteriaProps {
-  stock: StockData;
+  stock: EvaluatedStock;
 }
 
-const criteria = [
-  { key: 'breakoutConfirmed' as const, label: 'Breakout ovan resistans' },
-  { key: 'aboveMA50' as const, label: 'Pris > 50 MA' },
-  { key: 'ma50SlopingUp' as const, label: '50 MA lutar uppåt' },
-  { key: 'aboveMA150' as const, label: 'Pris > 150 MA' },
-  { key: 'volumeBreakout' as const, label: 'Volym ≥ 2x snitt' },
-  { key: 'mansfieldBullish' as const, label: 'Mansfield RS bullish' },
+const gateChecks: { key: keyof EvaluatedStock['gate']; label: string }[] = [
+  { key: 'patternAllowsEntry', label: 'Mönster = CLIMBING' },
+  { key: 'breakoutValid', label: 'Breakout ovan resistans' },
+  { key: 'breakoutFresh', label: 'Breakout ej för gammalt' },
+  { key: 'priceAboveMA50', label: 'Pris > 50 MA' },
+  { key: 'ma50Rising', label: '50 MA lutar uppåt' },
+  { key: 'priceAboveMA150', label: 'Pris > 150 MA' },
+  { key: 'volumeSufficient', label: 'Volym ≥ 2x snitt' },
+  { key: 'mansfieldValid', label: 'Mansfield RS bullish' },
+  { key: 'sectorAligned', label: 'Sektor i upptrend' },
+  { key: 'marketFavorable', label: 'Marknadstrend gynnsam' },
 ];
 
 export function EntryCriteria({ stock }: EntryCriteriaProps) {
+  const passCount = gateChecks.filter(c => stock.gate[c.key]).length;
+
   return (
     <div className="space-y-1.5">
-      {criteria.map(({ key, label }) => {
-        const met = stock[key];
+      {gateChecks.map(({ key, label }) => {
+        const met = stock.gate[key];
         return (
           <div key={key} className="flex items-center gap-2 text-xs">
             {met ? (
@@ -26,16 +32,23 @@ export function EntryCriteria({ stock }: EntryCriteriaProps) {
             ) : (
               <X className="h-3.5 w-3.5 text-signal-sell flex-shrink-0" />
             )}
-            <span className={met ? 'text-foreground' : 'text-muted-foreground'}>
+            <span className={met ? 'text-foreground' : 'text-muted-foreground line-through'}>
               {label}
             </span>
           </div>
         );
       })}
       <div className="mt-2 pt-2 border-t border-border">
-        <span className="font-mono text-xs text-muted-foreground">
-          Score: <span className={stock.entryScore >= 5 ? 'text-signal-buy font-bold' : stock.entryScore >= 3 ? 'text-signal-caution font-bold' : 'text-signal-sell font-bold'}>{stock.entryScore}/6</span>
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-xs text-muted-foreground">
+            Gate: <span className={stock.gate.isValidWspEntry ? 'text-signal-buy font-bold' : 'text-signal-sell font-bold'}>
+              {stock.gate.isValidWspEntry ? 'PASS ✓' : 'FAIL ✗'}
+            </span>
+          </span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {passCount}/{gateChecks.length}
+          </span>
+        </div>
       </div>
     </div>
   );

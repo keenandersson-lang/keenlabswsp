@@ -2,38 +2,45 @@ import { MarketHeader } from '@/components/MarketHeader';
 import { PatternSummary } from '@/components/PatternSummary';
 import { StockTable } from '@/components/StockTable';
 import { SectorAnalysis } from '@/components/SectorAnalysis';
-import { demoStocks, demoMarket, getBuySignals, getSellSignals } from '@/lib/demo-data';
+import { DebugPanel } from '@/components/DebugPanel';
+import { demoStocks, demoMarket } from '@/lib/demo-data';
 import { Info } from 'lucide-react';
 
 const Index = () => {
-  const buySignals = getBuySignals();
-  const sellSignals = getSellSignals();
+  const buyCount = demoStocks.filter(s => s.recommendation === 'KÖP').length;
+  const sellCount = demoStocks.filter(s => s.recommendation === 'SÄLJ').length;
+  const watchCount = demoStocks.filter(s => s.recommendation === 'BEVAKA').length;
+  const avoidCount = demoStocks.filter(s => s.recommendation === 'UNDVIK').length;
 
   return (
     <div className="min-h-screen bg-background">
       <MarketHeader
         market={demoMarket}
-        buyCount={buySignals.length}
-        sellCount={sellSignals.length}
+        buyCount={buyCount}
+        sellCount={sellCount}
+        watchCount={watchCount}
+        avoidCount={avoidCount}
         totalStocks={demoStocks.length}
       />
 
       <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
-        {/* Pattern overview */}
         <PatternSummary stocks={demoStocks} />
 
-        {/* Info banner */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4">
           <Info className="h-5 w-5 text-accent flex-shrink-0 mt-0.5" />
           <div className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground">Wall Street Protocol</span> — Screener flaggar aktier i <span className="text-signal-buy font-medium">Climbing Pattern</span> med breakout ovan resistans, pris över 50/150 MA, volym ≥2x snitt och positiv Mansfield RS. Klicka på en rad för att se detaljerade entry/exit-kriterier. <span className="italic">Demo-data visas — anslut live-API för realtidsdata.</span>
+            <span className="font-semibold text-foreground">Wall Street Protocol — Strict Rules Engine</span> — Screener med 3-lagers logik: <span className="text-accent">Mönster</span> (chart-struktur) → <span className="text-accent">Entry Gate</span> (hårda regler) → <span className="text-accent">Rekommendation</span> (KÖP/BEVAKA/SÄLJ/UNDVIK). En aktie kan vara i CLIMBING utan att vara KÖP. <span className="font-bold text-signal-buy">KÖP</span> kräver att ALLA gate-regler passerar. Klicka på en rad för fullständig regelanalys. <span className="italic text-signal-caution">Demo-data visas — anslut live-API för realtidsberäkningar.</span>
           </div>
         </div>
 
-        {/* Sector analysis with live charts */}
+        <DebugPanel
+          stocks={demoStocks}
+          dataSource={demoMarket.dataSource}
+          lastUpdated={demoMarket.lastUpdated}
+        />
+
         <SectorAnalysis />
 
-        {/* Stock screener table */}
         <StockTable stocks={demoStocks} />
       </main>
     </div>
