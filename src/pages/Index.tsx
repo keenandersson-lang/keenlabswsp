@@ -18,6 +18,7 @@ const Index = () => {
   const stocks = payload?.stocks ?? [];
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
+  const debugSummary = payload?.debugSummary;
 
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.recommendation === 'KÖP').length,
@@ -33,7 +34,7 @@ const Index = () => {
     });
   };
 
-  if (!market || !providerStatus) {
+  if (!market || !providerStatus || !debugSummary) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-3 px-4 text-center">
@@ -86,6 +87,7 @@ const Index = () => {
         <DebugPanel
           stocks={stocks}
           providerStatus={providerStatus}
+          debugSummary={debugSummary}
         />
 
         <SectorAnalysis />

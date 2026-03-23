@@ -7,6 +7,7 @@ import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
 import type { Bar, MarketOverview, ScreenerApiResponse, ScreenerUiState, SectorStatus } from '../src/lib/wsp-types';
 import { FinnhubProvider } from './finnhub-provider';
+import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
 
@@ -154,6 +155,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         benchmarkFetchStatus: benchmarkResult.stale ? 'stale' : 'success',
         refreshIntervalMs: pollingIntervalMs,
       },
+      debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to refresh Finnhub data';
@@ -261,6 +263,7 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
     },
+    debugSummary: buildScreenerDebugSummary(demoStocks),
   };
 }
 
@@ -288,6 +291,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number): Screene
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
     },
+    debugSummary: buildScreenerDebugSummary([]),
   };
 }
 
