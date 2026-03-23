@@ -5,7 +5,7 @@ import { computeIndicators, normalizeBarsChronologically } from '../src/lib/wsp-
 import { demoMarket, demoStocks } from '../src/lib/demo-data';
 import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
-import type { Bar, MarketOverview, ScreenerApiResponse, ScreenerUiState, SectorStatus } from '../src/lib/wsp-types';
+import type { Bar, MarketOverview, ProviderReadiness, ScreenerApiResponse, ScreenerUiState, SectorStatus } from '../src/lib/wsp-types';
 import { FinnhubProvider } from './finnhub-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 
@@ -13,6 +13,7 @@ const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
 
 let cachedLiveSnapshot: ScreenerApiResponse | null = null;
 let inFlightRefresh: Promise<ScreenerApiResponse> | null = null;
+let lastSuccessfulLiveFetch: string | null = null;
 
 export async function handleWspScreenerRequest(req: IncomingMessage, res: ServerResponse) {
   const requestUrl = new URL(req.url ?? '/', 'http://localhost');
@@ -24,10 +25,19 @@ export async function handleWspScreenerRequest(req: IncomingMessage, res: Server
 
   try {
     const payload = await getScreenerSnapshot({ forceRefresh, pollingIntervalMs });
-    sendJson(res, 200, payload);
+    sendJson(res, 200, {
+      ...payload,
+      providerStatus: {
+        ...payload.providerStatus,
+        readiness: {
+          ...payload.providerStatus.readiness,
+          routeReachable: true,
+        },
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
-    sendJson(res, 500, createErrorResponse(message, pollingIntervalMs));
+    sendJson(res, 500, createErrorResponse(message, pollingIntervalMs, true));
   }
 }
 
@@ -48,6 +58,7 @@ async function getScreenerSnapshot({ forceRefresh, pollingIntervalMs }: { forceR
     .then((snapshot) => {
       if (snapshot.providerStatus.uiState === 'LIVE') {
         cachedLiveSnapshot = snapshot;
+        lastSuccessfulLiveFetch = snapshot.providerStatus.lastFetch;
       }
       return snapshot;
     })
@@ -130,6 +141,18 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       failedSymbols.length > 0;
 
     const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
+    const lastFetch = new Date().toISOString();
+    const readiness = createReadiness({
+      envVarPresent: true,
+      routeReachable: true,
+      symbolsFetchedSuccessfully: evaluatedStocks.length,
+      symbolsFailed: failedSymbols.length,
+    });
+
+    if (uiState === 'LIVE') {
+      lastSuccessfulLiveFetch = lastFetch;
+      readiness.lastSuccessfulLiveFetch = lastFetch;
+    }
 
     return {
       market: {
@@ -142,7 +165,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         provider: 'finnhub',
         isLive: uiState === 'LIVE',
         uiState,
-        lastFetch: new Date().toISOString(),
+        lastFetch,
         failedSymbols,
         successCount: evaluatedStocks.length,
         errorMessage: failedSymbols.length > 0
@@ -154,6 +177,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         benchmarkSymbol,
         benchmarkFetchStatus: benchmarkResult.stale ? 'stale' : 'success',
         refreshIntervalMs: pollingIntervalMs,
+        readiness,
       },
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
@@ -170,12 +194,40 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           errorMessage: message,
           benchmarkFetchStatus: cachedLiveSnapshot.providerStatus.benchmarkFetchStatus,
           refreshIntervalMs: pollingIntervalMs,
+          readiness: createReadiness({
+            envVarPresent: true,
+            routeReachable: true,
+            symbolsFetchedSuccessfully: cachedLiveSnapshot.providerStatus.successCount,
+            symbolsFailed: cachedLiveSnapshot.providerStatus.failedSymbols.length,
+          }),
         },
       };
     }
 
     return createFallbackResponse(message, pollingIntervalMs);
   }
+}
+
+function createReadiness({
+  envVarPresent,
+  routeReachable,
+  symbolsFetchedSuccessfully,
+  symbolsFailed,
+}: {
+  envVarPresent: boolean;
+  routeReachable: boolean;
+  symbolsFetchedSuccessfully: number;
+  symbolsFailed: number;
+}): ProviderReadiness {
+  return {
+    envVarPresent,
+    routeReachable,
+    benchmarkSymbolConfigured: WSP_CONFIG.benchmark.trim().length > 0,
+    trackedSymbolsCount: TRACKED_SYMBOLS.length,
+    symbolsFetchedSuccessfully,
+    symbolsFailed,
+    lastSuccessfulLiveFetch,
+  };
 }
 
 function buildMarketOverview(marketSeries: Record<string, { bars: Bar[]; stale: boolean }>, pollingIntervalMs: number): MarketOverview {
@@ -265,12 +317,18 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
       benchmarkSymbol: WSP_CONFIG.benchmark,
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
+      readiness: createReadiness({
+        envVarPresent: Boolean(process.env.FINNHUB_API_KEY),
+        routeReachable: true,
+        symbolsFetchedSuccessfully: 0,
+        symbolsFailed: TRACKED_SYMBOLS.length,
+      }),
     },
     debugSummary: buildScreenerDebugSummary(demoStocks),
   };
 }
 
-function createErrorResponse(reason: string, pollingIntervalMs: number): ScreenerApiResponse {
+function createErrorResponse(reason: string, pollingIntervalMs: number, routeReachable: boolean): ScreenerApiResponse {
   return {
     market: {
       ...demoMarket,
@@ -293,6 +351,12 @@ function createErrorResponse(reason: string, pollingIntervalMs: number): Screene
       benchmarkSymbol: WSP_CONFIG.benchmark,
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
+      readiness: createReadiness({
+        envVarPresent: Boolean(process.env.FINNHUB_API_KEY),
+        routeReachable,
+        symbolsFetchedSuccessfully: 0,
+        symbolsFailed: TRACKED_SYMBOLS.length,
+      }),
     },
     debugSummary: buildScreenerDebugSummary([]),
   };
