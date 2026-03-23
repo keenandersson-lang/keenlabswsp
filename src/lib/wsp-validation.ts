@@ -1,5 +1,7 @@
 import { BLOCKED_REASON_ORDERED } from './wsp-assertions';
 import { evaluateStock } from './wsp-engine';
+import { runIndicatorFixtures } from './wsp-indicator-fixtures';
+import { isBreakoutStale } from './wsp-indicators';
 import type {
   EvaluatedStock,
   RecommendationCounts,
@@ -29,14 +31,21 @@ function createIndicators(overrides: Partial<StockIndicators>): StockIndicators 
     sma150: 100,
     sma200: 95,
     sma50Slope: 2.4,
+    sma50SlopeDirection: 'rising',
     resistanceZone: 118,
     resistanceTouches: 4,
+    breakoutLevel: 118.59,
+    currentClose: 121,
+    breakoutCloseDelta: 2.41,
     breakoutConfirmed: true,
     barsSinceBreakout: 2,
+    averageVolumeReference: 1_000_000,
     volumeMultiple: 2.6,
     mansfieldRS: 2.1,
     mansfieldRSTrend: 'rising',
     mansfieldTransition: false,
+    indicatorWarnings: [],
+    chronologyNormalized: false,
     ...overrides,
   };
 }
@@ -74,7 +83,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
     price: 108,
     prevClose: 109,
     volume: 2_600_000,
-    indicators: createIndicators({ sma50: 110, sma150: 100 }),
+    indicators: createIndicators({ sma50: 110, sma150: 100, currentClose: 108, breakoutCloseDelta: 108 - 118.59 }),
   },
   {
     definition: {
@@ -91,7 +100,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
     price: 116,
     prevClose: 116,
     volume: 2_300_000,
-    indicators: createIndicators({ breakoutConfirmed: false, barsSinceBreakout: null, volumeMultiple: 2.3 }),
+    indicators: createIndicators({ breakoutConfirmed: false, barsSinceBreakout: null, currentClose: 116, breakoutCloseDelta: -2.59, volumeMultiple: 2.3 }),
   },
   {
     definition: {
@@ -108,7 +117,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
     price: 117,
     prevClose: 116,
     volume: 2_100_000,
-    indicators: createIndicators({ sma50Slope: 0.2, volumeMultiple: 2.1 }),
+    indicators: createIndicators({ sma50Slope: 0.2, sma50SlopeDirection: 'rising', currentClose: 117, breakoutCloseDelta: -1.59, volumeMultiple: 2.1 }),
   },
   {
     definition: {
@@ -140,9 +149,14 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       sma150: 110,
       sma200: 118,
       sma50Slope: -3.2,
+      sma50SlopeDirection: 'falling',
       resistanceZone: 97,
+      breakoutLevel: 97.49,
       breakoutConfirmed: false,
       barsSinceBreakout: null,
+      currentClose: 82,
+      breakoutCloseDelta: -15.49,
+      averageVolumeReference: 1_250_000,
       volumeMultiple: 0.8,
       mansfieldRS: -3.7,
       mansfieldRSTrend: 'falling',
@@ -164,7 +178,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
     price: 121,
     prevClose: 120,
     volume: 1_600_000,
-    indicators: createIndicators({ volumeMultiple: 1.4 }),
+    indicators: createIndicators({ averageVolumeReference: 1_142_857.142857, volumeMultiple: 1.4 }),
   },
   {
     definition: {
@@ -198,7 +212,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
     price: 123,
     prevClose: 122,
     volume: 2_900_000,
-    indicators: createIndicators({ barsSinceBreakout: 18, volumeMultiple: 2.9 }),
+    indicators: createIndicators({ currentClose: 123, breakoutCloseDelta: 4.41, barsSinceBreakout: 18, volumeMultiple: 2.9 }),
   },
 ];
 
@@ -216,6 +230,32 @@ function createRecommendationCounts(stocks: EvaluatedStock[]): RecommendationCou
     'SÄLJ': 0,
     'UNDVIK': 0,
   });
+}
+
+function buildFormulaWarnings(stocks: EvaluatedStock[]): string[] {
+  const warnings = new Set<string>();
+
+  for (const stock of stocks) {
+    const { indicators } = stock;
+
+    if (indicators.breakoutConfirmed && indicators.resistanceZone === null) {
+      warnings.add(`${stock.symbol}: breakoutConfirmed=true but resistanceZone is null`);
+    }
+    if (indicators.breakoutConfirmed && indicators.breakoutLevel === null) {
+      warnings.add(`${stock.symbol}: breakoutConfirmed=true but breakoutLevel is null`);
+    }
+    if (!indicators.breakoutConfirmed && indicators.barsSinceBreakout !== null) {
+      warnings.add(`${stock.symbol}: barsSinceBreakout is set while breakoutConfirmed=false`);
+    }
+    if (isBreakoutStale(indicators.barsSinceBreakout) && stock.gate.breakoutFresh) {
+      warnings.add(`${stock.symbol}: stale breakout still marked as fresh`);
+    }
+    if (indicators.volumeMultiple !== null && indicators.averageVolumeReference === null) {
+      warnings.add(`${stock.symbol}: volumeMultiple exists without an averageVolumeReference`);
+    }
+  }
+
+  return [...warnings];
 }
 
 export function runValidationFixtures(): ValidationFixtureResult[] {
@@ -271,6 +311,7 @@ export function runValidationFixtures(): ValidationFixtureResult[] {
 
 export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDebugSummary {
   const fixtureResults = runValidationFixtures();
+  const indicatorFixtureResults = runIndicatorFixtures();
   const logicViolations = stocks
     .filter((stock) => stock.logicViolations.length > 0)
     .map((stock) => ({
@@ -293,13 +334,18 @@ export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDeb
   return {
     fixturePassCount: fixtureResults.filter((result) => result.passed).length,
     fixtureFailCount: fixtureResults.filter((result) => !result.passed).length,
+    indicatorTestPassCount: indicatorFixtureResults.filter((result) => result.passed).length,
+    indicatorTestFailCount: indicatorFixtureResults.filter((result) => !result.passed).length,
     logicViolationCount: logicViolations.length,
     logicViolations,
     fixtureResults,
+    indicatorFixtureResults,
     blockedCounts,
     validBuyCandidates: stocks.filter((stock) => stock.finalRecommendation === 'KÖP' && stock.isValidWspEntry).length,
     validEntryCount: stocks.filter((stock) => stock.isValidWspEntry).length,
     totalStocks: stocks.length,
     recommendationCounts: createRecommendationCounts(stocks),
+    formulaInconsistencyWarnings: buildFormulaWarnings(stocks),
+    insufficientHistoryCases: stocks.filter((stock) => stock.indicators.indicatorWarnings.some((warning) => warning.startsWith('insufficient_'))).length,
   };
 }

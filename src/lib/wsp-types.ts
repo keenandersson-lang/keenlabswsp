@@ -23,6 +23,25 @@ export type WSPBlockedReason =
   | 'market_not_aligned'
   | 'pattern_not_climbing';
 
+export type SmaSlopeDirection = 'rising' | 'falling' | 'flat';
+
+export type MansfieldTrend = 'rising' | 'falling' | 'flat';
+
+export type IndicatorWarning =
+  | 'empty_price_history'
+  | 'invalid_bar_values_filtered'
+  | 'unsorted_bars_normalized'
+  | 'insufficient_sma_history'
+  | 'insufficient_sma_slope_history'
+  | 'insufficient_resistance_history'
+  | 'insufficient_breakout_history'
+  | 'insufficient_volume_history'
+  | 'near_zero_average_volume'
+  | 'insufficient_benchmark_history'
+  | 'benchmark_history_length_mismatch'
+  | 'benchmark_dates_misaligned'
+  | 'near_zero_benchmark_close';
+
 // ─── Normalized bar data ───
 export interface Bar {
   date: string;
@@ -39,15 +58,22 @@ export interface StockIndicators {
   sma50: number | null;
   sma150: number | null;
   sma200: number | null;
-  sma50Slope: number; // slope over last 10 bars, positive = up
+  sma50Slope: number | null; // current SMA50 - SMA50 from lookback bars ago
+  sma50SlopeDirection: SmaSlopeDirection;
   resistanceZone: number | null;
   resistanceTouches: number;
+  breakoutLevel: number | null;
+  currentClose: number | null;
+  breakoutCloseDelta: number | null;
   breakoutConfirmed: boolean;
   barsSinceBreakout: number | null;
-  volumeMultiple: number; // current volume / 5-bar avg
-  mansfieldRS: number;
-  mansfieldRSTrend: 'rising' | 'falling' | 'flat';
+  averageVolumeReference: number | null; // average of last N completed bars, excluding current bar
+  volumeMultiple: number | null; // current volume / averageVolumeReference
+  mansfieldRS: number | null;
+  mansfieldRSTrend: MansfieldTrend;
   mansfieldTransition: boolean; // recently went from negative to positive
+  indicatorWarnings: IndicatorWarning[];
+  chronologyNormalized: boolean;
 }
 
 // ─── Layer 2: Entry Eligibility (hard gate) ───
@@ -75,18 +101,31 @@ export interface StockAudit {
   above50MA: boolean;
   above150MA: boolean;
   slope50Positive: boolean;
+  sma20: number | null;
+  sma50: number | null;
+  sma150: number | null;
+  sma200: number | null;
+  sma50SlopeValue: number | null;
+  sma50SlopeDirection: SmaSlopeDirection;
   breakoutValid: boolean;
   breakoutStale: boolean;
   resistanceLevel: number | null;
+  resistanceTouches: number;
   breakoutLevel: number | null;
+  currentClose: number | null;
+  breakoutCloseDelta: number | null;
+  breakoutAgeBars: number | null;
   currentVolume: number;
-  averageVolumeReference: number;
-  volumeMultiple: number;
+  averageVolumeReference: number | null;
+  volumeMultiple: number | null;
   volumeValid: boolean;
-  mansfieldValue: number;
+  mansfieldValue: number | null;
+  mansfieldTrend: MansfieldTrend;
   mansfieldValid: boolean;
   sectorAligned: boolean;
   marketAligned: boolean;
+  chronologyNormalized: boolean;
+  indicatorWarnings: IndicatorWarning[];
   score: number;
   blockedReasons: WSPBlockedReason[];
 }
@@ -124,6 +163,15 @@ export interface ValidationFixtureResult extends ValidationFixtureDefinition {
   mismatches: string[];
 }
 
+export interface IndicatorFixtureResult {
+  id: string;
+  description: string;
+  passed: boolean;
+  actual: string;
+  expected: string;
+  mismatches: string[];
+}
+
 export interface RecommendationCounts {
   'KÖP': number;
   'BEVAKA': number;
@@ -134,14 +182,19 @@ export interface RecommendationCounts {
 export interface ScreenerDebugSummary {
   fixturePassCount: number;
   fixtureFailCount: number;
+  indicatorTestPassCount: number;
+  indicatorTestFailCount: number;
   logicViolationCount: number;
   logicViolations: LogicViolation[];
   fixtureResults: ValidationFixtureResult[];
+  indicatorFixtureResults: IndicatorFixtureResult[];
   blockedCounts: Record<WSPBlockedReason, number>;
   validBuyCandidates: number;
   validEntryCount: number;
   totalStocks: number;
   recommendationCounts: RecommendationCounts;
+  formulaInconsistencyWarnings: string[];
+  insufficientHistoryCases: number;
 }
 
 // ─── Complete evaluated stock ───

@@ -262,18 +262,28 @@ export function StockTable({ stocks }: StockTableProps) {
                               <Row label="Pattern" value={audit?.pattern ?? stock.pattern} />
                               <Row label="Final recommendation" value={audit?.finalRecommendation ?? stock.finalRecommendation} highlight={stock.isValidWspEntry} />
                               <Row label="Price" value={formatCurrency(stock.price)} />
-                              <Row label="SMA 50" value={formatCurrencyOrDash(stock.indicators?.sma50)} highlight={audit?.above50MA} />
-                              <Row label="SMA 150" value={formatCurrencyOrDash(stock.indicators?.sma150)} highlight={audit?.above150MA} />
-                              <Row label="Slope 50" value={formatNumberOrDash(stock.indicators?.sma50Slope, 2)} highlight={audit?.slope50Positive} />
+                              <Row label="SMA 20" value={formatCurrencyOrDash(audit?.sma20)} />
+                              <Row label="SMA 50" value={formatCurrencyOrDash(audit?.sma50)} highlight={audit?.above50MA} />
+                              <Row label="SMA 150" value={formatCurrencyOrDash(audit?.sma150)} highlight={audit?.above150MA} />
+                              <Row label="SMA 200" value={formatCurrencyOrDash(audit?.sma200)} />
+                              <Row label="Slope 50 value" value={formatNumberOrDash(audit?.sma50SlopeValue, 4)} highlight={audit?.slope50Positive} />
+                              <Row label="Slope 50 direction" value={audit?.sma50SlopeDirection ?? '—'} highlight={audit?.slope50Positive} />
                               <Row label="Resistance level" value={formatCurrencyOrDash(audit?.resistanceLevel)} />
+                              <Row label="Resistance touches" value={formatInteger(audit?.resistanceTouches)} />
                               <Row label="Breakout level" value={formatCurrencyOrDash(audit?.breakoutLevel)} />
+                              <Row label="Current close" value={formatCurrencyOrDash(audit?.currentClose)} />
+                              <Row label="Close vs breakout" value={formatSignedCurrency(audit?.breakoutCloseDelta)} highlight={audit?.breakoutValid} />
+                              <Row label="Breakout age bars" value={formatInteger(audit?.breakoutAgeBars)} highlight={audit ? !audit.breakoutStale : undefined} />
                               <Row label="Breakout valid" value={formatBooleanLabel(audit?.breakoutValid)} highlight={audit?.breakoutValid} />
                               <Row label="Breakout stale" value={formatBooleanLabel(audit?.breakoutStale)} highlight={audit ? !audit.breakoutStale : undefined} />
                               <Row label="Current volume" value={formatInteger(audit?.currentVolume)} />
-                              <Row label="Average volume ref" value={formatInteger(audit?.averageVolumeReference)} />
+                              <Row label="Average volume ref" value={formatNumberOrDash(audit?.averageVolumeReference, 2)} />
                               <Row label="Volume multiple" value={formatMultiple(audit?.volumeMultiple)} highlight={audit?.volumeValid} />
-                              <Row label="Mansfield value" value={formatSignedNumber(audit?.mansfieldValue, 1)} highlight={audit?.mansfieldValid} />
+                              <Row label="Mansfield value" value={formatSignedNumber(audit?.mansfieldValue, 4)} highlight={audit?.mansfieldValid} />
+                              <Row label="Mansfield trend" value={audit?.mansfieldTrend ?? '—'} highlight={audit?.mansfieldValid} />
                               <Row label="Mansfield valid" value={formatBooleanLabel(audit?.mansfieldValid)} highlight={audit?.mansfieldValid} />
+                              <Row label="Chronology normalized" value={formatBooleanLabel(audit?.chronologyNormalized)} highlight={audit ? !audit.chronologyNormalized : undefined} />
+                              <Row label="Indicator warnings" value={formatIndicatorWarnings(audit?.indicatorWarnings)} />
                               <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
                               <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
                               <Row label="Score" value={`${stock.score}/${stock.maxScore}`} />
@@ -353,6 +363,22 @@ function formatSignedNumber(value: number | null | undefined, decimals = 1) {
 
 function formatMultiple(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}x` : '—';
+}
+
+function formatSignedCurrency(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  return `${value > 0 ? '+' : ''}$${value.toFixed(2)}`;
+}
+
+function formatIndicatorWarnings(warnings: string[] | null | undefined) {
+  if (!warnings || warnings.length === 0) {
+    return 'none';
+  }
+
+  return warnings.join(', ');
 }
 
 function formatInteger(value: number | null | undefined) {
