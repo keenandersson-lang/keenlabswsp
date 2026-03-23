@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { EvaluatedStock, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { PatternBadge } from './PatternBadge';
 import { RecommendationBadge } from './RecommendationBadge';
@@ -41,8 +41,8 @@ export function StockTable({ stocks }: StockTableProps) {
   const [sortBy, setSortBy] = useState<SortKey>('score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  const filtered = stocks
-    .filter(s => {
+  const filtered = useMemo(() => stocks
+    .filter((s) => {
       if (search) {
         const q = search.toLowerCase();
         if (!s.symbol.toLowerCase().includes(q) && !s.name.toLowerCase().includes(q) && !s.sector.toLowerCase().includes(q)) return false;
@@ -58,10 +58,10 @@ export function StockTable({ stocks }: StockTableProps) {
       if (sortBy === 'mansfieldRS') return dir * (a.indicators.mansfieldRS - b.indicators.mansfieldRS);
       if (sortBy === 'volumeMultiple') return dir * (a.indicators.volumeMultiple - b.indicators.volumeMultiple);
       return dir * ((a[sortBy] as number) - (b[sortBy] as number));
-    });
+    }), [filter, search, sortBy, sortDir, stocks]);
 
   const handleSort = (col: SortKey) => {
-    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    if (sortBy === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     else { setSortBy(col); setSortDir('desc'); }
   };
 
@@ -72,7 +72,6 @@ export function StockTable({ stocks }: StockTableProps) {
 
   return (
     <div>
-      {/* Search + Filter bar */}
       <div className="mb-4 space-y-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1 max-w-xs">
@@ -81,14 +80,14 @@ export function StockTable({ stocks }: StockTableProps) {
               type="text"
               placeholder="Sök ticker, företag, sektor..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-md border border-border bg-card pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <Filter className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          {patternFilters.map(f => (
+          {patternFilters.map((f) => (
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
@@ -104,7 +103,6 @@ export function StockTable({ stocks }: StockTableProps) {
         </div>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <table className="w-full text-sm">
           <thead>
@@ -133,14 +131,13 @@ export function StockTable({ stocks }: StockTableProps) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map(stock => (
-              <>
+            {filtered.map((stock) => (
+              <Fragment key={stock.symbol}>
                 <tr
-                  key={stock.symbol}
                   onClick={() => setExpandedTicker(expandedTicker === stock.symbol ? null : stock.symbol)}
                   className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${
-                    stock.recommendation === 'KÖP' ? 'bg-signal-buy\/5' :
-                    stock.recommendation === 'UNDVIK' ? 'bg-signal-sell\/5' : ''
+                    stock.recommendation === 'KÖP' ? 'bg-signal-buy/5' :
+                    stock.recommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
                   }`}
                 >
                   <td className="px-3 py-2.5">
@@ -189,7 +186,7 @@ export function StockTable({ stocks }: StockTableProps) {
                   </td>
                 </tr>
                 {expandedTicker === stock.symbol && (
-                  <tr key={`${stock.symbol}-detail`} className="border-b border-border bg-muted/20">
+                  <tr className="border-b border-border bg-muted/20">
                     <td colSpan={13} className="px-4 py-4">
                       <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
                         <div>
@@ -219,7 +216,7 @@ export function StockTable({ stocks }: StockTableProps) {
                           </div>
                           <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Meta</h4>
                           <div className="space-y-1 text-xs">
-                            <Row label="Datakälla" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Demo'} />
+                            <Row label="Datakälla" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Fallback'} />
                             <Row label="Sektor" value={stock.sector} />
                             <Row label="Industri" value={stock.industry} />
                           </div>
@@ -228,7 +225,7 @@ export function StockTable({ stocks }: StockTableProps) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -242,9 +239,9 @@ export function StockTable({ stocks }: StockTableProps) {
 
 function Row({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="flex justify-between">
+    <div className="flex justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`font-mono ${highlight === true ? 'text-signal-buy' : highlight === false ? 'text-signal-sell' : ''}`}>{value}</span>
+      <span className={`font-mono text-right ${highlight === true ? 'text-signal-buy' : highlight === false ? 'text-signal-sell' : ''}`}>{value}</span>
     </div>
   );
 }

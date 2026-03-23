@@ -6,7 +6,7 @@
 
 import type { EvaluatedStock, MarketOverview, Bar, WSPRecommendation } from './wsp-types';
 import { evaluateStock } from './wsp-engine';
-import { WSP_CONFIG } from './wsp-config';
+import { TRACKED_SYMBOLS } from './tracked-symbols';
 
 // ─── Generate synthetic bars for demo purposes ───
 function generateBars(
@@ -19,7 +19,6 @@ function generateBars(
   const bars: Bar[] = [];
   let price = currentPrice;
 
-  // Work backwards from current price
   for (let i = days; i >= 0; i--) {
     const noise = (Math.random() - 0.5) * price * 0.02;
     let drift = 0;
@@ -29,7 +28,7 @@ function generateBars(
     else if (trend === 'topping') drift = i > days / 2 ? price * 0.003 : -price * 0.001;
 
     if (i > 0) {
-      price = price - drift + noise; // reverse since we're going backwards
+      price = price - drift + noise;
     }
 
     const vol = i === 0 ? currentVolume : avgVolume * (0.7 + Math.random() * 0.6);
@@ -47,7 +46,6 @@ function generateBars(
     });
   }
 
-  // Fix the last bar to match currentPrice exactly
   if (bars.length > 0) {
     bars[bars.length - 1].close = currentPrice;
   }
@@ -55,52 +53,49 @@ function generateBars(
   return bars;
 }
 
-// ─── Demo stock definitions ───
-interface DemoStockDef {
-  symbol: string;
-  name: string;
-  sector: string;
-  industry: string;
+const demoShapeBySymbol: Record<string, {
   price: number;
   trend: 'up' | 'down' | 'flat' | 'topping';
   volume: number;
   avgVolume: number;
   sectorBullish: boolean;
-}
+}> = {
+  NVDA: { price: 142.5, trend: 'up', volume: 58_200_000, avgVolume: 24_500_000, sectorBullish: true },
+  AAPL: { price: 232.8, trend: 'up', volume: 34_100_000, avgVolume: 32_000_000, sectorBullish: true },
+  MSFT: { price: 428.6, trend: 'topping', volume: 18_500_000, avgVolume: 22_000_000, sectorBullish: true },
+  AMZN: { price: 198.4, trend: 'up', volume: 42_000_000, avgVolume: 18_000_000, sectorBullish: true },
+  META: { price: 585.2, trend: 'up', volume: 28_000_000, avgVolume: 12_000_000, sectorBullish: true },
+  TSLA: { price: 248.9, trend: 'down', volume: 95_000_000, avgVolume: 88_000_000, sectorBullish: true },
+  GOOGL: { price: 178.5, trend: 'up', volume: 19_500_000, avgVolume: 21_000_000, sectorBullish: true },
+  JPM: { price: 225.3, trend: 'topping', volume: 8_500_000, avgVolume: 9_200_000, sectorBullish: true },
+  XOM: { price: 108.2, trend: 'down', volume: 14_000_000, avgVolume: 15_000_000, sectorBullish: false },
+  LLY: { price: 812.4, trend: 'up', volume: 5_200_000, avgVolume: 2_400_000, sectorBullish: true },
+  UNH: { price: 542.1, trend: 'flat', volume: 3_100_000, avgVolume: 3_400_000, sectorBullish: true },
+  CAT: { price: 372.8, trend: 'up', volume: 4_800_000, avgVolume: 2_200_000, sectorBullish: true },
+  BA: { price: 178.3, trend: 'down', volume: 12_000_000, avgVolume: 11_000_000, sectorBullish: true },
+  AVGO: { price: 185.6, trend: 'up', volume: 32_000_000, avgVolume: 14_000_000, sectorBullish: true },
+  V: { price: 295.4, trend: 'flat', volume: 5_800_000, avgVolume: 6_200_000, sectorBullish: true },
+  AMD: { price: 194.3, trend: 'up', volume: 62_400_000, avgVolume: 31_000_000, sectorBullish: true },
+  NFLX: { price: 932.4, trend: 'up', volume: 6_200_000, avgVolume: 4_800_000, sectorBullish: true },
+  CRM: { price: 324.5, trend: 'flat', volume: 7_100_000, avgVolume: 6_300_000, sectorBullish: true },
+  COST: { price: 894.2, trend: 'up', volume: 2_400_000, avgVolume: 1_900_000, sectorBullish: true },
+  HD: { price: 401.6, trend: 'topping', volume: 4_200_000, avgVolume: 3_900_000, sectorBullish: true },
+};
 
-const demoStockDefs: DemoStockDef[] = [
-  { symbol: 'NVDA', name: 'NVIDIA Corp', sector: 'Technology', industry: 'Semiconductors', price: 142.50, trend: 'up', volume: 58_200_000, avgVolume: 24_500_000, sectorBullish: true },
-  { symbol: 'AAPL', name: 'Apple Inc', sector: 'Technology', industry: 'Consumer Electronics', price: 232.80, trend: 'up', volume: 34_100_000, avgVolume: 32_000_000, sectorBullish: true },
-  { symbol: 'MSFT', name: 'Microsoft Corp', sector: 'Technology', industry: 'Software', price: 428.60, trend: 'topping', volume: 18_500_000, avgVolume: 22_000_000, sectorBullish: true },
-  { symbol: 'AMZN', name: 'Amazon.com Inc', sector: 'Consumer Discretionary', industry: 'Broadline Retail', price: 198.40, trend: 'up', volume: 42_000_000, avgVolume: 18_000_000, sectorBullish: true },
-  { symbol: 'META', name: 'Meta Platforms', sector: 'Communication Services', industry: 'Internet', price: 585.20, trend: 'up', volume: 28_000_000, avgVolume: 12_000_000, sectorBullish: true },
-  { symbol: 'TSLA', name: 'Tesla Inc', sector: 'Consumer Discretionary', industry: 'Automobiles', price: 248.90, trend: 'down', volume: 95_000_000, avgVolume: 88_000_000, sectorBullish: true },
-  { symbol: 'GOOGL', name: 'Alphabet Inc', sector: 'Communication Services', industry: 'Internet', price: 178.50, trend: 'up', volume: 19_500_000, avgVolume: 21_000_000, sectorBullish: true },
-  { symbol: 'JPM', name: 'JPMorgan Chase', sector: 'Financials', industry: 'Banks', price: 225.30, trend: 'topping', volume: 8_500_000, avgVolume: 9_200_000, sectorBullish: true },
-  { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy', industry: 'Integrated Oil', price: 108.20, trend: 'down', volume: 14_000_000, avgVolume: 15_000_000, sectorBullish: false },
-  { symbol: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', industry: 'Pharmaceuticals', price: 812.40, trend: 'up', volume: 5_200_000, avgVolume: 2_400_000, sectorBullish: true },
-  { symbol: 'UNH', name: 'UnitedHealth', sector: 'Healthcare', industry: 'Health Care Providers', price: 542.10, trend: 'flat', volume: 3_100_000, avgVolume: 3_400_000, sectorBullish: true },
-  { symbol: 'CAT', name: 'Caterpillar', sector: 'Industrials', industry: 'Machinery', price: 372.80, trend: 'up', volume: 4_800_000, avgVolume: 2_200_000, sectorBullish: true },
-  { symbol: 'BA', name: 'Boeing Co', sector: 'Industrials', industry: 'Aerospace', price: 178.30, trend: 'down', volume: 12_000_000, avgVolume: 11_000_000, sectorBullish: true },
-  { symbol: 'AVGO', name: 'Broadcom Inc', sector: 'Technology', industry: 'Semiconductors', price: 185.60, trend: 'up', volume: 32_000_000, avgVolume: 14_000_000, sectorBullish: true },
-  { symbol: 'V', name: 'Visa Inc', sector: 'Financials', industry: 'Payment Services', price: 295.40, trend: 'flat', volume: 5_800_000, avgVolume: 6_200_000, sectorBullish: true },
-];
-
-// Generate benchmark bars (SPY-like)
 const benchmarkBars = generateBars(520, 'up', 200, 50_000_000, 45_000_000);
 
-// ─── Evaluate all demo stocks ───
-export const demoStocks: EvaluatedStock[] = demoStockDefs.map(def => {
-  const bars = generateBars(def.price, def.trend, 200, def.volume, def.avgVolume);
+export const demoStocks: EvaluatedStock[] = TRACKED_SYMBOLS.map((meta) => {
+  const shape = demoShapeBySymbol[meta.symbol];
+  const bars = generateBars(shape.price, shape.trend, 200, shape.volume, shape.avgVolume);
   return evaluateStock(
-    def.symbol,
-    def.name,
-    def.sector,
-    def.industry,
+    meta.symbol,
+    meta.name,
+    meta.sector,
+    meta.industry,
     bars,
     benchmarkBars,
-    def.sectorBullish,
-    true, // market favorable for demo
+    shape.sectorBullish,
+    true,
     'fallback',
   );
 });
@@ -113,17 +108,14 @@ export const demoMarket: MarketOverview = {
   dataSource: 'fallback',
 };
 
-// ─── Filter helpers ───
 export function getByRecommendation(rec: WSPRecommendation): EvaluatedStock[] {
-  return demoStocks.filter(s => s.recommendation === rec);
+  return demoStocks.filter((s) => s.recommendation === rec);
 }
 
 export function getBuySignals(): EvaluatedStock[] {
-  return demoStocks.filter(s => s.recommendation === 'KÖP').sort((a, b) => b.score - a.score);
+  return demoStocks.filter((s) => s.recommendation === 'KÖP').sort((a, b) => b.score - a.score);
 }
 
 export function getSellSignals(): EvaluatedStock[] {
-  return demoStocks.filter(s => s.recommendation === 'SÄLJ' || s.recommendation === 'UNDVIK');
+  return demoStocks.filter((s) => s.recommendation === 'SÄLJ' || s.recommendation === 'UNDVIK');
 }
-
-
