@@ -126,4 +126,4 @@ export function getSellSignals(): EvaluatedStock[] {
   return demoStocks.filter(s => s.recommendation === 'SÄLJ' || s.recommendation === 'UNDVIK');
 }
 
-export type { WSPRecommendation };
+
