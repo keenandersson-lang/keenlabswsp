@@ -13,9 +13,21 @@ import type {
 } from './wsp-types';
 import { computeIndicators, classifyPattern } from './wsp-indicators';
 import { WSP_CONFIG } from './wsp-config';
+import { createStockAudit, getLogicViolationRuleIds } from './wsp-assertions';
 
 // Re-export types for backward compatibility
 export type { WSPPattern, WSPRecommendation, EvaluatedStock, MarketOverview, SectorStatus };
+
+interface EvaluateStockOptions {
+  overrideAnalysis?: {
+    pattern: WSPPattern;
+    indicators: StockIndicators;
+    price?: number;
+    prevClose?: number;
+    volume?: number;
+    lastUpdated?: string;
+  };
+}
 
 // ─── Layer 2: Entry Gate (HARD RULES) ───
 export function computeEntryGate(
@@ -114,6 +126,77 @@ export function computeScore(gate: EntryGate): { score: number; maxScore: number
   return { score, maxScore };
 }
 
+function buildEvaluatedStock({
+  symbol,
+  name,
+  sector,
+  industry,
+  price,
+  changePercent,
+  volume,
+  pattern,
+  indicators,
+  sectorAligned,
+  marketFavorable,
+  dataSource,
+  lastUpdated,
+}: {
+  symbol: string;
+  name: string;
+  sector: string;
+  industry: string;
+  price: number;
+  changePercent: number;
+  volume: number;
+  pattern: WSPPattern;
+  indicators: StockIndicators;
+  sectorAligned: boolean;
+  marketFavorable: boolean;
+  dataSource: 'live' | 'fallback';
+  lastUpdated: string;
+}): EvaluatedStock {
+  const gate = computeEntryGate(price, pattern, indicators, sectorAligned, marketFavorable);
+  const finalRecommendation = mapRecommendation(pattern, gate);
+  const { score, maxScore } = computeScore(gate);
+  const audit = createStockAudit({
+    pattern,
+    finalRecommendation,
+    gate,
+    indicators,
+    price,
+    volume,
+    score,
+  });
+
+  const stock: EvaluatedStock = {
+    symbol,
+    name,
+    sector,
+    industry,
+    price: Math.round(price * 100) / 100,
+    changePercent: Math.round(changePercent * 100) / 100,
+    volume,
+    pattern,
+    indicators,
+    gate,
+    isValidWspEntry: gate.isValidWspEntry,
+    recommendation: finalRecommendation,
+    finalRecommendation,
+    audit,
+    blockedReasons: audit.blockedReasons,
+    logicViolations: [],
+    score,
+    maxScore,
+    dataSource,
+    lastUpdated,
+  };
+
+  return {
+    ...stock,
+    logicViolations: getLogicViolationRuleIds(stock),
+  };
+}
+
 // ─── Full Stock Evaluation Pipeline ───
 export function evaluateStock(
   symbol: string,
@@ -125,33 +208,30 @@ export function evaluateStock(
   sectorAligned: boolean,
   marketFavorable: boolean,
   dataSource: 'live' | 'fallback' = 'fallback',
+  options?: EvaluateStockOptions,
 ): EvaluatedStock {
-  const price = bars.length > 0 ? bars[bars.length - 1].close : 0;
-  const prevClose = bars.length > 1 ? bars[bars.length - 2].close : price;
+  const override = options?.overrideAnalysis;
+  const price = override?.price ?? (bars.length > 0 ? bars[bars.length - 1].close : 0);
+  const prevClose = override?.prevClose ?? (bars.length > 1 ? bars[bars.length - 2].close : price);
   const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-  const volume = bars.length > 0 ? bars[bars.length - 1].volume : 0;
+  const volume = override?.volume ?? (bars.length > 0 ? bars[bars.length - 1].volume : 0);
 
-  const indicators = computeIndicators(bars, benchmarkBars);
-  const pattern = classifyPattern(bars, indicators.sma50, indicators.sma150, indicators.sma50Slope);
-  const gate = computeEntryGate(price, pattern, indicators, sectorAligned, marketFavorable);
-  const recommendation = mapRecommendation(pattern, gate);
-  const { score, maxScore } = computeScore(gate);
+  const indicators = override?.indicators ?? computeIndicators(bars, benchmarkBars);
+  const pattern = override?.pattern ?? classifyPattern(bars, indicators.sma50, indicators.sma150, indicators.sma50Slope);
 
-  return {
+  return buildEvaluatedStock({
     symbol,
     name,
     sector,
     industry,
-    price: Math.round(price * 100) / 100,
-    changePercent: Math.round(changePercent * 100) / 100,
+    price,
+    changePercent,
     volume,
     pattern,
     indicators,
-    gate,
-    recommendation,
-    score,
-    maxScore,
+    sectorAligned,
+    marketFavorable,
     dataSource,
-    lastUpdated: new Date().toISOString(),
-  };
+    lastUpdated: override?.lastUpdated ?? new Date().toISOString(),
+  });
 }
