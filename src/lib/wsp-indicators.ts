@@ -1,8 +1,5 @@
 /**
  * WSP Screener — Centralized indicator formulas.
- *
- * Every core indicator used by the WSP engine is defined here so the screener,
- * audit panel, and tests all reference the exact same calculations.
  */
 
 import type {
@@ -15,21 +12,28 @@ import type {
 import { WSP_CONFIG } from './wsp-config';
 
 const EPSILON = 1e-9;
-const RESISTANCE_LOOKBACK = 100;
-const RESISTANCE_PIVOT_WINDOW = 2;
-const MANSFIELD_TREND_LOOKBACK = 10;
 
 interface ResistanceZoneResult {
   level: number | null;
+  upperBound: number | null;
   touches: number;
+  tolerancePct: number;
+  touchIndices: number[];
+  mostRecentTouchDate: string | null;
 }
 
 interface BreakoutResult {
   confirmed: boolean;
+  breakoutIndex: number | null;
   barsSince: number | null;
   breakoutLevel: number | null;
   currentClose: number | null;
   closeDelta: number | null;
+  closeAboveResistancePct: number | null;
+  qualityPass: boolean;
+  qualityReasons: string[];
+  clv: number | null;
+  recentFalseBreakoutsCount: number;
 }
 
 interface VolumeMultipleResult {
@@ -39,8 +43,11 @@ interface VolumeMultipleResult {
 
 interface MansfieldRSResult {
   rs: number | null;
+  prev: number | null;
   trend: MansfieldTrend;
   transition: boolean;
+  uptrend: boolean;
+  valid: boolean;
 }
 
 interface SmaSlopeResult {
@@ -48,24 +55,15 @@ interface SmaSlopeResult {
   direction: SmaSlopeDirection;
 }
 
-/**
- * Returns true when a bar contains finite OHLCV numbers and a valid date.
- */
 function isFiniteBar(bar: Bar): boolean {
-  return Number.isFinite(Date.parse(bar.date)) &&
-    Number.isFinite(bar.open) &&
-    Number.isFinite(bar.high) &&
-    Number.isFinite(bar.low) &&
-    Number.isFinite(bar.close) &&
-    Number.isFinite(bar.volume);
+  return Number.isFinite(Date.parse(bar.date))
+    && Number.isFinite(bar.open)
+    && Number.isFinite(bar.high)
+    && Number.isFinite(bar.low)
+    && Number.isFinite(bar.close)
+    && Number.isFinite(bar.volume);
 }
 
-/**
- * Normalizes provider/fallback bars into ascending chronological order.
- *
- * Input: any array of bars, potentially unsorted or containing invalid values.
- * Output: filtered bars sorted oldest → newest, plus normalization metadata.
- */
 export function normalizeBarsChronologically(bars: Bar[]): {
   bars: Bar[];
   chronologyNormalized: boolean;
@@ -93,354 +91,386 @@ export function normalizeBarsChronologically(bars: Bar[]): {
     warnings.add('empty_price_history');
   }
 
-  return {
-    bars: sortedBars,
-    chronologyNormalized,
-    warnings: [...warnings],
-  };
+  return { bars: sortedBars, chronologyNormalized, warnings: [...warnings] };
 }
 
-/**
- * Calculates a simple moving average from the latest `period` closes.
- *
- * Input: ascending chronological bars and a positive period.
- * Output: arithmetic mean of the last `period` closes, or null if insufficient data.
- */
-export function sma(bars: Bar[], period: number): number | null {
-  if (period <= 0 || bars.length < period) {
-    return null;
-  }
+export function sma(bars: Array<Bar | number>, period: number, endIndex?: number): number | null {
+  if (period <= 0) return null;
+  const series = typeof bars[0] === 'number' ? bars as number[] : (bars as Bar[]).map((bar) => bar.close);
+  if (series.length < period) return null;
 
-  const closes = bars.slice(-period).map((bar) => bar.close);
-  return closes.reduce((sum, close) => sum + close, 0) / period;
+  const lastIndex = endIndex ?? (series.length - 1);
+  const startIndex = lastIndex - period + 1;
+  if (startIndex < 0 || lastIndex >= series.length) return null;
+
+  const window = series.slice(startIndex, lastIndex + 1);
+  return window.reduce((sum, value) => sum + value, 0) / period;
 }
 
-/**
- * Calculates the SMA slope as the difference between the current SMA and the SMA
- * from `lookback` bars ago.
- *
- * Input: ascending chronological bars, the SMA period, and the comparison lookback.
- * Output: numeric slope value plus a rising/flat/falling direction, or null if the
- * series is too short.
- */
 export function smaSlope(
   bars: Bar[],
   period: number,
-  lookback: number = 10,
+  lookback: number = WSP_CONFIG.wsp.smaSlopeLookbackBars,
 ): SmaSlopeResult {
   if (period <= 0 || lookback <= 0 || bars.length < period + lookback) {
     return { value: null, direction: 'flat' };
   }
 
   const currentSma = sma(bars, period);
-  const previousSma = sma(bars.slice(0, -lookback), period);
-
+  const previousSma = sma(bars, period, bars.length - 1 - lookback);
   if (currentSma === null || previousSma === null) {
     return { value: null, direction: 'flat' };
   }
 
   const value = currentSma - previousSma;
-  if (Math.abs(value) < EPSILON) {
-    return { value: 0, direction: 'flat' };
-  }
-
-  return {
-    value,
-    direction: value > 0 ? 'rising' : 'falling',
-  };
+  if (Math.abs(value) < EPSILON) return { value: 0, direction: 'flat' };
+  return { value, direction: value > 0 ? 'rising' : 'falling' };
 }
 
-/**
- * Identifies a resistance zone by clustering pivot highs that fall within a
- * configurable tolerance band.
- *
- * Input: ascending chronological bars.
- * Output: the highest valid resistance cluster and its touch count, or null if the
- * history does not show enough repeated highs.
- *
- * Assumptions:
- * - only pivot highs (local highs) count as resistance touches
- * - touches must be within `tolerancePercent`
- * - a valid zone needs at least `minTouches`
- */
 export function detectResistanceZone(
   bars: Bar[],
-  tolerancePct: number = WSP_CONFIG.breakout.tolerancePercent,
-  minTouches: number = WSP_CONFIG.breakout.minTouches,
+  tolerancePct: number = WSP_CONFIG.wsp.resistanceTolerancePct,
+  minTouches: number = WSP_CONFIG.wsp.resistanceTouchesMin,
 ): ResistanceZoneResult {
   if (bars.length < 20) {
-    return { level: null, touches: 0 };
+    return { level: null, upperBound: null, touches: 0, tolerancePct, touchIndices: [], mostRecentTouchDate: null };
   }
 
-  const lookbackBars = bars.slice(-Math.min(RESISTANCE_LOOKBACK, bars.length));
-  const pivotHighs: number[] = [];
+  const lookbackStart = Math.max(0, bars.length - WSP_CONFIG.wsp.resistanceLookbackBars);
+  const lookbackBars = bars.slice(lookbackStart);
+  const pivotWindow = WSP_CONFIG.wsp.resistancePivotWindow;
+  const pivotHighs: Array<{ high: number; absoluteIndex: number; date: string }> = [];
 
-  for (let index = RESISTANCE_PIVOT_WINDOW; index < lookbackBars.length - RESISTANCE_PIVOT_WINDOW; index += 1) {
+  for (let index = pivotWindow; index < lookbackBars.length - pivotWindow; index += 1) {
     const candidate = lookbackBars[index];
     let isPivot = true;
 
-    for (let offset = 1; offset <= RESISTANCE_PIVOT_WINDOW; offset += 1) {
-      const previous = lookbackBars[index - offset];
-      const next = lookbackBars[index + offset];
-
-      if (candidate.high < previous.high || candidate.high < next.high) {
+    for (let offset = 1; offset <= pivotWindow; offset += 1) {
+      if (candidate.high < lookbackBars[index - offset].high || candidate.high < lookbackBars[index + offset].high) {
         isPivot = false;
         break;
       }
     }
 
     if (isPivot) {
-      pivotHighs.push(candidate.high);
+      pivotHighs.push({
+        high: candidate.high,
+        absoluteIndex: lookbackStart + index,
+        date: candidate.date,
+      });
     }
   }
 
-  if (pivotHighs.length < minTouches) {
-    return { level: null, touches: 0 };
-  }
+  type Zone = { values: typeof pivotHighs; level: number; upperBound: number };
+  const zones: Zone[] = [];
 
-  const sortedHighs = [...pivotHighs].sort((left, right) => right - left);
-  const zones: Array<{ level: number; touches: number }> = [];
-
-  for (const high of sortedHighs) {
-    const tolerance = high * (tolerancePct / 100);
-    const existingZone = zones.find((zone) => Math.abs(zone.level - high) <= tolerance);
-
+  for (const pivot of pivotHighs.sort((left, right) => right.high - left.high)) {
+    const tolerance = pivot.high * tolerancePct;
+    const existingZone = zones.find((zone) => Math.abs(zone.level - pivot.high) <= tolerance);
     if (existingZone) {
-      existingZone.level = ((existingZone.level * existingZone.touches) + high) / (existingZone.touches + 1);
-      existingZone.touches += 1;
-      continue;
+      existingZone.values.push(pivot);
+      existingZone.level = existingZone.values.reduce((sum, value) => sum + value.high, 0) / existingZone.values.length;
+      existingZone.upperBound = Math.max(...existingZone.values.map((value) => value.high));
+    } else {
+      zones.push({ values: [pivot], level: pivot.high, upperBound: pivot.high });
     }
-
-    zones.push({ level: high, touches: 1 });
   }
 
   const validZones = zones
-    .filter((zone) => zone.touches >= minTouches)
+    .filter((zone) => zone.values.length >= minTouches)
     .sort((left, right) => {
-      if (right.touches !== left.touches) {
-        return right.touches - left.touches;
-      }
-      return right.level - left.level;
+      if (right.upperBound !== left.upperBound) return right.upperBound - left.upperBound;
+      return right.values.length - left.values.length;
     });
 
   if (validZones.length === 0) {
-    return { level: null, touches: 0 };
+    return { level: null, upperBound: null, touches: 0, tolerancePct, touchIndices: [], mostRecentTouchDate: null };
   }
 
-  return validZones[0];
-}
-
-/**
- * Converts a resistance level into the exact breakout confirmation threshold.
- *
- * Formula: resistance × (1 + breakoutThresholdPercent/100)
- */
-export function computeBreakoutLevel(
-  resistanceLevel: number | null,
-  thresholdPct: number = WSP_CONFIG.breakout.breakoutThresholdPercent,
-): number | null {
-  if (resistanceLevel === null || !Number.isFinite(resistanceLevel)) {
-    return null;
-  }
-
-  return resistanceLevel * (1 + thresholdPct / 100);
-}
-
-/**
- * Determines whether the most recent close is a valid breakout above resistance.
- *
- * Input: ascending chronological bars and a confirmed resistance level.
- * Output: whether the latest close is above the breakout threshold and the number
- * of bars since the start of the current above-threshold run.
- */
-export function detectBreakout(
-  bars: Bar[],
-  resistanceLevel: number | null,
-  thresholdPct: number = WSP_CONFIG.breakout.breakoutThresholdPercent,
-): BreakoutResult {
-  if (bars.length === 0 || resistanceLevel === null) {
-    return {
-      confirmed: false,
-      barsSince: null,
-      breakoutLevel: computeBreakoutLevel(resistanceLevel, thresholdPct),
-      currentClose: null,
-      closeDelta: null,
-    };
-  }
-
-  const breakoutLevel = computeBreakoutLevel(resistanceLevel, thresholdPct);
-  const currentClose = bars[bars.length - 1]?.close ?? null;
-
-  if (breakoutLevel === null || currentClose === null) {
-    return {
-      confirmed: false,
-      barsSince: null,
-      breakoutLevel,
-      currentClose,
-      closeDelta: null,
-    };
-  }
-
-  const closeDelta = currentClose - breakoutLevel;
-  if (currentClose <= breakoutLevel) {
-    return {
-      confirmed: false,
-      barsSince: null,
-      breakoutLevel,
-      currentClose,
-      closeDelta,
-    };
-  }
-
-  let startIndex = bars.length - 1;
-  while (startIndex > 0 && bars[startIndex - 1].close > breakoutLevel) {
-    startIndex -= 1;
-  }
+  const bestZone = validZones[0];
+  const touchIndices = bestZone.values
+    .map((value) => value.absoluteIndex)
+    .sort((left, right) => left - right);
+  const mostRecentTouchDate = bestZone.values
+    .slice()
+    .sort((left, right) => Date.parse(right.date) - Date.parse(left.date))[0]?.date ?? null;
 
   return {
-    confirmed: true,
-    barsSince: (bars.length - 1) - startIndex,
-    breakoutLevel,
-    currentClose,
-    closeDelta,
+    level: bestZone.level,
+    upperBound: bestZone.upperBound,
+    touches: bestZone.values.length,
+    tolerancePct,
+    touchIndices,
+    mostRecentTouchDate,
   };
 }
 
-/**
- * Breakout freshness rule used by the hard WSP gate.
- *
- * Output: true only when a confirmed breakout is still within the allowed number of bars.
- */
-export function isBreakoutFresh(
-  barsSinceBreakout: number | null,
-  maxBarsSinceBreakout: number = WSP_CONFIG.breakout.maxBarsSinceBreakout,
-): boolean {
-  return barsSinceBreakout !== null && barsSinceBreakout <= maxBarsSinceBreakout;
+export function computeBreakoutLevel(
+  resistanceUpperBound: number | null,
+  thresholdPct: number = WSP_CONFIG.wsp.breakoutMinCloseAboveResistancePct,
+): number | null {
+  if (resistanceUpperBound === null || !Number.isFinite(resistanceUpperBound)) return null;
+  return resistanceUpperBound * (1 + thresholdPct);
 }
 
-/**
- * Stale-breakout rule used by validation/audit.
- *
- * Output: true when a breakout exists but is older than the allowed bar threshold.
- */
-export function isBreakoutStale(
-  barsSinceBreakout: number | null,
-  maxBarsSinceBreakout: number = WSP_CONFIG.breakout.maxBarsSinceBreakout,
-): boolean {
-  return barsSinceBreakout !== null && barsSinceBreakout > maxBarsSinceBreakout;
+function calculateClv(bar: Bar): number | null {
+  const range = bar.high - bar.low;
+  if (range <= EPSILON) return null;
+  return (bar.close - bar.low) / range;
 }
 
-/**
- * Calculates current-volume versus trailing average volume.
- *
- * Input: ascending chronological bars and an averaging period.
- * Output: exact currentVolume / average(previous N volumes), excluding the current bar.
- */
+function countRecentFalseBreakouts(
+  bars: Bar[],
+  resistanceUpperBound: number,
+  breakoutThresholdPct: number,
+): number {
+  const startIndex = Math.max(0, bars.length - WSP_CONFIG.wsp.falseBreakoutLookbackBars);
+  const breakoutLevel = computeBreakoutLevel(resistanceUpperBound, breakoutThresholdPct);
+  if (breakoutLevel === null) return 0;
+
+  let falseBreakouts = 0;
+  for (let index = startIndex; index < bars.length; index += 1) {
+    if (bars[index].close <= breakoutLevel) continue;
+
+    const confirmEnd = Math.min(bars.length - 1, index + WSP_CONFIG.wsp.falseBreakoutConfirmBars);
+    let failed = false;
+    for (let nextIndex = index + 1; nextIndex <= confirmEnd; nextIndex += 1) {
+      if (bars[nextIndex].close <= resistanceUpperBound) {
+        failed = true;
+        break;
+      }
+    }
+
+    if (failed) falseBreakouts += 1;
+  }
+
+  return falseBreakouts;
+}
+
 export function volumeMultiple(
   bars: Bar[],
-  avgPeriod: number = WSP_CONFIG.volume.avgPeriod,
+  avgPeriod: number = WSP_CONFIG.wsp.volumeLookbackBars,
+  endIndex?: number,
 ): VolumeMultipleResult {
-  if (avgPeriod <= 0 || bars.length < avgPeriod + 1) {
+  if (avgPeriod <= 0) return { multiple: null, averageVolume: null };
+  const currentIndex = endIndex ?? (bars.length - 1);
+  if (currentIndex < avgPeriod || currentIndex >= bars.length) {
     return { multiple: null, averageVolume: null };
   }
 
-  const currentVolume = bars[bars.length - 1].volume;
-  const referenceBars = bars.slice(-(avgPeriod + 1), -1);
+  const currentVolume = bars[currentIndex].volume;
+  const referenceBars = bars.slice(currentIndex - avgPeriod, currentIndex);
   const averageVolume = referenceBars.reduce((sum, bar) => sum + bar.volume, 0) / avgPeriod;
-
   if (Math.abs(averageVolume) < EPSILON) {
     return { multiple: null, averageVolume };
   }
 
+  return { multiple: currentVolume / averageVolume, averageVolume };
+}
+
+export function detectBreakout(
+  bars: Bar[],
+  resistanceUpperBound: number | null,
+  thresholdPct: number = WSP_CONFIG.wsp.breakoutMinCloseAboveResistancePct,
+  volumeThreshold: number = WSP_CONFIG.wsp.volumeMultipleMin,
+): BreakoutResult {
+  if (bars.length === 0 || resistanceUpperBound === null) {
+    return {
+      confirmed: false,
+      breakoutIndex: null,
+      barsSince: null,
+      breakoutLevel: computeBreakoutLevel(resistanceUpperBound, thresholdPct),
+      currentClose: null,
+      closeDelta: null,
+      closeAboveResistancePct: null,
+      qualityPass: false,
+      qualityReasons: ['missing_resistance_zone'],
+      clv: null,
+      recentFalseBreakoutsCount: 0,
+    };
+  }
+
+  const breakoutLevel = computeBreakoutLevel(resistanceUpperBound, thresholdPct);
+  const currentBar = bars[bars.length - 1];
+  const currentClose = currentBar?.close ?? null;
+  if (breakoutLevel === null || currentClose === null) {
+    return {
+      confirmed: false,
+      breakoutIndex: null,
+      barsSince: null,
+      breakoutLevel,
+      currentClose,
+      closeDelta: null,
+      closeAboveResistancePct: null,
+      qualityPass: false,
+      qualityReasons: ['missing_breakout_level'],
+      clv: null,
+      recentFalseBreakoutsCount: 0,
+    };
+  }
+
+  const closeDelta = currentClose - breakoutLevel;
+  const closeAboveResistancePct = resistanceUpperBound > EPSILON
+    ? (currentClose / resistanceUpperBound) - 1
+    : null;
+  const clv = calculateClv(currentBar);
+  const recentFalseBreakoutsCount = countRecentFalseBreakouts(
+    bars.slice(0, -1),
+    resistanceUpperBound,
+    thresholdPct,
+  );
+
+  const qualityReasons: string[] = [];
+  if (closeAboveResistancePct === null || closeAboveResistancePct < thresholdPct) {
+    qualityReasons.push('close_not_far_enough');
+  }
+  if (clv === null || clv < WSP_CONFIG.wsp.breakoutClvMin) {
+    qualityReasons.push('close_not_near_high');
+  }
+  if (recentFalseBreakoutsCount > WSP_CONFIG.wsp.falseBreakoutMaxCount) {
+    qualityReasons.push('recent_false_breakouts');
+  }
+
+  const qualityPass = qualityReasons.length === 0;
+
+  if (currentClose <= breakoutLevel) {
+    return {
+      confirmed: false,
+      breakoutIndex: null,
+      barsSince: null,
+      breakoutLevel,
+      currentClose,
+      closeDelta,
+      closeAboveResistancePct,
+      qualityPass,
+      qualityReasons,
+      clv,
+      recentFalseBreakoutsCount,
+    };
+  }
+
+  const breakoutEventIndices: number[] = [];
+  let eventCloseAboveResistancePct: number | null = null;
+  let eventClv: number | null = null;
+  let eventQualityReasons: string[] = [];
+  let eventRecentFalseBreakoutsCount = 0;
+
+  for (let index = 0; index < bars.length; index += 1) {
+    const bar = bars[index];
+    const barBreakoutLevel = computeBreakoutLevel(resistanceUpperBound, thresholdPct);
+    if (barBreakoutLevel === null || bar.close <= barBreakoutLevel || index < WSP_CONFIG.wsp.volumeLookbackBars) continue;
+
+    const barVolume = volumeMultiple(bars, WSP_CONFIG.wsp.volumeLookbackBars, index);
+    const barClv = calculateClv(bar);
+    const priorFalseBreakouts = countRecentFalseBreakouts(bars.slice(0, index), resistanceUpperBound, thresholdPct);
+    const barCloseAboveResistancePct = (bar.close / resistanceUpperBound) - 1;
+    const barQualityReasons: string[] = [];
+    if (barCloseAboveResistancePct < thresholdPct) barQualityReasons.push('close_not_far_enough');
+    if (barClv === null || barClv < WSP_CONFIG.wsp.breakoutClvMin) barQualityReasons.push('close_not_near_high');
+    if (priorFalseBreakouts > WSP_CONFIG.wsp.falseBreakoutMaxCount) barQualityReasons.push('recent_false_breakouts');
+
+    const passesQuality = barQualityReasons.length === 0;
+    if (passesQuality && barVolume.multiple !== null && barVolume.multiple >= volumeThreshold) {
+      breakoutEventIndices.push(index);
+      eventCloseAboveResistancePct = barCloseAboveResistancePct;
+      eventClv = barClv;
+      eventQualityReasons = barQualityReasons;
+      eventRecentFalseBreakoutsCount = priorFalseBreakouts;
+    }
+  }
+
+  const latestBreakoutIndex = breakoutEventIndices[breakoutEventIndices.length - 1] ?? null;
+  const confirmed = latestBreakoutIndex !== null && currentClose > breakoutLevel;
+
   return {
-    multiple: currentVolume / averageVolume,
-    averageVolume,
+    confirmed,
+    breakoutIndex: latestBreakoutIndex,
+    barsSince: latestBreakoutIndex === null ? null : (bars.length - 1) - latestBreakoutIndex,
+    breakoutLevel,
+    currentClose,
+    closeDelta,
+    closeAboveResistancePct: latestBreakoutIndex === null ? closeAboveResistancePct : eventCloseAboveResistancePct,
+    qualityPass: latestBreakoutIndex === null ? qualityPass : eventQualityReasons.length === 0,
+    qualityReasons: latestBreakoutIndex === null ? qualityReasons : eventQualityReasons,
+    clv: latestBreakoutIndex === null ? clv : eventClv,
+    recentFalseBreakoutsCount: latestBreakoutIndex === null ? recentFalseBreakoutsCount : eventRecentFalseBreakoutsCount,
   };
+}
+
+export function isBreakoutFresh(
+  barsSinceBreakout: number | null,
+  staleBreakoutBars: number = WSP_CONFIG.wsp.staleBreakoutBars,
+): boolean {
+  return barsSinceBreakout !== null && barsSinceBreakout < staleBreakoutBars;
+}
+
+export function isBreakoutStale(
+  barsSinceBreakout: number | null,
+  staleBreakoutBars: number = WSP_CONFIG.wsp.staleBreakoutBars,
+): boolean {
+  return barsSinceBreakout !== null && barsSinceBreakout >= staleBreakoutBars;
 }
 
 function calculateMansfieldValue(rsSeries: number[], endIndex: number, smaPeriod: number): number | null {
-  const startIndex = endIndex - smaPeriod + 1;
-  if (startIndex < 0) {
-    return null;
-  }
-
-  const window = rsSeries.slice(startIndex, endIndex + 1);
-  const average = window.reduce((sum, value) => sum + value, 0) / smaPeriod;
-  if (Math.abs(average) < EPSILON) {
-    return null;
-  }
-
+  const average = sma(rsSeries, smaPeriod, endIndex);
+  if (average === null || Math.abs(average) < EPSILON) return null;
   return ((rsSeries[endIndex] / average) - 1) * 100;
 }
 
-/**
- * Calculates Mansfield Relative Strength against a benchmark aligned by date.
- *
- * Formula:
- * 1) RS ratio = stock close / benchmark close × 100
- * 2) Mansfield RS = ((current RS / SMA(RS, N)) - 1) × 100
- *
- * Input: ascending chronological stock and benchmark bars.
- * Output: current Mansfield value, direction, and negative→positive transition state.
- */
 export function mansfieldRS(
   stockBars: Bar[],
   benchmarkBars: Bar[],
-  smaPeriod: number = WSP_CONFIG.mansfield.smaPeriod,
-  trendLookback: number = MANSFIELD_TREND_LOOKBACK,
+  smaPeriod: number = WSP_CONFIG.wsp.mansfieldLookbackBars,
+  transitionLookback: number = WSP_CONFIG.wsp.mansfieldTransitionLookbackBars,
+  trendLookback: number = WSP_CONFIG.wsp.mansfieldTrendLookbackBars,
 ): MansfieldRSResult {
   if (smaPeriod <= 0 || stockBars.length < smaPeriod || benchmarkBars.length < smaPeriod) {
-    return { rs: null, trend: 'flat', transition: false };
+    return { rs: null, prev: null, trend: 'flat', transition: false, uptrend: false, valid: false };
   }
 
-  const benchmarkByDate = new Map(benchmarkBars.map((bar) => [bar.date, bar]));
+  const benchmarkByDate = new Map(benchmarkBars.map((bar) => [bar.date, bar.close]));
   const rsSeries: number[] = [];
 
   for (const stockBar of stockBars) {
-    const benchmarkBar = benchmarkByDate.get(stockBar.date);
-    if (!benchmarkBar || Math.abs(benchmarkBar.close) < EPSILON) {
-      continue;
-    }
-
-    rsSeries.push((stockBar.close / benchmarkBar.close) * 100);
+    const benchmarkClose = benchmarkByDate.get(stockBar.date);
+    if (benchmarkClose === undefined || Math.abs(benchmarkClose) < EPSILON) continue;
+    rsSeries.push(stockBar.close / benchmarkClose);
   }
 
   if (rsSeries.length < smaPeriod) {
-    return { rs: null, trend: 'flat', transition: false };
+    return { rs: null, prev: null, trend: 'flat', transition: false, uptrend: false, valid: false };
   }
 
-  const currentIndex = rsSeries.length - 1;
-  const currentMrs = calculateMansfieldValue(rsSeries, currentIndex, smaPeriod);
-  if (currentMrs === null) {
-    return { rs: null, trend: 'flat', transition: false };
+  const nowIndex = rsSeries.length - 1;
+  const rs = calculateMansfieldValue(rsSeries, nowIndex, smaPeriod);
+  const prevIndex = nowIndex - trendLookback;
+  const prev = prevIndex >= 0 ? calculateMansfieldValue(rsSeries, prevIndex, smaPeriod) : null;
+  if (rs === null) {
+    return { rs: null, prev, trend: 'flat', transition: false, uptrend: false, valid: false };
   }
-
-  const previousIndex = currentIndex - trendLookback;
-  const previousMrs = previousIndex >= 0
-    ? calculateMansfieldValue(rsSeries, previousIndex, smaPeriod)
-    : null;
 
   let trend: MansfieldTrend = 'flat';
-  if (previousMrs !== null) {
-    const difference = currentMrs - previousMrs;
-    if (difference > 0.3) {
-      trend = 'rising';
-    } else if (difference < -0.3) {
-      trend = 'falling';
-    }
+  if (prev !== null) {
+    if (rs > prev + EPSILON) trend = 'rising';
+    else if (rs < prev - EPSILON) trend = 'falling';
   }
 
+  const uptrend = rs > 0 && prev !== null && rs > prev;
+  const transition = rs > 0 && Array.from({ length: transitionLookback }, (_, offset) => {
+    const index = nowIndex - 1 - offset;
+    return index >= 0 ? calculateMansfieldValue(rsSeries, index, smaPeriod) : null;
+  }).some((value) => value !== null && value <= 0);
+
   return {
-    rs: currentMrs,
+    rs,
+    prev,
     trend,
-    transition: previousMrs !== null && previousMrs < 0 && currentMrs > 0,
+    transition,
+    uptrend,
+    valid: uptrend || transition,
   };
 }
 
-/**
- * Pattern classification only inspects chart structure; it does not decide the
- * final WSP recommendation.
- */
 export function classifyPattern(
   bars: Bar[],
   sma50Val: number | null,
@@ -451,74 +481,32 @@ export function classifyPattern(
 
   const price = bars[bars.length - 1].close;
   const recentBars = bars.slice(-20);
-
   const highs = recentBars.map((bar) => bar.high);
-  const lows = recentBars.map((bar) => bar.low);
-
   const firstHalf = recentBars.slice(0, 10);
   const secondHalf = recentBars.slice(10);
-
   const avgFirst = firstHalf.reduce((sum, bar) => sum + bar.close, 0) / firstHalf.length;
   const avgSecond = secondHalf.reduce((sum, bar) => sum + bar.close, 0) / secondHalf.length;
   const trendDirection = avgSecond - avgFirst;
-
   const highRange = Math.max(...highs) - Math.min(...highs);
   const priceLevel = price > 0 ? highRange / price : 0;
-
   const midpoint = Math.floor(recentBars.length / 2);
-  const firstHalfHighs = recentBars.slice(0, midpoint).map((bar) => bar.high);
-  const secondHalfHighs = recentBars.slice(midpoint).map((bar) => bar.high);
-  const firstHalfLows = recentBars.slice(0, midpoint).map((bar) => bar.low);
-  const secondHalfLows = recentBars.slice(midpoint).map((bar) => bar.low);
-
-  const higherHighs = Math.max(...secondHalfHighs) > Math.max(...firstHalfHighs);
-  const higherLows = Math.min(...secondHalfLows) > Math.min(...firstHalfLows);
+  const higherHighs = Math.max(...recentBars.slice(midpoint).map((bar) => bar.high)) > Math.max(...recentBars.slice(0, midpoint).map((bar) => bar.high));
+  const higherLows = Math.min(...recentBars.slice(midpoint).map((bar) => bar.low)) > Math.min(...recentBars.slice(0, midpoint).map((bar) => bar.low));
   const slopeValue = sma50SlopeVal ?? 0;
 
-  if (
-    sma50Val !== null && price < sma50Val &&
-    slopeValue < 0 &&
-    trendDirection < 0 &&
-    (!higherHighs && !higherLows)
-  ) {
+  if (sma50Val !== null && sma150Val !== null && price < sma50Val && price < sma150Val && slopeValue < 0 && trendDirection < 0 && (!higherHighs && !higherLows)) {
     return 'DOWNHILL';
   }
-
-  if (
-    sma50Val !== null && price > sma50Val &&
-    Math.abs(slopeValue) < 0.5 &&
-    priceLevel < 0.06 &&
-    trendDirection < 0
-  ) {
+  if (sma50Val !== null && price > sma50Val && Math.abs(slopeValue) < 0.5 && priceLevel < 0.06 && trendDirection < 0) {
     return 'TIRED';
   }
-
-  if (
-    sma50Val !== null && price > sma50Val &&
-    slopeValue > 0 &&
-    (higherHighs || higherLows) &&
-    trendDirection > 0
-  ) {
+  if (sma50Val !== null && price > sma50Val && slopeValue > 0 && (higherHighs || higherLows) && trendDirection > 0) {
     return 'CLIMBING';
   }
-
   return 'BASE';
 }
 
-/**
- * Computes the full indicator set used by the WSP engine.
- *
- * Input: raw provider/fallback bars for a stock plus raw benchmark bars.
- * Output: deterministic indicator values, raw audit fields, and warning flags.
- *
- * Assumptions:
- * - bars are normalized oldest → newest here exactly once
- * - null values mean "not enough trustworthy data" rather than silently using 0
- */
-export function computeIndicators(
-  bars: Bar[],
-  benchmarkBars: Bar[],
-): StockIndicators {
+export function computeIndicators(bars: Bar[], benchmarkBars: Bar[]): StockIndicators {
   const normalizedBarsResult = normalizeBarsChronologically(bars);
   const normalizedBenchmarkResult = normalizeBarsChronologically(benchmarkBars);
   const normalizedBars = normalizedBarsResult.bars;
@@ -528,20 +516,14 @@ export function computeIndicators(
     ...normalizedBenchmarkResult.warnings.filter((warning) => warning !== 'empty_price_history'),
   ]);
 
-  if (normalizedBars.length < WSP_CONFIG.movingAverages.sma20) {
-    warnings.add('insufficient_sma_history');
-  }
-  if (normalizedBars.length < WSP_CONFIG.movingAverages.sma50 + 10) {
-    warnings.add('insufficient_sma_slope_history');
-  }
+  if (normalizedBars.length < WSP_CONFIG.movingAverages.sma20) warnings.add('insufficient_sma_history');
+  if (normalizedBars.length < WSP_CONFIG.movingAverages.sma50 + WSP_CONFIG.wsp.smaSlopeLookbackBars) warnings.add('insufficient_sma_slope_history');
   if (normalizedBars.length < 20) {
     warnings.add('insufficient_resistance_history');
     warnings.add('insufficient_breakout_history');
   }
-  if (normalizedBars.length < WSP_CONFIG.volume.avgPeriod + 1) {
-    warnings.add('insufficient_volume_history');
-  }
-  if (normalizedBenchmarkBars.length < WSP_CONFIG.mansfield.smaPeriod || normalizedBars.length < WSP_CONFIG.mansfield.smaPeriod) {
+  if (normalizedBars.length < WSP_CONFIG.wsp.volumeLookbackBars + 1) warnings.add('insufficient_volume_history');
+  if (normalizedBenchmarkBars.length < WSP_CONFIG.wsp.mansfieldLookbackBars || normalizedBars.length < WSP_CONFIG.wsp.mansfieldLookbackBars) {
     warnings.add('insufficient_benchmark_history');
   }
   if (normalizedBars.length > 0 && normalizedBenchmarkBars.length > 0 && normalizedBars.length !== normalizedBenchmarkBars.length) {
@@ -549,27 +531,20 @@ export function computeIndicators(
   }
 
   const sharedDates = new Set(normalizedBenchmarkBars.map((bar) => bar.date));
-  if (normalizedBars.some((bar) => !sharedDates.has(bar.date))) {
-    warnings.add('benchmark_dates_misaligned');
-  }
-  if (normalizedBenchmarkBars.some((bar) => Math.abs(bar.close) < EPSILON)) {
-    warnings.add('near_zero_benchmark_close');
-  }
+  if (normalizedBars.some((bar) => !sharedDates.has(bar.date))) warnings.add('benchmark_dates_misaligned');
+  if (normalizedBenchmarkBars.some((bar) => Math.abs(bar.close) < EPSILON)) warnings.add('near_zero_benchmark_close');
 
   const sma20Val = sma(normalizedBars, WSP_CONFIG.movingAverages.sma20);
   const sma50Val = sma(normalizedBars, WSP_CONFIG.movingAverages.sma50);
   const sma150Val = sma(normalizedBars, WSP_CONFIG.movingAverages.sma150);
   const sma200Val = sma(normalizedBars, WSP_CONFIG.movingAverages.sma200);
   const slope50 = smaSlope(normalizedBars, WSP_CONFIG.movingAverages.sma50);
-
   const resistance = detectResistanceZone(normalizedBars);
-  const breakout = detectBreakout(normalizedBars, resistance.level);
-  const volume = volumeMultiple(normalizedBars);
+  const breakout = detectBreakout(normalizedBars, resistance.upperBound);
+  const volume = volumeMultiple(normalizedBars, WSP_CONFIG.wsp.volumeLookbackBars, breakout.breakoutIndex ?? undefined);
   const mansfield = mansfieldRS(normalizedBars, normalizedBenchmarkBars);
 
-  if (volume.averageVolume !== null && Math.abs(volume.averageVolume) < EPSILON) {
-    warnings.add('near_zero_average_volume');
-  }
+  if (volume.averageVolume !== null && Math.abs(volume.averageVolume) < EPSILON) warnings.add('near_zero_average_volume');
 
   return {
     sma20: sma20Val,
@@ -579,17 +554,30 @@ export function computeIndicators(
     sma50Slope: slope50.value,
     sma50SlopeDirection: slope50.direction,
     resistanceZone: resistance.level,
+    resistanceUpperBound: resistance.upperBound,
     resistanceTouches: resistance.touches,
+    resistanceTolerancePct: resistance.tolerancePct,
+    resistanceTouchIndices: resistance.touchIndices,
+    resistanceMostRecentTouchDate: resistance.mostRecentTouchDate,
     breakoutLevel: breakout.breakoutLevel,
     currentClose: breakout.currentClose,
     breakoutCloseDelta: breakout.closeDelta,
+    closeAboveResistancePct: breakout.closeAboveResistancePct,
     breakoutConfirmed: breakout.confirmed,
+    breakoutQualityPass: breakout.qualityPass,
+    breakoutQualityReasons: breakout.qualityReasons,
+    breakoutClv: breakout.clv,
+    recentFalseBreakoutsCount: breakout.recentFalseBreakoutsCount,
     barsSinceBreakout: breakout.barsSince,
+    breakoutStale: isBreakoutStale(breakout.barsSince),
     averageVolumeReference: volume.averageVolume,
     volumeMultiple: volume.multiple,
     mansfieldRS: mansfield.rs,
+    mansfieldRSPrev: mansfield.prev,
     mansfieldRSTrend: mansfield.trend,
     mansfieldTransition: mansfield.transition,
+    mansfieldUptrend: mansfield.uptrend,
+    mansfieldValid: mansfield.valid,
     indicatorWarnings: [...warnings],
     chronologyNormalized: normalizedBarsResult.chronologyNormalized || normalizedBenchmarkResult.chronologyNormalized,
   };

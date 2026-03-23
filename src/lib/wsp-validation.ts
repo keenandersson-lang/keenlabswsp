@@ -1,4 +1,5 @@
 import { BLOCKED_REASON_ORDERED } from './wsp-assertions';
+import { WSP_CONFIG } from './wsp-config';
 import { evaluateStock } from './wsp-engine';
 import { runIndicatorFixtures } from './wsp-indicator-fixtures';
 import { isBreakoutStale } from './wsp-indicators';
@@ -33,17 +34,30 @@ function createIndicators(overrides: Partial<StockIndicators>): StockIndicators 
     sma50Slope: 2.4,
     sma50SlopeDirection: 'rising',
     resistanceZone: 118,
+    resistanceUpperBound: 118,
     resistanceTouches: 4,
+    resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+    resistanceTouchIndices: [40, 55, 70, 88],
+    resistanceMostRecentTouchDate: '2025-03-15',
     breakoutLevel: 118.59,
     currentClose: 121,
     breakoutCloseDelta: 2.41,
+    closeAboveResistancePct: 0.0254,
     breakoutConfirmed: true,
+    breakoutQualityPass: true,
+    breakoutQualityReasons: [],
+    breakoutClv: 0.82,
+    recentFalseBreakoutsCount: 0,
     barsSinceBreakout: 2,
+    breakoutStale: false,
     averageVolumeReference: 1_000_000,
     volumeMultiple: 2.6,
     mansfieldRS: 2.1,
+    mansfieldRSPrev: 1.3,
     mansfieldRSTrend: 'rising',
     mansfieldTransition: false,
+    mansfieldUptrend: true,
+    mansfieldValid: true,
     indicatorWarnings: [],
     chronologyNormalized: false,
     ...overrides,
@@ -60,12 +74,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'KÖP',
       expectedBlockedReasons: [],
     },
-    pattern: 'CLIMBING',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 121,
-    prevClose: 119,
-    volume: 2_600_000,
+    pattern: 'CLIMBING', sectorAligned: true, marketFavorable: true, price: 121, prevClose: 119, volume: 2_600_000,
     indicators: createIndicators({}),
   },
   {
@@ -77,13 +86,8 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'BEVAKA',
       expectedBlockedReasons: ['below_50ma'],
     },
-    pattern: 'CLIMBING',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 108,
-    prevClose: 109,
-    volume: 2_600_000,
-    indicators: createIndicators({ sma50: 110, sma150: 100, currentClose: 108, breakoutCloseDelta: 108 - 118.59 }),
+    pattern: 'CLIMBING', sectorAligned: true, marketFavorable: true, price: 108, prevClose: 109, volume: 2_600_000,
+    indicators: createIndicators({ currentClose: 108, breakoutCloseDelta: -10.59 }),
   },
   {
     definition: {
@@ -94,13 +98,8 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'BEVAKA',
       expectedBlockedReasons: ['breakout_not_valid', 'pattern_not_climbing'],
     },
-    pattern: 'BASE',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 116,
-    prevClose: 116,
-    volume: 2_300_000,
-    indicators: createIndicators({ breakoutConfirmed: false, barsSinceBreakout: null, currentClose: 116, breakoutCloseDelta: -2.59, volumeMultiple: 2.3 }),
+    pattern: 'BASE', sectorAligned: true, marketFavorable: true, price: 116, prevClose: 116, volume: 2_300_000,
+    indicators: createIndicators({ breakoutConfirmed: false, barsSinceBreakout: null, breakoutStale: false, currentClose: 116, breakoutCloseDelta: -2.59 }),
   },
   {
     definition: {
@@ -111,13 +110,8 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'SÄLJ',
       expectedBlockedReasons: ['pattern_not_climbing'],
     },
-    pattern: 'TIRED',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 117,
-    prevClose: 116,
-    volume: 2_100_000,
-    indicators: createIndicators({ sma50Slope: 0.2, sma50SlopeDirection: 'rising', currentClose: 117, breakoutCloseDelta: -1.59, volumeMultiple: 2.1 }),
+    pattern: 'TIRED', sectorAligned: true, marketFavorable: true, price: 117, prevClose: 116, volume: 2_100_000,
+    indicators: createIndicators({ sma50Slope: 0.2, currentClose: 117, breakoutCloseDelta: -1.59 }),
   },
   {
     definition: {
@@ -129,8 +123,10 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedBlockedReasons: [
         'below_50ma',
         'below_150ma',
+        'below_150ma_hard_stop',
         'slope_50_not_positive',
         'breakout_not_valid',
+        'breakout_not_clean',
         'volume_below_threshold',
         'mansfield_not_valid',
         'sector_not_aligned',
@@ -138,29 +134,14 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
         'pattern_not_climbing',
       ],
     },
-    pattern: 'DOWNHILL',
-    sectorAligned: false,
-    marketFavorable: false,
-    price: 82,
-    prevClose: 84,
-    volume: 1_000_000,
+    pattern: 'DOWNHILL', sectorAligned: false, marketFavorable: false, price: 82, prevClose: 84, volume: 1_000_000,
     indicators: createIndicators({
-      sma50: 95,
-      sma150: 110,
-      sma200: 118,
-      sma50Slope: -3.2,
-      sma50SlopeDirection: 'falling',
-      resistanceZone: 97,
-      breakoutLevel: 97.49,
-      breakoutConfirmed: false,
-      barsSinceBreakout: null,
-      currentClose: 82,
-      breakoutCloseDelta: -15.49,
-      averageVolumeReference: 1_250_000,
-      volumeMultiple: 0.8,
-      mansfieldRS: -3.7,
-      mansfieldRSTrend: 'falling',
-      mansfieldTransition: false,
+      sma50: 95, sma150: 110, sma200: 118, sma50Slope: -3.2, sma50SlopeDirection: 'falling',
+      resistanceZone: 97, resistanceUpperBound: 97, breakoutLevel: 97.485,
+      breakoutConfirmed: false, breakoutQualityPass: false, breakoutQualityReasons: ['close_not_far_enough', 'close_not_near_high'],
+      barsSinceBreakout: null, breakoutStale: false, currentClose: 82, breakoutCloseDelta: -15.485, closeAboveResistancePct: -0.1546,
+      averageVolumeReference: 1_250_000, volumeMultiple: 0.8,
+      mansfieldRS: -3.7, mansfieldRSPrev: -2.1, mansfieldRSTrend: 'falling', mansfieldTransition: false, mansfieldUptrend: false, mansfieldValid: false,
     }),
   },
   {
@@ -172,12 +153,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'BEVAKA',
       expectedBlockedReasons: ['volume_below_threshold'],
     },
-    pattern: 'CLIMBING',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 121,
-    prevClose: 120,
-    volume: 1_600_000,
+    pattern: 'CLIMBING', sectorAligned: true, marketFavorable: true, price: 121, prevClose: 120, volume: 1_600_000,
     indicators: createIndicators({ averageVolumeReference: 1_142_857.142857, volumeMultiple: 1.4 }),
   },
   {
@@ -189,12 +165,7 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedRecommendation: 'BEVAKA',
       expectedBlockedReasons: ['sector_not_aligned'],
     },
-    pattern: 'CLIMBING',
-    sectorAligned: false,
-    marketFavorable: true,
-    price: 121,
-    prevClose: 120,
-    volume: 2_600_000,
+    pattern: 'CLIMBING', sectorAligned: false, marketFavorable: true, price: 121, prevClose: 120, volume: 2_600_000,
     indicators: createIndicators({}),
   },
   {
@@ -204,15 +175,22 @@ const FIXTURE_SCENARIOS: FixtureScenario[] = [
       expectedPattern: 'CLIMBING',
       expectedIsValidWspEntry: false,
       expectedRecommendation: 'BEVAKA',
-      expectedBlockedReasons: ['breakout_stale'],
+      expectedBlockedReasons: ['breakout_late_8plus'],
     },
-    pattern: 'CLIMBING',
-    sectorAligned: true,
-    marketFavorable: true,
-    price: 123,
-    prevClose: 122,
-    volume: 2_900_000,
-    indicators: createIndicators({ currentClose: 123, breakoutCloseDelta: 4.41, barsSinceBreakout: 18, volumeMultiple: 2.9 }),
+    pattern: 'CLIMBING', sectorAligned: true, marketFavorable: true, price: 123, prevClose: 122, volume: 2_900_000,
+    indicators: createIndicators({ currentClose: 123, breakoutCloseDelta: 4.41, barsSinceBreakout: 8, breakoutStale: true, volumeMultiple: 2.9 }),
+  },
+  {
+    definition: {
+      id: 'below_150ma_forces_sell',
+      description: 'Price below the 150-day MA triggers the hard-stop SÄLJ override.',
+      expectedPattern: 'CLIMBING',
+      expectedIsValidWspEntry: false,
+      expectedRecommendation: 'SÄLJ',
+      expectedBlockedReasons: ['below_150ma', 'below_150ma_hard_stop'],
+    },
+    pattern: 'CLIMBING', sectorAligned: true, marketFavorable: true, price: 95, prevClose: 96, volume: 2_800_000,
+    indicators: createIndicators({ sma50: 90, sma150: 100, currentClose: 95, breakoutCloseDelta: -23.59 }),
   },
 ];
 
@@ -224,128 +202,97 @@ function createRecommendationCounts(stocks: EvaluatedStock[]): RecommendationCou
   return stocks.reduce<RecommendationCounts>((counts, stock) => {
     counts[stock.finalRecommendation] += 1;
     return counts;
-  }, {
-    'KÖP': 0,
-    'BEVAKA': 0,
-    'SÄLJ': 0,
-    'UNDVIK': 0,
-  });
+  }, { KÖP: 0, BEVAKA: 0, SÄLJ: 0, UNDVIK: 0 });
 }
 
 function buildFormulaWarnings(stocks: EvaluatedStock[]): string[] {
   const warnings = new Set<string>();
 
   for (const stock of stocks) {
-    const { indicators } = stock;
-
-    if (indicators.breakoutConfirmed && indicators.resistanceZone === null) {
-      warnings.add(`${stock.symbol}: breakoutConfirmed=true but resistanceZone is null`);
-    }
-    if (indicators.breakoutConfirmed && indicators.breakoutLevel === null) {
-      warnings.add(`${stock.symbol}: breakoutConfirmed=true but breakoutLevel is null`);
-    }
-    if (!indicators.breakoutConfirmed && indicators.barsSinceBreakout !== null) {
-      warnings.add(`${stock.symbol}: barsSinceBreakout is set while breakoutConfirmed=false`);
-    }
-    if (isBreakoutStale(indicators.barsSinceBreakout) && stock.gate.breakoutFresh) {
-      warnings.add(`${stock.symbol}: stale breakout still marked as fresh`);
-    }
-    if (indicators.volumeMultiple !== null && indicators.averageVolumeReference === null) {
-      warnings.add(`${stock.symbol}: volumeMultiple exists without an averageVolumeReference`);
-    }
+    const { indicators, audit } = stock;
+    if (indicators.breakoutConfirmed && indicators.resistanceUpperBound === null) warnings.add(`${stock.symbol}: breakoutConfirmed=true but resistanceUpperBound is null`);
+    if (indicators.breakoutConfirmed && indicators.breakoutLevel === null) warnings.add(`${stock.symbol}: breakoutConfirmed=true but breakoutLevel is null`);
+    if (!indicators.breakoutConfirmed && indicators.barsSinceBreakout !== null) warnings.add(`${stock.symbol}: barsSinceBreakout is set while breakoutConfirmed=false`);
+    if (isBreakoutStale(indicators.barsSinceBreakout, WSP_CONFIG.wsp.staleBreakoutBars) && stock.gate.breakoutFresh) warnings.add(`${stock.symbol}: stale breakout still marked as fresh`);
+    if (indicators.volumeMultiple !== null && indicators.averageVolumeReference === null) warnings.add(`${stock.symbol}: volumeMultiple exists without averageVolumeReference`);
+    if (!audit.breakoutQualityPass && audit.breakoutValid) warnings.add(`${stock.symbol}: breakout marked valid while breakoutQualityPass=false`);
   }
 
   return [...warnings];
 }
 
-export function runValidationFixtures(): ValidationFixtureResult[] {
-  return FIXTURE_SCENARIOS.map((fixture, index) => {
-    const stock = evaluateStock(
-      `FIX${index + 1}`,
-      fixture.definition.id,
-      'Validation',
-      'Fixture',
-      [],
-      [],
-      fixture.sectorAligned,
-      fixture.marketFavorable,
-      'fallback',
-      {
-        overrideAnalysis: {
-          pattern: fixture.pattern,
-          indicators: fixture.indicators,
-          price: fixture.price,
-          prevClose: fixture.prevClose,
-          volume: fixture.volume,
-          lastUpdated: '2026-03-23T00:00:00.000Z',
-        },
+function evaluateFixtureScenario(scenario: FixtureScenario): ValidationFixtureResult {
+  const stock = evaluateStock(
+    scenario.definition.id,
+    scenario.definition.id,
+    'Technology',
+    'Software',
+    [],
+    [],
+    scenario.sectorAligned,
+    scenario.marketFavorable,
+    'fallback',
+    {
+      overrideAnalysis: {
+        pattern: scenario.pattern,
+        indicators: scenario.indicators,
+        price: scenario.price,
+        prevClose: scenario.prevClose,
+        volume: scenario.volume,
+        lastUpdated: '2025-03-23T00:00:00.000Z',
       },
-    );
+    },
+  );
 
-    const mismatches: string[] = [];
+  const mismatches: string[] = [];
+  if (stock.pattern !== scenario.definition.expectedPattern) mismatches.push(`Expected pattern ${scenario.definition.expectedPattern}, got ${stock.pattern}`);
+  if (stock.isValidWspEntry !== scenario.definition.expectedIsValidWspEntry) mismatches.push(`Expected valid entry ${scenario.definition.expectedIsValidWspEntry}, got ${stock.isValidWspEntry}`);
+  if (stock.finalRecommendation !== scenario.definition.expectedRecommendation) mismatches.push(`Expected recommendation ${scenario.definition.expectedRecommendation}, got ${stock.finalRecommendation}`);
+  if (!sameBlockedReasons(stock.blockedReasons, scenario.definition.expectedBlockedReasons)) mismatches.push(`Expected blockers ${scenario.definition.expectedBlockedReasons.join(', ') || 'none'}, got ${stock.blockedReasons.join(', ') || 'none'}`);
 
-    if (stock.pattern !== fixture.definition.expectedPattern) {
-      mismatches.push(`pattern expected ${fixture.definition.expectedPattern} got ${stock.pattern}`);
-    }
-    if (stock.isValidWspEntry !== fixture.definition.expectedIsValidWspEntry) {
-      mismatches.push(`isValidWspEntry expected ${fixture.definition.expectedIsValidWspEntry} got ${stock.isValidWspEntry}`);
-    }
-    if (stock.finalRecommendation !== fixture.definition.expectedRecommendation) {
-      mismatches.push(`recommendation expected ${fixture.definition.expectedRecommendation} got ${stock.finalRecommendation}`);
-    }
-    if (!sameBlockedReasons(stock.blockedReasons, fixture.definition.expectedBlockedReasons)) {
-      mismatches.push(`blockedReasons expected [${fixture.definition.expectedBlockedReasons.join(', ')}] got [${stock.blockedReasons.join(', ')}]`);
-    }
-
-    return {
-      ...fixture.definition,
-      actualPattern: stock.pattern,
-      actualIsValidWspEntry: stock.isValidWspEntry,
-      actualRecommendation: stock.finalRecommendation,
-      actualBlockedReasons: stock.blockedReasons,
-      passed: mismatches.length === 0,
-      mismatches,
-    };
-  });
+  return {
+    ...scenario.definition,
+    actualPattern: stock.pattern,
+    actualIsValidWspEntry: stock.isValidWspEntry,
+    actualRecommendation: stock.finalRecommendation,
+    actualBlockedReasons: stock.blockedReasons,
+    passed: mismatches.length === 0,
+    mismatches,
+  };
 }
 
 export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDebugSummary {
-  const fixtureResults = runValidationFixtures();
+  const fixtureResults = FIXTURE_SCENARIOS.map(evaluateFixtureScenario);
   const indicatorFixtureResults = runIndicatorFixtures();
-  const logicViolations = stocks
-    .filter((stock) => stock.logicViolations.length > 0)
-    .map((stock) => ({
-      symbol: stock.symbol,
-      finalRecommendation: stock.finalRecommendation,
-      pattern: stock.pattern,
-      violatedRules: stock.logicViolations,
-    }));
-
-  const blockedCounts = Object.fromEntries(
-    BLOCKED_REASON_ORDERED.map((reason) => [reason, 0]),
-  ) as Record<WSPBlockedReason, number>;
-
-  for (const stock of stocks) {
-    for (const blockedReason of stock.blockedReasons) {
-      blockedCounts[blockedReason] += 1;
-    }
-  }
+  const blockedCounts = BLOCKED_REASON_ORDERED.reduce<Record<WSPBlockedReason, number>>((counts, reason) => {
+    counts[reason] = stocks.filter((stock) => stock.blockedReasons.includes(reason)).length;
+    return counts;
+  }, {} as Record<WSPBlockedReason, number>);
 
   return {
     fixturePassCount: fixtureResults.filter((result) => result.passed).length,
     fixtureFailCount: fixtureResults.filter((result) => !result.passed).length,
     indicatorTestPassCount: indicatorFixtureResults.filter((result) => result.passed).length,
     indicatorTestFailCount: indicatorFixtureResults.filter((result) => !result.passed).length,
-    logicViolationCount: logicViolations.length,
-    logicViolations,
+    logicViolationCount: stocks.filter((stock) => stock.logicViolations.length > 0).length,
+    logicViolations: stocks.filter((stock) => stock.logicViolations.length > 0).map((stock) => ({
+      symbol: stock.symbol,
+      finalRecommendation: stock.finalRecommendation,
+      pattern: stock.pattern,
+      violatedRules: stock.logicViolations,
+    })),
     fixtureResults,
     indicatorFixtureResults,
     blockedCounts,
-    validBuyCandidates: stocks.filter((stock) => stock.finalRecommendation === 'KÖP' && stock.isValidWspEntry).length,
+    validBuyCandidates: stocks.filter((stock) => stock.finalRecommendation === 'KÖP').length,
     validEntryCount: stocks.filter((stock) => stock.isValidWspEntry).length,
     totalStocks: stocks.length,
     recommendationCounts: createRecommendationCounts(stocks),
     formulaInconsistencyWarnings: buildFormulaWarnings(stocks),
-    insufficientHistoryCases: stocks.filter((stock) => stock.indicators.indicatorWarnings.some((warning) => warning.startsWith('insufficient_'))).length,
+    insufficientHistoryCases: stocks.filter((stock) => stock.audit.indicatorWarnings.length > 0).length,
   };
+}
+
+export function runValidationFixtures(): ValidationFixtureResult[] {
+  return FIXTURE_SCENARIOS.map(evaluateFixtureScenario);
 }
