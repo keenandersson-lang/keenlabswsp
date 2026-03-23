@@ -56,7 +56,6 @@ describe('WSP validation fixtures', () => {
     const violation = createLogicViolation({
       ...stock,
       finalRecommendation: 'KÖP',
-      recommendation: 'KÖP',
     });
 
     expect(stock.audit.above50MA).toBe(false);

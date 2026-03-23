@@ -1,19 +1,15 @@
-import type { EvaluatedStock, ProviderStatus, ScreenerDebugSummary, WSPBlockedReason } from '@/lib/wsp-types';
+import { useState } from 'react';
+import type { ProviderStatus, ScreenerDebugSummary, ValidationFixtureResult, WSPBlockedReason } from '@/lib/wsp-types';
 import { BLOCKED_REASON_ORDERED, formatBlockedReason } from '@/lib/wsp-assertions';
 import { AlertTriangle, Bug, ChevronDown, ChevronUp, FlaskConical } from 'lucide-react';
-import { useState } from 'react';
 
 interface DebugPanelProps {
-  stocks: EvaluatedStock[];
   providerStatus: ProviderStatus;
   debugSummary: ScreenerDebugSummary;
 }
 
-export function DebugPanel({ stocks, providerStatus, debugSummary }: DebugPanelProps) {
+export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
   const [expanded, setExpanded] = useState(false);
-
-  const validEntries = stocks.filter((s) => s.isValidWspEntry).length;
-  const buyCount = stocks.filter((s) => s.finalRecommendation === 'KÖP').length;
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -33,6 +29,11 @@ export function DebugPanel({ stocks, providerStatus, debugSummary }: DebugPanelP
           <span className="rounded border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">
             Fixtures {debugSummary.fixturePassCount}/{debugSummary.fixturePassCount + debugSummary.fixtureFailCount}
           </span>
+          {debugSummary.logicViolationCount > 0 && (
+            <span className="rounded border border-signal-sell/30 bg-signal-sell/10 px-1.5 py-0.5 text-[10px] text-signal-sell">
+              Impossible states {debugSummary.logicViolationCount}
+            </span>
+          )}
         </div>
         {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
@@ -40,10 +41,13 @@ export function DebugPanel({ stocks, providerStatus, debugSummary }: DebugPanelP
       {expanded && (
         <div className="space-y-4 border-t border-border px-4 py-3">
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-            <Stat label="Totala symboler" value={stocks.length} />
+            <Stat label="Totala symboler" value={debugSummary.totalStocks} />
             <Stat label="Provider symbol count" value={providerStatus.symbolCount} />
-            <Stat label="Valid WSP Entry" value={validEntries} highlight />
-            <Stat label="KÖP signaler" value={buyCount} highlight />
+            <Stat label="Valid WSP Entry" value={debugSummary.validEntryCount} highlight />
+            <Stat label="KÖP signaler" value={debugSummary.recommendationCounts['KÖP']} highlight />
+            <Stat label="BEVAKA" value={debugSummary.recommendationCounts['BEVAKA']} />
+            <Stat label="SÄLJ" value={debugSummary.recommendationCounts['SÄLJ']} warn={debugSummary.recommendationCounts['SÄLJ'] > 0} />
+            <Stat label="UNDVIK" value={debugSummary.recommendationCounts['UNDVIK']} warn={debugSummary.recommendationCounts['UNDVIK'] > 0} />
             <Stat label="Provider status" value={providerStatus.uiState} />
             <Stat label="Provider fetch" value={providerStatus.successCount > 0 ? 'success' : 'failed'} warn={providerStatus.successCount === 0} />
             <Stat label="Fallback active" value={providerStatus.fallbackActive ? 'yes' : 'no'} warn={providerStatus.fallbackActive} />
@@ -81,22 +85,7 @@ export function DebugPanel({ stocks, providerStatus, debugSummary }: DebugPanelP
               <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Fixture Results</div>
               <div className="space-y-2 text-xs">
                 {debugSummary.fixtureResults.map((fixture) => (
-                  <div key={fixture.id} className="rounded-md border border-border/70 bg-card/50 p-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-mono text-foreground">{fixture.id}</div>
-                        <p className="mt-1 text-muted-foreground">{fixture.description}</p>
-                      </div>
-                      <span className={`rounded border px-2 py-0.5 font-medium ${fixture.passed ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell'}`}>
-                        {fixture.passed ? 'PASS' : 'FAIL'}
-                      </span>
-                    </div>
-                    {!fixture.passed && fixture.mismatches.length > 0 && (
-                      <ul className="mt-2 list-disc space-y-1 pl-4 text-signal-sell">
-                        {fixture.mismatches.map((mismatch) => <li key={mismatch}>{mismatch}</li>)}
-                      </ul>
-                    )}
-                  </div>
+                  <FixtureResultCard key={fixture.id} fixture={fixture} />
                 ))}
               </div>
             </div>
@@ -129,6 +118,52 @@ export function DebugPanel({ stocks, providerStatus, debugSummary }: DebugPanelP
       )}
     </div>
   );
+}
+
+function FixtureResultCard({ fixture }: { fixture: ValidationFixtureResult }) {
+  return (
+    <div className="rounded-md border border-border/70 bg-card/50 p-2">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-foreground">{fixture.id}</div>
+          <p className="mt-1 text-muted-foreground">{fixture.description}</p>
+        </div>
+        <span className={`rounded border px-2 py-0.5 font-medium ${fixture.passed ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell'}`}>
+          {fixture.passed ? 'PASS' : 'FAIL'}
+        </span>
+      </div>
+
+      <div className="mt-2 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+        <ComparisonRow label="Expected recommendation" value={fixture.expectedRecommendation} />
+        <ComparisonRow label="Actual recommendation" value={fixture.actualRecommendation} warn={fixture.expectedRecommendation !== fixture.actualRecommendation} />
+        <ComparisonRow label="Expected blockers" value={formatReasonList(fixture.expectedBlockedReasons)} />
+        <ComparisonRow label="Actual blockers" value={formatReasonList(fixture.actualBlockedReasons)} warn={formatReasonList(fixture.expectedBlockedReasons) !== formatReasonList(fixture.actualBlockedReasons)} />
+      </div>
+
+      {!fixture.passed && fixture.mismatches.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 pl-4 text-signal-sell">
+          {fixture.mismatches.map((mismatch) => <li key={mismatch}>{mismatch}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ComparisonRow({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div>
+      <span className="block text-[10px] uppercase tracking-wide text-muted-foreground/80">{label}</span>
+      <span className={warn ? 'font-mono text-signal-sell' : 'font-mono text-foreground'}>{value}</span>
+    </div>
+  );
+}
+
+function formatReasonList(reasons: WSPBlockedReason[]) {
+  if (reasons.length === 0) {
+    return 'none';
+  }
+
+  return reasons.join(', ');
 }
 
 function badgeClass(state: ProviderStatus['uiState']) {

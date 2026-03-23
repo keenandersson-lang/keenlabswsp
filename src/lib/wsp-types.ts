@@ -124,6 +124,13 @@ export interface ValidationFixtureResult extends ValidationFixtureDefinition {
   mismatches: string[];
 }
 
+export interface RecommendationCounts {
+  'KÖP': number;
+  'BEVAKA': number;
+  'SÄLJ': number;
+  'UNDVIK': number;
+}
+
 export interface ScreenerDebugSummary {
   fixturePassCount: number;
   fixtureFailCount: number;
@@ -132,6 +139,9 @@ export interface ScreenerDebugSummary {
   fixtureResults: ValidationFixtureResult[];
   blockedCounts: Record<WSPBlockedReason, number>;
   validBuyCandidates: number;
+  validEntryCount: number;
+  totalStocks: number;
+  recommendationCounts: RecommendationCounts;
 }
 
 // ─── Complete evaluated stock ───
@@ -158,7 +168,6 @@ export interface EvaluatedStock {
   isValidWspEntry: boolean;
 
   // Layer 3
-  recommendation: WSPRecommendation;
   finalRecommendation: WSPRecommendation;
 
   // Explainability / audit
