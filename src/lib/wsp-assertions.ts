@@ -1,4 +1,4 @@
-import { isBreakoutStale } from './wsp-indicators';
+import { WSP_CONFIG } from './wsp-config';
 import type {
   EntryGate,
   EvaluatedStock,
@@ -13,9 +13,11 @@ import type {
 const BLOCKED_REASON_ORDER: WSPBlockedReason[] = [
   'below_50ma',
   'below_150ma',
+  'below_150ma_hard_stop',
   'slope_50_not_positive',
   'breakout_not_valid',
-  'breakout_stale',
+  'breakout_not_clean',
+  'breakout_late_8plus',
   'volume_below_threshold',
   'mansfield_not_valid',
   'sector_not_aligned',
@@ -25,13 +27,13 @@ const BLOCKED_REASON_ORDER: WSPBlockedReason[] = [
 
 export function createBlockedReasons(pattern: WSPPattern, gate: EntryGate, indicators: StockIndicators): WSPBlockedReason[] {
   const blocked = new Set<WSPBlockedReason>();
-  const breakoutStale = isBreakoutStale(indicators.barsSinceBreakout);
 
   if (!gate.priceAboveMA50) blocked.add('below_50ma');
   if (!gate.priceAboveMA150) blocked.add('below_150ma');
   if (!gate.ma50Rising) blocked.add('slope_50_not_positive');
-  if (!gate.breakoutValid) blocked.add('breakout_not_valid');
-  if (breakoutStale) blocked.add('breakout_stale');
+  if (!indicators.breakoutConfirmed) blocked.add('breakout_not_valid');
+  if (!indicators.breakoutQualityPass) blocked.add('breakout_not_clean');
+  if (indicators.breakoutStale) blocked.add('breakout_late_8plus');
   if (!gate.volumeSufficient) blocked.add('volume_below_threshold');
   if (!gate.mansfieldValid) blocked.add('mansfield_not_valid');
   if (!gate.sectorAligned) blocked.add('sector_not_aligned');
@@ -58,8 +60,8 @@ export function createStockAudit({
   volume: number;
   score: number;
 }): StockAudit {
-  const breakoutStale = isBreakoutStale(indicators.barsSinceBreakout);
   const blockedReasons = createBlockedReasons(pattern, gate, indicators);
+  const exitReasons: WSPBlockedReason[] = !gate.priceAboveMA150 ? ['below_150ma_hard_stop'] : [];
 
   return {
     pattern,
@@ -75,41 +77,54 @@ export function createStockAudit({
     sma50SlopeValue: indicators.sma50Slope,
     sma50SlopeDirection: indicators.sma50SlopeDirection,
     breakoutValid: gate.breakoutValid,
-    breakoutStale,
+    breakoutStale: indicators.breakoutStale,
+    breakoutQualityPass: indicators.breakoutQualityPass,
+    breakoutQualityReasons: indicators.breakoutQualityReasons,
     resistanceLevel: indicators.resistanceZone,
+    resistanceUpperBound: indicators.resistanceUpperBound,
     resistanceTouches: indicators.resistanceTouches,
+    resistanceTolerancePct: indicators.resistanceTolerancePct,
+    resistanceMostRecentTouchDate: indicators.resistanceMostRecentTouchDate,
     breakoutLevel: indicators.breakoutLevel,
     currentClose: indicators.currentClose ?? price,
     breakoutCloseDelta: indicators.breakoutCloseDelta,
+    closeAboveResistancePct: indicators.closeAboveResistancePct,
+    breakoutClv: indicators.breakoutClv,
+    recentFalseBreakoutsCount: indicators.recentFalseBreakoutsCount,
     breakoutAgeBars: indicators.barsSinceBreakout,
     currentVolume: volume,
     averageVolumeReference: indicators.averageVolumeReference,
     volumeMultiple: indicators.volumeMultiple,
     volumeValid: gate.volumeSufficient,
+    mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
     mansfieldValue: indicators.mansfieldRS,
+    mansfieldValuePrev: indicators.mansfieldRSPrev,
     mansfieldTrend: indicators.mansfieldRSTrend,
+    mansfieldUptrend: indicators.mansfieldUptrend,
+    mansfieldRecentTransition: indicators.mansfieldTransition,
     mansfieldValid: gate.mansfieldValid,
+    staleBreakoutBars: WSP_CONFIG.wsp.staleBreakoutBars,
     sectorAligned: gate.sectorAligned,
     marketAligned: gate.marketFavorable,
     chronologyNormalized: indicators.chronologyNormalized,
     indicatorWarnings: indicators.indicatorWarnings,
     score,
     blockedReasons,
+    exitReasons,
+    wspSpec: { ...WSP_CONFIG.wsp },
   };
 }
 
 export function getLogicViolationRuleIds(stock: Pick<EvaluatedStock, 'pattern' | 'finalRecommendation' | 'audit'>): WSPBlockedReason[] {
-  if (stock.finalRecommendation !== 'KÖP') {
-    return [];
-  }
+  if (stock.finalRecommendation !== 'KÖP') return [];
 
   const violations = new Set<WSPBlockedReason>();
-
   if (!stock.audit.above50MA) violations.add('below_50ma');
   if (!stock.audit.above150MA) violations.add('below_150ma');
   if (!stock.audit.slope50Positive) violations.add('slope_50_not_positive');
   if (!stock.audit.breakoutValid) violations.add('breakout_not_valid');
-  if (stock.audit.breakoutStale) violations.add('breakout_stale');
+  if (!stock.audit.breakoutQualityPass) violations.add('breakout_not_clean');
+  if (stock.audit.breakoutStale) violations.add('breakout_late_8plus');
   if (!stock.audit.volumeValid) violations.add('volume_below_threshold');
   if (!stock.audit.mansfieldValid) violations.add('mansfield_not_valid');
   if (!stock.audit.sectorAligned) violations.add('sector_not_aligned');
@@ -121,9 +136,7 @@ export function getLogicViolationRuleIds(stock: Pick<EvaluatedStock, 'pattern' |
 
 export function createLogicViolation(stock: EvaluatedStock): LogicViolation | null {
   const violatedRules = getLogicViolationRuleIds(stock);
-  if (violatedRules.length === 0) {
-    return null;
-  }
+  if (violatedRules.length === 0) return null;
 
   return {
     symbol: stock.symbol,
@@ -136,18 +149,19 @@ export function createLogicViolation(stock: EvaluatedStock): LogicViolation | nu
 export const BLOCKED_REASON_LABELS: Record<WSPBlockedReason, string> = {
   below_50ma: 'Under 50 MA',
   below_150ma: 'Under 150 MA',
-  slope_50_not_positive: 'Svag 50 MA-lutning',
-  breakout_not_valid: 'Inget giltigt breakout',
-  breakout_stale: 'Stale breakout',
-  volume_below_threshold: 'Svag volym',
-  mansfield_not_valid: 'Svag Mansfield',
-  sector_not_aligned: 'Sektor ej alignad',
-  market_not_aligned: 'Marknad ej alignad',
+  below_150ma_hard_stop: 'Hard stop under 150 MA',
+  slope_50_not_positive: '50 MA lutar inte uppåt',
+  breakout_not_valid: 'Ingen giltig breakoutdag',
+  breakout_not_clean: 'Breakout ej clean/decisive',
+  breakout_late_8plus: 'Breakout är 8+ dagar gammal',
+  volume_below_threshold: 'Volym under 2x-regeln',
+  mansfield_not_valid: 'Mansfield ej bullish',
+  sector_not_aligned: 'Sektor ej i upptrend',
+  market_not_aligned: 'Marknad ej i upptrend',
   pattern_not_climbing: 'Mönster ej CLIMBING',
 };
 
 export const BLOCKED_REASON_ORDERED = BLOCKED_REASON_ORDER;
-
 export function formatBlockedReason(reason: WSPBlockedReason): string {
   return BLOCKED_REASON_LABELS[reason];
 }

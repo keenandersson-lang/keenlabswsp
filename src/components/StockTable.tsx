@@ -17,7 +17,8 @@ const blockedReasonFilters: WSPBlockedReason[] = [
   'below_150ma',
   'slope_50_not_positive',
   'breakout_not_valid',
-  'breakout_stale',
+  'breakout_not_clean',
+  'breakout_late_8plus',
   'volume_below_threshold',
   'mansfield_not_valid',
   'sector_not_aligned',
@@ -33,7 +34,8 @@ const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'below_150ma', label: 'Blockerad: under 150 MA' },
   { value: 'slope_50_not_positive', label: 'Blockerad: svag slope' },
   { value: 'breakout_not_valid', label: 'Blockerad: breakout saknas' },
-  { value: 'breakout_stale', label: 'Blockerad: stale breakout' },
+  { value: 'breakout_not_clean', label: 'Blockerad: smutsigt breakout' },
+  { value: 'breakout_late_8plus', label: 'Blockerad: breakout 8+ bars gammalt' },
   { value: 'volume_below_threshold', label: 'Blockerad: svag volym' },
   { value: 'mansfield_not_valid', label: 'Blockerad: svag Mansfield' },
   { value: 'sector_not_aligned', label: 'Blockerad: svag sektor' },
@@ -269,23 +271,35 @@ export function StockTable({ stocks }: StockTableProps) {
                               <Row label="Slope 50 value" value={formatNumberOrDash(audit?.sma50SlopeValue, 4)} highlight={audit?.slope50Positive} />
                               <Row label="Slope 50 direction" value={audit?.sma50SlopeDirection ?? '—'} highlight={audit?.slope50Positive} />
                               <Row label="Resistance level" value={formatCurrencyOrDash(audit?.resistanceLevel)} />
+                              <Row label="Resistance upper bound" value={formatCurrencyOrDash(audit?.resistanceUpperBound)} />
                               <Row label="Resistance touches" value={formatInteger(audit?.resistanceTouches)} />
+                              <Row label="Resistance tolerance %" value={formatPercentFromRatio(audit?.resistanceTolerancePct)} />
                               <Row label="Breakout level" value={formatCurrencyOrDash(audit?.breakoutLevel)} />
                               <Row label="Current close" value={formatCurrencyOrDash(audit?.currentClose)} />
                               <Row label="Close vs breakout" value={formatSignedCurrency(audit?.breakoutCloseDelta)} highlight={audit?.breakoutValid} />
+                              <Row label="Close above resistance %" value={formatPercentFromRatio(audit?.closeAboveResistancePct)} highlight={audit?.breakoutQualityPass} />
+                              <Row label="Breakout CLV" value={formatNumberOrDash(audit?.breakoutClv, 3)} highlight={audit?.breakoutQualityPass} />
+                              <Row label="False breakouts (10 bars)" value={formatInteger(audit?.recentFalseBreakoutsCount)} highlight={audit ? audit.recentFalseBreakoutsCount <= audit.wspSpec.falseBreakoutMaxCount : undefined} />
                               <Row label="Breakout age bars" value={formatInteger(audit?.breakoutAgeBars)} highlight={audit ? !audit.breakoutStale : undefined} />
                               <Row label="Breakout valid" value={formatBooleanLabel(audit?.breakoutValid)} highlight={audit?.breakoutValid} />
                               <Row label="Breakout stale" value={formatBooleanLabel(audit?.breakoutStale)} highlight={audit ? !audit.breakoutStale : undefined} />
+                              <Row label="Breakout quality pass" value={formatBooleanLabel(audit?.breakoutQualityPass)} highlight={audit?.breakoutQualityPass} />
+                              <Row label="Breakout quality reasons" value={audit?.breakoutQualityReasons.join(', ') || 'none'} />
                               <Row label="Current volume" value={formatInteger(audit?.currentVolume)} />
                               <Row label="Average volume ref" value={formatNumberOrDash(audit?.averageVolumeReference, 2)} />
                               <Row label="Volume multiple" value={formatMultiple(audit?.volumeMultiple)} highlight={audit?.volumeValid} />
+                              <Row label="Mansfield lookback" value={formatInteger(audit?.mansfieldLookbackBars)} />
                               <Row label="Mansfield value" value={formatSignedNumber(audit?.mansfieldValue, 4)} highlight={audit?.mansfieldValid} />
+                              <Row label="Mansfield prev" value={formatSignedNumber(audit?.mansfieldValuePrev, 4)} />
                               <Row label="Mansfield trend" value={audit?.mansfieldTrend ?? '—'} highlight={audit?.mansfieldValid} />
+                              <Row label="Mansfield uptrend" value={formatBooleanLabel(audit?.mansfieldUptrend)} highlight={audit?.mansfieldUptrend} />
+                              <Row label="Mansfield transition" value={formatBooleanLabel(audit?.mansfieldRecentTransition)} highlight={audit?.mansfieldRecentTransition} />
                               <Row label="Mansfield valid" value={formatBooleanLabel(audit?.mansfieldValid)} highlight={audit?.mansfieldValid} />
                               <Row label="Chronology normalized" value={formatBooleanLabel(audit?.chronologyNormalized)} highlight={audit ? !audit.chronologyNormalized : undefined} />
                               <Row label="Indicator warnings" value={formatIndicatorWarnings(audit?.indicatorWarnings)} />
                               <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
                               <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
+                              <Row label="Exit reasons" value={audit?.exitReasons.join(', ') || 'none'} />
                               <Row label="Score" value={`${stock.score}/${stock.maxScore}`} />
                             </div>
                           </div>
@@ -300,6 +314,21 @@ export function StockTable({ stocks }: StockTableProps) {
                                 <Row label="Industry" value={stock.industry || '—'} />
                                 <Row label="Data source" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Fallback'} />
                                 <Row label="Updated" value={stock.lastUpdated || '—'} />
+                              </div>
+                            </div>
+
+
+                            <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">WSP Spec</h4>
+                              <div className="space-y-1.5 text-xs">
+                                <Row label="Touches min" value={formatInteger(audit?.wspSpec.resistanceTouchesMin)} />
+                                <Row label="Resistance tolerance %" value={formatPercentFromRatio(audit?.wspSpec.resistanceTolerancePct)} />
+                                <Row label="Breakout min above %" value={formatPercentFromRatio(audit?.wspSpec.breakoutMinCloseAboveResistancePct)} />
+                                <Row label="Stale breakout bars" value={formatInteger(audit?.wspSpec.staleBreakoutBars)} />
+                                <Row label="Volume lookback bars" value={formatInteger(audit?.wspSpec.volumeLookbackBars)} />
+                                <Row label="Volume min" value={formatMultiple(audit?.wspSpec.volumeMultipleMin)} />
+                                <Row label="Mansfield lookback" value={formatInteger(audit?.wspSpec.mansfieldLookbackBars)} />
+                                <Row label="Mansfield transition bars" value={formatInteger(audit?.wspSpec.mansfieldTransitionLookbackBars)} />
                               </div>
                             </div>
 
@@ -399,3 +428,10 @@ function formatBooleanLabel(value: boolean | null | undefined) {
   }
   return value ? 'Ja' : 'Nej';
 }
+
+function formatPercentFromRatio(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+

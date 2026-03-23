@@ -7,13 +7,13 @@ interface EntryCriteriaProps {
 
 const gateChecks: { key: keyof EvaluatedStock['gate']; label: string }[] = [
   { key: 'patternAllowsEntry', label: 'Mönster = CLIMBING' },
-  { key: 'breakoutValid', label: 'Breakout ovan resistans' },
-  { key: 'breakoutFresh', label: 'Breakout ej för gammalt' },
+  { key: 'breakoutValid', label: 'Clean breakout ovan resistans' },
+  { key: 'breakoutFresh', label: 'Breakout < 8 bars gammalt' },
   { key: 'priceAboveMA50', label: 'Pris > 50 MA' },
   { key: 'ma50Rising', label: '50 MA lutar uppåt' },
   { key: 'priceAboveMA150', label: 'Pris > 150 MA' },
-  { key: 'volumeSufficient', label: 'Volym ≥ 2x snitt' },
-  { key: 'mansfieldValid', label: 'Mansfield RS bullish' },
+  { key: 'volumeSufficient', label: 'Volym ≥ 2.0x föregående 5 bars snitt' },
+  { key: 'mansfieldValid', label: 'Mansfield bullish/transition' },
   { key: 'sectorAligned', label: 'Sektor i upptrend' },
   { key: 'marketFavorable', label: 'Marknadstrend gynnsam' },
 ];

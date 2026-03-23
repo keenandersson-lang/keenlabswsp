@@ -1,9 +1,6 @@
 /**
  * WSP Screener — Core Engine
  * 3-layer model: Pattern → Entry Gate → Recommendation
- * 
- * HARD RULES: No scoring system can override the entry gate.
- * A stock MUST pass ALL gate checks to receive KÖP.
  */
 
 import type {
@@ -13,9 +10,8 @@ import type {
 } from './wsp-types';
 import { classifyPattern, computeIndicators, isBreakoutFresh, normalizeBarsChronologically } from './wsp-indicators';
 import { WSP_CONFIG } from './wsp-config';
-import { createStockAudit, getLogicViolationRuleIds } from './wsp-assertions';
+import { BLOCKED_REASON_ORDERED, createStockAudit, getLogicViolationRuleIds } from './wsp-assertions';
 
-// Re-export types for backward compatibility
 export type { WSPPattern, WSPRecommendation, EvaluatedStock, MarketOverview, SectorStatus };
 
 interface EvaluateStockOptions {
@@ -29,7 +25,6 @@ interface EvaluateStockOptions {
   };
 }
 
-// ─── Layer 2: Entry Gate (HARD RULES) ───
 export function computeEntryGate(
   price: number,
   pattern: WSPPattern,
@@ -40,15 +35,14 @@ export function computeEntryGate(
   const priceAboveMA50 = indicators.sma50 !== null && price > indicators.sma50;
   const ma50Rising = indicators.sma50Slope !== null && indicators.sma50Slope > 0;
   const priceAboveMA150 = indicators.sma150 !== null && price > indicators.sma150;
-  const breakoutValid = indicators.breakoutConfirmed;
-  const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout);
-  const volumeSufficient = indicators.volumeMultiple !== null && indicators.volumeMultiple >= WSP_CONFIG.volume.breakoutMultiple;
-  const mansfieldValid = ((indicators.mansfieldRS !== null && indicators.mansfieldRS > WSP_CONFIG.mansfield.minValidRS && indicators.mansfieldRSTrend !== 'falling') ||
-    indicators.mansfieldTransition);
+  const breakoutValid = indicators.breakoutConfirmed && indicators.breakoutQualityPass;
+  const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout, WSP_CONFIG.wsp.staleBreakoutBars);
+  const volumeSufficient = indicators.volumeMultiple !== null && indicators.volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
+  const mansfieldValid = indicators.mansfieldValid;
   const patternAllowsEntry = pattern === 'CLIMBING';
 
-  // HARD GATE: ALL must be true
   const isValidWspEntry =
+    patternAllowsEntry &&
     priceAboveMA50 &&
     ma50Rising &&
     priceAboveMA150 &&
@@ -57,8 +51,7 @@ export function computeEntryGate(
     volumeSufficient &&
     mansfieldValid &&
     sectorAligned &&
-    marketFavorable &&
-    patternAllowsEntry;
+    marketFavorable;
 
   return {
     isValidWspEntry,
@@ -75,31 +68,19 @@ export function computeEntryGate(
   };
 }
 
-// ─── Layer 3: Recommendation Mapping ───
 export function mapRecommendation(
   pattern: WSPPattern,
   gate: EntryGate,
 ): WSPRecommendation {
-  // HARD RULE: KÖP only if CLIMBING + all gate checks pass
-  if (pattern === 'CLIMBING' && gate.isValidWspEntry) {
-    return 'KÖP';
-  }
-
-  // SÄLJ: Tired or weakening structure, or below 150 MA
-  if (pattern === 'TIRED') return 'SÄLJ';
   if (!gate.priceAboveMA150) return 'SÄLJ';
-
-  // UNDVIK: Downhill, or fundamentally broken setup
+  if (pattern === 'CLIMBING' && gate.isValidWspEntry) return 'KÖP';
+  if (pattern === 'TIRED') return 'SÄLJ';
   if (pattern === 'DOWNHILL') return 'UNDVIK';
   if (!gate.priceAboveMA50 && !gate.ma50Rising) return 'UNDVIK';
-
-  // BEVAKA: Promising structure but not all conditions met
   if (pattern === 'CLIMBING' || pattern === 'BASE') return 'BEVAKA';
-
   return 'UNDVIK';
 }
 
-// ─── Compute ranking score (secondary, never overrides gate) ───
 export function computeScore(gate: EntryGate): { score: number; maxScore: number } {
   const w = WSP_CONFIG.scoreWeights;
   let score = 0;
@@ -114,7 +95,7 @@ export function computeScore(gate: EntryGate): { score: number; maxScore: number
     [gate.mansfieldValid, w.mansfieldValid],
     [gate.sectorAligned, w.sectorAligned],
     [gate.marketFavorable, w.marketFavorable],
-    [gate.breakoutFresh ?? false, w.freshBreakout],
+    [gate.breakoutFresh, w.freshBreakout],
   ];
 
   for (const [passed, weight] of checks) {
@@ -157,15 +138,7 @@ function buildEvaluatedStock({
   const gate = computeEntryGate(price, pattern, indicators, sectorAligned, marketFavorable);
   const finalRecommendation = mapRecommendation(pattern, gate);
   const { score, maxScore } = computeScore(gate);
-  const audit = createStockAudit({
-    pattern,
-    finalRecommendation,
-    gate,
-    indicators,
-    price,
-    volume,
-    score,
-  });
+  const audit = createStockAudit({ pattern, finalRecommendation, gate, indicators, price, volume, score });
 
   const stock: EvaluatedStock = {
     symbol,
@@ -181,7 +154,7 @@ function buildEvaluatedStock({
     isValidWspEntry: gate.isValidWspEntry,
     finalRecommendation,
     audit,
-    blockedReasons: audit.blockedReasons,
+    blockedReasons: BLOCKED_REASON_ORDERED.filter((reason) => [...audit.blockedReasons, ...audit.exitReasons].includes(reason)),
     logicViolations: [],
     score,
     maxScore,
@@ -195,7 +168,6 @@ function buildEvaluatedStock({
   };
 }
 
-// ─── Full Stock Evaluation Pipeline ───
 export function evaluateStock(
   symbol: string,
   name: string,

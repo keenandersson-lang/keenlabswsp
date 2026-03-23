@@ -3,20 +3,18 @@
  * Strict 3-layer model: Pattern → Entry Gate → Recommendation
  */
 
-// ─── Layer 1: Pattern Classification (chart structure only) ───
 export type WSPPattern = 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL';
-
-// ─── Layer 3: Final Recommendation ───
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
-
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
 
 export type WSPBlockedReason =
   | 'below_50ma'
   | 'below_150ma'
+  | 'below_150ma_hard_stop'
   | 'slope_50_not_positive'
   | 'breakout_not_valid'
-  | 'breakout_stale'
+  | 'breakout_not_clean'
+  | 'breakout_late_8plus'
   | 'volume_below_threshold'
   | 'mansfield_not_valid'
   | 'sector_not_aligned'
@@ -24,7 +22,6 @@ export type WSPBlockedReason =
   | 'pattern_not_climbing';
 
 export type SmaSlopeDirection = 'rising' | 'falling' | 'flat';
-
 export type MansfieldTrend = 'rising' | 'falling' | 'flat';
 
 export type IndicatorWarning =
@@ -42,7 +39,6 @@ export type IndicatorWarning =
   | 'benchmark_dates_misaligned'
   | 'near_zero_benchmark_close';
 
-// ─── Normalized bar data ───
 export interface Bar {
   date: string;
   open: number;
@@ -52,46 +48,70 @@ export interface Bar {
   volume: number;
 }
 
-// ─── Indicator results for a single stock ───
+export interface WspSpecAuditConfig {
+  resistanceTouchesMin: number;
+  resistanceTolerancePct: number;
+  breakoutMinCloseAboveResistancePct: number;
+  staleBreakoutBars: number;
+  volumeLookbackBars: number;
+  volumeMultipleMin: number;
+  mansfieldLookbackBars: number;
+  mansfieldTransitionLookbackBars: number;
+  mansfieldTrendLookbackBars: number;
+  smaSlopeLookbackBars: number;
+  breakoutClvMin: number;
+  falseBreakoutLookbackBars: number;
+  falseBreakoutMaxCount: number;
+}
+
 export interface StockIndicators {
   sma20: number | null;
   sma50: number | null;
   sma150: number | null;
   sma200: number | null;
-  sma50Slope: number | null; // current SMA50 - SMA50 from lookback bars ago
+  sma50Slope: number | null;
   sma50SlopeDirection: SmaSlopeDirection;
   resistanceZone: number | null;
+  resistanceUpperBound: number | null;
   resistanceTouches: number;
+  resistanceTolerancePct: number;
+  resistanceTouchIndices: number[];
+  resistanceMostRecentTouchDate: string | null;
   breakoutLevel: number | null;
   currentClose: number | null;
   breakoutCloseDelta: number | null;
+  closeAboveResistancePct: number | null;
   breakoutConfirmed: boolean;
+  breakoutQualityPass: boolean;
+  breakoutQualityReasons: string[];
+  breakoutClv: number | null;
+  recentFalseBreakoutsCount: number;
   barsSinceBreakout: number | null;
-  averageVolumeReference: number | null; // average of last N completed bars, excluding current bar
-  volumeMultiple: number | null; // current volume / averageVolumeReference
+  breakoutStale: boolean;
+  averageVolumeReference: number | null;
+  volumeMultiple: number | null;
   mansfieldRS: number | null;
+  mansfieldRSPrev: number | null;
   mansfieldRSTrend: MansfieldTrend;
-  mansfieldTransition: boolean; // recently went from negative to positive
+  mansfieldTransition: boolean;
+  mansfieldUptrend: boolean;
+  mansfieldValid: boolean;
   indicatorWarnings: IndicatorWarning[];
   chronologyNormalized: boolean;
 }
 
-// ─── Layer 2: Entry Eligibility (hard gate) ───
 export interface EntryGate {
-  /** Final boolean: ALL hard rules pass */
   isValidWspEntry: boolean;
-
-  // Individual hard-rule checks
   priceAboveMA50: boolean;
   ma50Rising: boolean;
   priceAboveMA150: boolean;
   breakoutValid: boolean;
-  breakoutFresh: boolean; // not too many bars ago
+  breakoutFresh: boolean;
   volumeSufficient: boolean;
   mansfieldValid: boolean;
   sectorAligned: boolean;
   marketFavorable: boolean;
-  patternAllowsEntry: boolean; // only CLIMBING allows KÖP
+  patternAllowsEntry: boolean;
 }
 
 export interface StockAudit {
@@ -109,25 +129,40 @@ export interface StockAudit {
   sma50SlopeDirection: SmaSlopeDirection;
   breakoutValid: boolean;
   breakoutStale: boolean;
+  breakoutQualityPass: boolean;
+  breakoutQualityReasons: string[];
   resistanceLevel: number | null;
+  resistanceUpperBound: number | null;
   resistanceTouches: number;
+  resistanceTolerancePct: number;
+  resistanceMostRecentTouchDate: string | null;
   breakoutLevel: number | null;
   currentClose: number | null;
   breakoutCloseDelta: number | null;
+  closeAboveResistancePct: number | null;
+  breakoutClv: number | null;
+  recentFalseBreakoutsCount: number;
   breakoutAgeBars: number | null;
   currentVolume: number;
   averageVolumeReference: number | null;
   volumeMultiple: number | null;
   volumeValid: boolean;
+  mansfieldLookbackBars: number;
   mansfieldValue: number | null;
+  mansfieldValuePrev: number | null;
   mansfieldTrend: MansfieldTrend;
+  mansfieldUptrend: boolean;
+  mansfieldRecentTransition: boolean;
   mansfieldValid: boolean;
+  staleBreakoutBars: number;
   sectorAligned: boolean;
   marketAligned: boolean;
   chronologyNormalized: boolean;
   indicatorWarnings: IndicatorWarning[];
   score: number;
   blockedReasons: WSPBlockedReason[];
+  exitReasons: WSPBlockedReason[];
+  wspSpec: WspSpecAuditConfig;
 }
 
 export interface LogicViolation {
@@ -146,7 +181,8 @@ export interface ValidationFixtureDefinition {
     | 'downhill_case'
     | 'breakout_with_weak_volume'
     | 'weak_sector_alignment'
-    | 'stale_breakout_case';
+    | 'stale_breakout_case'
+    | 'below_150ma_forces_sell';
   description: string;
   expectedPattern: WSPPattern;
   expectedIsValidWspEntry: boolean;
@@ -197,47 +233,28 @@ export interface ScreenerDebugSummary {
   insufficientHistoryCases: number;
 }
 
-// ─── Complete evaluated stock ───
 export interface EvaluatedStock {
-  // Identity
   symbol: string;
   name: string;
   sector: string;
   industry: string;
-
-  // Market data
   price: number;
   changePercent: number;
   volume: number;
-
-  // Layer 1
   pattern: WSPPattern;
-
-  // Indicators
   indicators: StockIndicators;
-
-  // Layer 2
   gate: EntryGate;
   isValidWspEntry: boolean;
-
-  // Layer 3
   finalRecommendation: WSPRecommendation;
-
-  // Explainability / audit
   audit: StockAudit;
   blockedReasons: WSPBlockedReason[];
   logicViolations: WSPBlockedReason[];
-
-  // Ranking score (secondary, never overrides gate)
   score: number;
   maxScore: number;
-
-  // Meta
   dataSource: 'live' | 'fallback';
   lastUpdated: string;
 }
 
-// ─── Market overview ───
 export interface MarketOverview {
   sp500Change: number;
   nasdaqChange: number;
@@ -247,7 +264,6 @@ export interface MarketOverview {
   pollingIntervalMs?: number;
 }
 
-// ─── Sector status ───
 export interface SectorStatus {
   sector: string;
   isBullish: boolean;
@@ -255,7 +271,6 @@ export interface SectorStatus {
   sma50AboveSma200: boolean;
 }
 
-// ─── Provider status (for debug panel) ───
 export interface ProviderStatus {
   provider: 'finnhub' | 'demo';
   isLive: boolean;
