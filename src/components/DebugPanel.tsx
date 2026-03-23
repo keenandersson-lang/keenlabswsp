@@ -27,7 +27,10 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
             {providerStatus.provider.toUpperCase()}
           </span>
           <span className="rounded border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">
-            Fixtures {debugSummary.fixturePassCount}/{debugSummary.fixturePassCount + debugSummary.fixtureFailCount}
+            Gate fixtures {debugSummary.fixturePassCount}/{debugSummary.fixturePassCount + debugSummary.fixtureFailCount}
+          </span>
+          <span className="rounded border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">
+            Indicator fixtures {debugSummary.indicatorTestPassCount}/{debugSummary.indicatorTestPassCount + debugSummary.indicatorTestFailCount}
           </span>
           {debugSummary.logicViolationCount > 0 && (
             <span className="rounded border border-signal-sell/30 bg-signal-sell/10 px-1.5 py-0.5 text-[10px] text-signal-sell">
@@ -65,9 +68,13 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
               <span>Validation Summary</span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-              <Stat label="Fixture pass" value={debugSummary.fixturePassCount} highlight />
-              <Stat label="Fixture fail" value={debugSummary.fixtureFailCount} warn={debugSummary.fixtureFailCount > 0} />
+              <Stat label="Gate fixture pass" value={debugSummary.fixturePassCount} highlight />
+              <Stat label="Gate fixture fail" value={debugSummary.fixtureFailCount} warn={debugSummary.fixtureFailCount > 0} />
+              <Stat label="Indicator test pass" value={debugSummary.indicatorTestPassCount} highlight />
+              <Stat label="Indicator test fail" value={debugSummary.indicatorTestFailCount} warn={debugSummary.indicatorTestFailCount > 0} />
               <Stat label="Logic violations" value={debugSummary.logicViolationCount} warn={debugSummary.logicViolationCount > 0} />
+              <Stat label="Insufficient history" value={debugSummary.insufficientHistoryCases} warn={debugSummary.insufficientHistoryCases > 0} />
+              <Stat label="Formula warnings" value={debugSummary.formulaInconsistencyWarnings.length} warn={debugSummary.formulaInconsistencyWarnings.length > 0} />
               <Stat label="Valid KÖP candidates" value={debugSummary.validBuyCandidates} highlight />
               {BLOCKED_REASON_ORDERED.map((reason) => (
                 <Stat
@@ -77,6 +84,52 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
                   warn={debugSummary.blockedCounts[reason] > 0}
                 />
               ))}
+            </div>
+          </div>
+
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-border bg-background/40 p-3">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Indicator Validation</div>
+              <div className="space-y-2 text-xs">
+                {debugSummary.indicatorFixtureResults.map((fixture) => (
+                  <div key={fixture.id} className="rounded-md border border-border/70 bg-card/50 p-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-mono text-foreground">{fixture.id}</div>
+                        <p className="mt-1 text-muted-foreground">{fixture.description}</p>
+                      </div>
+                      <span className={`rounded border px-2 py-0.5 font-medium ${fixture.passed ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell'}`}>
+                        {fixture.passed ? 'PASS' : 'FAIL'}
+                      </span>
+                    </div>
+                    <div className="mt-2 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+                      <ComparisonRow label="Expected" value={fixture.expected} />
+                      <ComparisonRow label="Actual" value={fixture.actual} warn={!fixture.passed} />
+                    </div>
+                    {!fixture.passed && fixture.mismatches.length > 0 && (
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-signal-sell">
+                        {fixture.mismatches.map((mismatch) => <li key={mismatch}>{mismatch}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/40 p-3">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Indicator Warnings</div>
+              {debugSummary.formulaInconsistencyWarnings.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No formula inconsistency warnings detected in the current dataset.</p>
+              ) : (
+                <ul className="space-y-2 text-xs text-signal-sell">
+                  {debugSummary.formulaInconsistencyWarnings.map((warning) => (
+                    <li key={warning} className="rounded-md border border-signal-sell/30 bg-signal-sell/5 p-2 font-mono">
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 

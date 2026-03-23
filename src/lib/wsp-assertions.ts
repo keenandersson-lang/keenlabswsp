@@ -1,4 +1,4 @@
-import { WSP_CONFIG } from './wsp-config';
+import { isBreakoutStale } from './wsp-indicators';
 import type {
   EntryGate,
   EvaluatedStock,
@@ -25,7 +25,7 @@ const BLOCKED_REASON_ORDER: WSPBlockedReason[] = [
 
 export function createBlockedReasons(pattern: WSPPattern, gate: EntryGate, indicators: StockIndicators): WSPBlockedReason[] {
   const blocked = new Set<WSPBlockedReason>();
-  const breakoutStale = indicators.barsSinceBreakout !== null && indicators.barsSinceBreakout > WSP_CONFIG.breakout.maxBarsSinceBreakout;
+  const breakoutStale = isBreakoutStale(indicators.barsSinceBreakout);
 
   if (!gate.priceAboveMA50) blocked.add('below_50ma');
   if (!gate.priceAboveMA150) blocked.add('below_150ma');
@@ -58,13 +58,7 @@ export function createStockAudit({
   volume: number;
   score: number;
 }): StockAudit {
-  const breakoutStale = indicators.barsSinceBreakout !== null && indicators.barsSinceBreakout > WSP_CONFIG.breakout.maxBarsSinceBreakout;
-  const breakoutLevel = indicators.resistanceZone !== null
-    ? Number((indicators.resistanceZone * (1 + WSP_CONFIG.breakout.breakoutThresholdPercent / 100)).toFixed(2))
-    : null;
-  const averageVolumeReference = indicators.volumeMultiple > 0
-    ? Number((volume / indicators.volumeMultiple).toFixed(0))
-    : 0;
+  const breakoutStale = isBreakoutStale(indicators.barsSinceBreakout);
   const blockedReasons = createBlockedReasons(pattern, gate, indicators);
 
   return {
@@ -74,18 +68,31 @@ export function createStockAudit({
     above50MA: gate.priceAboveMA50,
     above150MA: gate.priceAboveMA150,
     slope50Positive: gate.ma50Rising,
+    sma20: indicators.sma20,
+    sma50: indicators.sma50,
+    sma150: indicators.sma150,
+    sma200: indicators.sma200,
+    sma50SlopeValue: indicators.sma50Slope,
+    sma50SlopeDirection: indicators.sma50SlopeDirection,
     breakoutValid: gate.breakoutValid,
     breakoutStale,
-    resistanceLevel: indicators.resistanceZone !== null ? Number(indicators.resistanceZone.toFixed(2)) : null,
-    breakoutLevel,
+    resistanceLevel: indicators.resistanceZone,
+    resistanceTouches: indicators.resistanceTouches,
+    breakoutLevel: indicators.breakoutLevel,
+    currentClose: indicators.currentClose ?? price,
+    breakoutCloseDelta: indicators.breakoutCloseDelta,
+    breakoutAgeBars: indicators.barsSinceBreakout,
     currentVolume: volume,
-    averageVolumeReference,
+    averageVolumeReference: indicators.averageVolumeReference,
     volumeMultiple: indicators.volumeMultiple,
     volumeValid: gate.volumeSufficient,
     mansfieldValue: indicators.mansfieldRS,
+    mansfieldTrend: indicators.mansfieldRSTrend,
     mansfieldValid: gate.mansfieldValid,
     sectorAligned: gate.sectorAligned,
     marketAligned: gate.marketFavorable,
+    chronologyNormalized: indicators.chronologyNormalized,
+    indicatorWarnings: indicators.indicatorWarnings,
     score,
     blockedReasons,
   };

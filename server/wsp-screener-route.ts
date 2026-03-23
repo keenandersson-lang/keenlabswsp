@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { evaluateStock } from '../src/lib/wsp-engine';
-import { computeIndicators } from '../src/lib/wsp-indicators';
+import { computeIndicators, normalizeBarsChronologically } from '../src/lib/wsp-indicators';
 import { demoMarket, demoStocks } from '../src/lib/demo-data';
 import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
@@ -200,11 +200,12 @@ function buildMarketOverview(marketSeries: Record<string, { bars: Bar[]; stale: 
 function buildSectorStatuses(sectorBars: Record<string, Bar[]>): SectorStatus[] {
   return Object.entries(WSP_CONFIG.sectorMap).map(([sector, etfs]) => {
     const bars = sectorBars[etfs[0]] ?? [];
-    const indicators = computeIndicators(bars, bars);
-    const changePercent = computeDailyChange(bars);
+    const normalizedBars = normalizeBarsChronologically(bars).bars;
+    const indicators = computeIndicators(normalizedBars, normalizedBars);
+    const changePercent = computeDailyChange(normalizedBars);
     const isBullish = indicators.sma50 !== null && indicators.sma200 !== null &&
       indicators.sma50 > indicators.sma200 &&
-      (bars[bars.length - 1]?.close ?? 0) > indicators.sma50;
+      (normalizedBars[normalizedBars.length - 1]?.close ?? 0) > indicators.sma50;
 
     return {
       sector,
@@ -216,16 +217,18 @@ function buildSectorStatuses(sectorBars: Record<string, Bar[]>): SectorStatus[] 
 }
 
 function computeDailyChange(bars: Bar[]): number {
-  if (bars.length < 2) return 0;
-  const latest = bars[bars.length - 1].close;
-  const previous = bars[bars.length - 2].close;
+  const normalizedBars = normalizeBarsChronologically(bars).bars;
+  if (normalizedBars.length < 2) return 0;
+  const latest = normalizedBars[normalizedBars.length - 1].close;
+  const previous = normalizedBars[normalizedBars.length - 2].close;
   if (previous === 0) return 0;
   return Number((((latest - previous) / previous) * 100).toFixed(2));
 }
 
 function isSeriesBullish(bars: Bar[]): boolean {
-  const indicators = computeIndicators(bars, bars);
-  const latestClose = bars[bars.length - 1]?.close ?? 0;
+  const normalizedBars = normalizeBarsChronologically(bars).bars;
+  const indicators = computeIndicators(normalizedBars, normalizedBars);
+  const latestClose = normalizedBars[normalizedBars.length - 1]?.close ?? 0;
   return indicators.sma50 !== null && indicators.sma200 !== null && latestClose > indicators.sma50 && indicators.sma50 > indicators.sma200;
 }
 

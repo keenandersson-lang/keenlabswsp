@@ -11,7 +11,7 @@ import type {
   EvaluatedStock, StockIndicators, Bar,
   MarketOverview, SectorStatus,
 } from './wsp-types';
-import { computeIndicators, classifyPattern } from './wsp-indicators';
+import { classifyPattern, computeIndicators, isBreakoutFresh, normalizeBarsChronologically } from './wsp-indicators';
 import { WSP_CONFIG } from './wsp-config';
 import { createStockAudit, getLogicViolationRuleIds } from './wsp-assertions';
 
@@ -38,14 +38,13 @@ export function computeEntryGate(
   marketFavorable: boolean,
 ): EntryGate {
   const priceAboveMA50 = indicators.sma50 !== null && price > indicators.sma50;
-  const ma50Rising = indicators.sma50Slope > 0;
+  const ma50Rising = indicators.sma50Slope !== null && indicators.sma50Slope > 0;
   const priceAboveMA150 = indicators.sma150 !== null && price > indicators.sma150;
   const breakoutValid = indicators.breakoutConfirmed;
-  const breakoutFresh = indicators.barsSinceBreakout !== null &&
-    indicators.barsSinceBreakout <= WSP_CONFIG.breakout.maxBarsSinceBreakout;
-  const volumeSufficient = indicators.volumeMultiple >= WSP_CONFIG.volume.breakoutMultiple;
-  const mansfieldValid = (indicators.mansfieldRS > WSP_CONFIG.mansfield.minValidRS && indicators.mansfieldRSTrend !== 'falling') ||
-    indicators.mansfieldTransition;
+  const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout);
+  const volumeSufficient = indicators.volumeMultiple !== null && indicators.volumeMultiple >= WSP_CONFIG.volume.breakoutMultiple;
+  const mansfieldValid = ((indicators.mansfieldRS !== null && indicators.mansfieldRS > WSP_CONFIG.mansfield.minValidRS && indicators.mansfieldRSTrend !== 'falling') ||
+    indicators.mansfieldTransition);
   const patternAllowsEntry = pattern === 'CLIMBING';
 
   // HARD GATE: ALL must be true
@@ -210,13 +209,15 @@ export function evaluateStock(
   options?: EvaluateStockOptions,
 ): EvaluatedStock {
   const override = options?.overrideAnalysis;
-  const price = override?.price ?? (bars.length > 0 ? bars[bars.length - 1].close : 0);
-  const prevClose = override?.prevClose ?? (bars.length > 1 ? bars[bars.length - 2].close : price);
+  const normalizedBars = normalizeBarsChronologically(bars).bars;
+  const normalizedBenchmarkBars = normalizeBarsChronologically(benchmarkBars).bars;
+  const price = override?.price ?? (normalizedBars.length > 0 ? normalizedBars[normalizedBars.length - 1].close : 0);
+  const prevClose = override?.prevClose ?? (normalizedBars.length > 1 ? normalizedBars[normalizedBars.length - 2].close : price);
   const changePercent = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-  const volume = override?.volume ?? (bars.length > 0 ? bars[bars.length - 1].volume : 0);
+  const volume = override?.volume ?? (normalizedBars.length > 0 ? normalizedBars[normalizedBars.length - 1].volume : 0);
 
-  const indicators = override?.indicators ?? computeIndicators(bars, benchmarkBars);
-  const pattern = override?.pattern ?? classifyPattern(bars, indicators.sma50, indicators.sma150, indicators.sma50Slope);
+  const indicators = override?.indicators ?? computeIndicators(normalizedBars, normalizedBenchmarkBars);
+  const pattern = override?.pattern ?? classifyPattern(normalizedBars, indicators.sma50, indicators.sma150, indicators.sma50Slope);
 
   return buildEvaluatedStock({
     symbol,
