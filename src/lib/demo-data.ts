@@ -4,7 +4,7 @@
  * Clearly labeled as fallback — not live data.
  */
 
-import type { EvaluatedStock, MarketOverview, Bar } from './wsp-types';
+import type { EvaluatedStock, MarketOverview, Bar, WSPRecommendation } from './wsp-types';
 import { evaluateStock } from './wsp-engine';
 import { WSP_CONFIG } from './wsp-config';
 
