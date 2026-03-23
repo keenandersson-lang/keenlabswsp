@@ -1,5 +1,4 @@
 import type { EvaluatedStock } from '@/lib/wsp-types';
-import { Check, X } from 'lucide-react';
 
 interface EntryCriteriaProps {
   stock: EvaluatedStock;
@@ -19,29 +18,26 @@ const gateChecks: { key: keyof EvaluatedStock['gate']; label: string }[] = [
 ];
 
 export function EntryCriteria({ stock }: EntryCriteriaProps) {
-  const passCount = gateChecks.filter(c => stock.gate[c.key]).length;
+  const passCount = gateChecks.filter((criterion) => stock.gate[criterion.key]).length;
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {gateChecks.map(({ key, label }) => {
         const met = stock.gate[key];
         return (
-          <div key={key} className="flex items-center gap-2 text-xs">
-            {met ? (
-              <Check className="h-3.5 w-3.5 text-signal-buy flex-shrink-0" />
-            ) : (
-              <X className="h-3.5 w-3.5 text-signal-sell flex-shrink-0" />
-            )}
-            <span className={met ? 'text-foreground' : 'text-muted-foreground line-through'}>
-              {label}
+          <div key={key} className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-card/40 px-2.5 py-2 text-xs">
+            <span className={met ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
+            <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${met ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell'}`}>
+              {met ? 'YES / PASS' : 'NO / FAIL'}
             </span>
           </div>
         );
       })}
-      <div className="mt-2 pt-2 border-t border-border">
+      <div className="mt-2 border-t border-border pt-2">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs text-muted-foreground">
-            Gate: <span className={stock.gate.isValidWspEntry ? 'text-signal-buy font-bold' : 'text-signal-sell font-bold'}>
+            Gate overall:{' '}
+            <span className={stock.gate.isValidWspEntry ? 'font-bold text-signal-buy' : 'font-bold text-signal-sell'}>
               {stock.gate.isValidWspEntry ? 'PASS ✓' : 'FAIL ✗'}
             </span>
           </span>

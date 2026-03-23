@@ -5,14 +5,67 @@ import { runIndicatorFixtures } from './wsp-indicator-fixtures';
 import { isBreakoutStale } from './wsp-indicators';
 import type {
   EvaluatedStock,
+  IndicatorWarning,
   RecommendationCounts,
   ScreenerDebugSummary,
+  StockAudit,
   StockIndicators,
   ValidationFixtureDefinition,
   ValidationFixtureResult,
   WSPBlockedReason,
   WSPPattern,
 } from './wsp-types';
+
+
+const INSUFFICIENT_HISTORY_WARNINGS: IndicatorWarning[] = [
+  'empty_price_history',
+  'insufficient_sma_history',
+  'insufficient_sma_slope_history',
+  'insufficient_resistance_history',
+  'insufficient_breakout_history',
+  'insufficient_volume_history',
+  'insufficient_benchmark_history',
+  'benchmark_history_length_mismatch',
+  'benchmark_dates_misaligned',
+];
+
+const AUDIT_REQUIRED_NUMBER_FIELDS: (keyof Pick<StockAudit,
+  'sma20' | 'sma50' | 'sma150' | 'sma200' | 'sma50SlopeValue' | 'resistanceLevel' | 'resistanceUpperBound' | 'breakoutLevel' | 'currentClose' | 'averageVolumeReference' | 'mansfieldValue'
+>)[] = [
+  'sma20',
+  'sma50',
+  'sma150',
+  'sma200',
+  'sma50SlopeValue',
+  'resistanceLevel',
+  'resistanceUpperBound',
+  'breakoutLevel',
+  'currentClose',
+  'averageVolumeReference',
+  'mansfieldValue',
+];
+
+function hasInsufficientHistory(stock: EvaluatedStock) {
+  return stock.audit.indicatorWarnings.some((warning) => INSUFFICIENT_HISTORY_WARNINGS.includes(warning));
+}
+
+function hasMissingAuditFields(stock: EvaluatedStock) {
+  return AUDIT_REQUIRED_NUMBER_FIELDS.some((field) => stock.audit[field] === null);
+}
+
+function hasInvalidIndicatorValues(stock: EvaluatedStock) {
+  const numericCandidates = [
+    stock.price,
+    stock.changePercent,
+    stock.audit.currentClose,
+    stock.audit.sma50,
+    stock.audit.sma150,
+    stock.audit.volumeMultiple,
+    stock.audit.mansfieldValue,
+  ];
+
+  return numericCandidates.some((value) => value !== null && !Number.isFinite(value));
+}
 
 interface FixtureScenario {
   definition: ValidationFixtureDefinition;
@@ -289,7 +342,9 @@ export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDeb
     totalStocks: stocks.length,
     recommendationCounts: createRecommendationCounts(stocks),
     formulaInconsistencyWarnings: buildFormulaWarnings(stocks),
-    insufficientHistoryCases: stocks.filter((stock) => stock.audit.indicatorWarnings.length > 0).length,
+    insufficientHistoryCases: stocks.filter(hasInsufficientHistory).length,
+    missingAuditFieldStocks: stocks.filter(hasMissingAuditFields).length,
+    invalidIndicatorValueStocks: stocks.filter(hasInvalidIndicatorValues).length,
   };
 }
 

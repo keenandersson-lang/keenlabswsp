@@ -10,8 +10,8 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   const response = await fetch(`/api/wsp-screener${params.size > 0 ? `?${params.toString()}` : ''}`);
   const payload = await response.json() as ScreenerApiResponse;
 
-  if (!response.ok) {
-    throw new Error(payload.providerStatus.errorMessage ?? 'Failed to load WSP screener data');
+  if (!response.ok && !payload?.providerStatus) {
+    throw new Error('Failed to load WSP screener data');
   }
 
   return payload;

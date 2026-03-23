@@ -215,6 +215,16 @@ export interface RecommendationCounts {
   'UNDVIK': number;
 }
 
+export interface ProviderReadiness {
+  envVarPresent: boolean;
+  routeReachable: boolean;
+  benchmarkSymbolConfigured: boolean;
+  trackedSymbolsCount: number;
+  symbolsFetchedSuccessfully: number;
+  symbolsFailed: number;
+  lastSuccessfulLiveFetch: string | null;
+}
+
 export interface ScreenerDebugSummary {
   fixturePassCount: number;
   fixtureFailCount: number;
@@ -231,6 +241,8 @@ export interface ScreenerDebugSummary {
   recommendationCounts: RecommendationCounts;
   formulaInconsistencyWarnings: string[];
   insufficientHistoryCases: number;
+  missingAuditFieldStocks: number;
+  invalidIndicatorValueStocks: number;
 }
 
 export interface EvaluatedStock {
@@ -285,6 +297,7 @@ export interface ProviderStatus {
   benchmarkSymbol: string;
   benchmarkFetchStatus: 'success' | 'stale' | 'failed';
   refreshIntervalMs: number;
+  readiness: ProviderReadiness;
 }
 
 export interface ScreenerApiResponse {

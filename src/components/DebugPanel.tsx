@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { ProviderStatus, ScreenerDebugSummary, ValidationFixtureResult, WSPBlockedReason } from '@/lib/wsp-types';
 import { BLOCKED_REASON_ORDERED, formatBlockedReason } from '@/lib/wsp-assertions';
-import { AlertTriangle, Bug, ChevronDown, ChevronUp, FlaskConical } from 'lucide-react';
+import { AlertTriangle, Bug, ChevronDown, ChevronUp, FlaskConical, ListChecks, RadioTower } from 'lucide-react';
 
 interface DebugPanelProps {
   providerStatus: ProviderStatus;
@@ -10,6 +10,16 @@ interface DebugPanelProps {
 
 export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const qaChecks = useMemo(() => ([
+    { label: 'Engine fixtures passing', value: `${debugSummary.fixturePassCount}/${debugSummary.fixturePassCount + debugSummary.fixtureFailCount}`, ok: debugSummary.fixtureFailCount === 0 },
+    { label: 'Indicator fixtures passing', value: `${debugSummary.indicatorTestPassCount}/${debugSummary.indicatorTestPassCount + debugSummary.indicatorTestFailCount}`, ok: debugSummary.indicatorTestFailCount === 0 },
+    { label: 'Logic violations', value: String(debugSummary.logicViolationCount), ok: debugSummary.logicViolationCount === 0 },
+    { label: 'Fallback active', value: providerStatus.fallbackActive ? 'yes' : 'no', ok: !providerStatus.fallbackActive },
+    { label: 'Live provider configured', value: providerStatus.readiness.envVarPresent ? 'yes' : 'no', ok: providerStatus.readiness.envVarPresent },
+    { label: 'Benchmark fetch status', value: providerStatus.benchmarkFetchStatus, ok: providerStatus.benchmarkFetchStatus === 'success' },
+    { label: 'Stocks with missing audit fields', value: String(debugSummary.missingAuditFieldStocks), ok: debugSummary.missingAuditFieldStocks === 0 },
+    { label: 'Stocks with insufficient history', value: String(debugSummary.insufficientHistoryCases), ok: debugSummary.insufficientHistoryCases === 0 },
+  ]), [debugSummary, providerStatus]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -43,6 +53,38 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
 
       {expanded && (
         <div className="space-y-4 border-t border-border px-4 py-3">
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <SectionCard title="Manual QA Checklist" icon={ListChecks}>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {qaChecks.map((check) => (
+                  <div key={check.label} className={`rounded-md border p-2 text-xs ${check.ok ? 'border-signal-buy/20 bg-signal-buy/5' : 'border-signal-caution/30 bg-signal-caution/10'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{check.label}</span>
+                      <span className={`rounded border px-1.5 py-0.5 font-medium ${check.ok ? 'border-signal-buy/30 text-signal-buy' : 'border-signal-caution/30 text-signal-caution'}`}>
+                        {check.ok ? 'OK' : 'CHECK'}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-foreground">{check.value}</div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Provider Readiness" icon={RadioTower}>
+              <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
+                <Stat label="Env var present" value={providerStatus.readiness.envVarPresent ? 'yes' : 'no'} warn={!providerStatus.readiness.envVarPresent} />
+                <Stat label="Provider route reachable" value={providerStatus.readiness.routeReachable ? 'yes' : 'no'} warn={!providerStatus.readiness.routeReachable} />
+                <Stat label="Benchmark configured" value={providerStatus.readiness.benchmarkSymbolConfigured ? 'yes' : 'no'} warn={!providerStatus.readiness.benchmarkSymbolConfigured} />
+                <Stat label="Tracked symbols" value={providerStatus.readiness.trackedSymbolsCount} />
+                <Stat label="Fetched successfully" value={providerStatus.readiness.symbolsFetchedSuccessfully} highlight={providerStatus.readiness.symbolsFetchedSuccessfully > 0} />
+                <Stat label="Symbols failed" value={providerStatus.readiness.symbolsFailed} warn={providerStatus.readiness.symbolsFailed > 0} />
+                <Stat label="Benchmark fetch" value={providerStatus.benchmarkFetchStatus} warn={providerStatus.benchmarkFetchStatus !== 'success'} />
+                <Stat label="Current provider state" value={providerStatus.uiState} warn={providerStatus.uiState !== 'LIVE'} />
+                <Stat label="Last successful live fetch" value={providerStatus.readiness.lastSuccessfulLiveFetch ?? '—'} warn={!providerStatus.readiness.lastSuccessfulLiveFetch} className="sm:col-span-3" />
+              </div>
+            </SectionCard>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
             <Stat label="Totala symboler" value={debugSummary.totalStocks} />
             <Stat label="Provider symbol count" value={providerStatus.symbolCount} />
@@ -58,8 +100,10 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
             <Stat label="Benchmark" value={providerStatus.benchmarkSymbol} />
             <Stat label="Senast uppdaterad" value={providerStatus.lastFetch ?? '—'} />
             <Stat label="Misslyckade symboler" value={providerStatus.failedSymbols.length} warn={providerStatus.failedSymbols.length > 0} />
+            <Stat label="Missing audit stocks" value={debugSummary.missingAuditFieldStocks} warn={debugSummary.missingAuditFieldStocks > 0} />
+            <Stat label="Invalid indicator stocks" value={debugSummary.invalidIndicatorValueStocks} warn={debugSummary.invalidIndicatorValueStocks > 0} />
             <Stat label="Polling" value={`${Math.round(providerStatus.refreshIntervalMs / 60000)} min`} />
-            {providerStatus.errorMessage && <Stat label="Felmeddelande" value={providerStatus.errorMessage} warn className="sm:col-span-4" />}
+            {providerStatus.errorMessage && <Stat label="Status message" value={providerStatus.errorMessage} warn className="sm:col-span-4" />}
           </div>
 
           <div className="rounded-lg border border-border bg-background/40 p-3">
@@ -74,8 +118,9 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
               <Stat label="Indicator test fail" value={debugSummary.indicatorTestFailCount} warn={debugSummary.indicatorTestFailCount > 0} />
               <Stat label="Logic violations" value={debugSummary.logicViolationCount} warn={debugSummary.logicViolationCount > 0} />
               <Stat label="Insufficient history" value={debugSummary.insufficientHistoryCases} warn={debugSummary.insufficientHistoryCases > 0} />
-              <Stat label="Formula warnings" value={debugSummary.formulaInconsistencyWarnings.length} warn={debugSummary.formulaInconsistencyWarnings.length > 0} />
+              <Stat label="Missing audit fields" value={debugSummary.missingAuditFieldStocks} warn={debugSummary.missingAuditFieldStocks > 0} />
               <Stat label="Valid KÖP candidates" value={debugSummary.validBuyCandidates} highlight />
+              <Stat label="Formula warnings" value={debugSummary.formulaInconsistencyWarnings.length} warn={debugSummary.formulaInconsistencyWarnings.length > 0} />
               {BLOCKED_REASON_ORDERED.map((reason) => (
                 <Stat
                   key={reason}
@@ -86,7 +131,6 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
               ))}
             </div>
           </div>
-
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-lg border border-border bg-background/40 p-3">
@@ -169,6 +213,18 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SectionCard({ title, icon: Icon, children }: { title: string; icon: typeof ListChecks; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/40 p-3">
+      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+        <Icon className="h-3.5 w-3.5 text-primary" />
+        <span>{title}</span>
+      </div>
+      {children}
     </div>
   );
 }
