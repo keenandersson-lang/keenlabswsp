@@ -9,6 +9,8 @@ export type WSPPattern = 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL';
 // ─── Layer 3: Final Recommendation ───
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 
+export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
+
 // ─── Normalized bar data ───
 export interface Bar {
   date: string;
@@ -95,6 +97,7 @@ export interface MarketOverview {
   marketTrend: 'bullish' | 'bearish' | 'neutral';
   lastUpdated: string;
   dataSource: 'live' | 'fallback';
+  pollingIntervalMs?: number;
 }
 
 // ─── Sector status ───
@@ -107,10 +110,24 @@ export interface SectorStatus {
 
 // ─── Provider status (for debug panel) ───
 export interface ProviderStatus {
+  provider: 'finnhub' | 'demo';
   isLive: boolean;
+  uiState: ScreenerUiState;
   lastFetch: string | null;
   failedSymbols: string[];
   successCount: number;
   errorMessage: string | null;
   isFallback: boolean;
+  fallbackActive: boolean;
+  symbolCount: number;
+  benchmarkSymbol: string;
+  benchmarkFetchStatus: 'success' | 'stale' | 'failed';
+  refreshIntervalMs: number;
+}
+
+export interface ScreenerApiResponse {
+  market: MarketOverview;
+  stocks: EvaluatedStock[];
+  sectorStatuses: SectorStatus[];
+  providerStatus: ProviderStatus;
 }

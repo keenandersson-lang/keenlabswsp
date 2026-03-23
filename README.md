@@ -71,3 +71,13 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Live market data setup
+
+Create a `.env` file in the project root and set:
+
+```sh
+FINNHUB_API_KEY=your_finnhub_api_key_here
+```
+
+The WSP screener now fetches live daily history server-side from Finnhub via `/api/wsp-screener`, and only falls back to demo data when Finnhub is unavailable or misconfigured.
