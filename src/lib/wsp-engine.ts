@@ -180,7 +180,6 @@ function buildEvaluatedStock({
     indicators,
     gate,
     isValidWspEntry: gate.isValidWspEntry,
-    recommendation: finalRecommendation,
     finalRecommendation,
     audit,
     blockedReasons: audit.blockedReasons,

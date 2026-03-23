@@ -1,7 +1,8 @@
+import { BLOCKED_REASON_ORDERED } from './wsp-assertions';
 import { evaluateStock } from './wsp-engine';
-import { BLOCKED_REASON_ORDERED, createLogicViolation } from './wsp-assertions';
 import type {
   EvaluatedStock,
+  RecommendationCounts,
   ScreenerDebugSummary,
   StockIndicators,
   ValidationFixtureDefinition,
@@ -205,6 +206,18 @@ function sameBlockedReasons(actual: WSPBlockedReason[], expected: WSPBlockedReas
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
+function createRecommendationCounts(stocks: EvaluatedStock[]): RecommendationCounts {
+  return stocks.reduce<RecommendationCounts>((counts, stock) => {
+    counts[stock.finalRecommendation] += 1;
+    return counts;
+  }, {
+    'KÖP': 0,
+    'BEVAKA': 0,
+    'SÄLJ': 0,
+    'UNDVIK': 0,
+  });
+}
+
 export function runValidationFixtures(): ValidationFixtureResult[] {
   return FIXTURE_SCENARIOS.map((fixture, index) => {
     const stock = evaluateStock(
@@ -259,8 +272,13 @@ export function runValidationFixtures(): ValidationFixtureResult[] {
 export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDebugSummary {
   const fixtureResults = runValidationFixtures();
   const logicViolations = stocks
-    .map((stock) => createLogicViolation(stock))
-    .filter((violation): violation is NonNullable<typeof violation> => violation !== null);
+    .filter((stock) => stock.logicViolations.length > 0)
+    .map((stock) => ({
+      symbol: stock.symbol,
+      finalRecommendation: stock.finalRecommendation,
+      pattern: stock.pattern,
+      violatedRules: stock.logicViolations,
+    }));
 
   const blockedCounts = Object.fromEntries(
     BLOCKED_REASON_ORDERED.map((reason) => [reason, 0]),
@@ -280,5 +298,8 @@ export function buildScreenerDebugSummary(stocks: EvaluatedStock[]): ScreenerDeb
     fixtureResults,
     blockedCounts,
     validBuyCandidates: stocks.filter((stock) => stock.finalRecommendation === 'KÖP' && stock.isValidWspEntry).length,
+    validEntryCount: stocks.filter((stock) => stock.isValidWspEntry).length,
+    totalStocks: stocks.length,
+    recommendationCounts: createRecommendationCounts(stocks),
   };
 }

@@ -109,13 +109,13 @@ export const demoMarket: MarketOverview = {
 };
 
 export function getByRecommendation(rec: WSPRecommendation): EvaluatedStock[] {
-  return demoStocks.filter((s) => s.recommendation === rec);
+  return demoStocks.filter((s) => s.finalRecommendation === rec);
 }
 
 export function getBuySignals(): EvaluatedStock[] {
-  return demoStocks.filter((s) => s.recommendation === 'KÖP').sort((a, b) => b.score - a.score);
+  return demoStocks.filter((s) => s.finalRecommendation === 'KÖP').sort((a, b) => b.score - a.score);
 }
 
 export function getSellSignals(): EvaluatedStock[] {
-  return demoStocks.filter((s) => s.recommendation === 'SÄLJ' || s.recommendation === 'UNDVIK');
+  return demoStocks.filter((s) => s.finalRecommendation === 'SÄLJ' || s.finalRecommendation === 'UNDVIK');
 }

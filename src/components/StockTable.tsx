@@ -12,6 +12,19 @@ interface StockTableProps {
 
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | 'all' | 'valid-wsp';
 
+const blockedReasonFilters: WSPBlockedReason[] = [
+  'below_50ma',
+  'below_150ma',
+  'slope_50_not_positive',
+  'breakout_not_valid',
+  'breakout_stale',
+  'volume_below_threshold',
+  'mansfield_not_valid',
+  'sector_not_aligned',
+  'market_not_aligned',
+  'pattern_not_climbing',
+];
+
 const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'all', label: 'Alla' },
   { value: 'KÖP', label: '🟢 Köpsignaler' },
@@ -25,6 +38,7 @@ const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'mansfield_not_valid', label: 'Blockerad: svag Mansfield' },
   { value: 'sector_not_aligned', label: 'Blockerad: svag sektor' },
   { value: 'market_not_aligned', label: 'Blockerad: svag marknad' },
+  { value: 'pattern_not_climbing', label: 'Blockerad: ej CLIMBING' },
   { value: 'CLIMBING', label: 'Climbing' },
   { value: 'BASE', label: 'Base' },
   { value: 'TIRED', label: 'Tired' },
@@ -60,26 +74,16 @@ export function StockTable({ stocks }: StockTableProps) {
       if (filter === 'all') return true;
       if (filter === 'valid-wsp') return s.isValidWspEntry;
       if (filter === 'KÖP' || filter === 'BEVAKA' || filter === 'SÄLJ' || filter === 'UNDVIK') return s.finalRecommendation === filter;
-      if (
-        filter === 'below_50ma' ||
-        filter === 'below_150ma' ||
-        filter === 'slope_50_not_positive' ||
-        filter === 'breakout_not_valid' ||
-        filter === 'breakout_stale' ||
-        filter === 'volume_below_threshold' ||
-        filter === 'mansfield_not_valid' ||
-        filter === 'sector_not_aligned' ||
-        filter === 'market_not_aligned'
-      ) {
-        return s.blockedReasons.includes(filter);
+      if (blockedReasonFilters.includes(filter as WSPBlockedReason)) {
+        return s.blockedReasons.includes(filter as WSPBlockedReason);
       }
       return s.pattern === filter;
     })
     .sort((a, b) => {
       const dir = sortDir === 'desc' ? -1 : 1;
       if (sortBy === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
-      if (sortBy === 'mansfieldRS') return dir * (a.indicators.mansfieldRS - b.indicators.mansfieldRS);
-      if (sortBy === 'volumeMultiple') return dir * (a.indicators.volumeMultiple - b.indicators.volumeMultiple);
+      if (sortBy === 'mansfieldRS') return dir * ((a.audit?.mansfieldValue ?? Number.NEGATIVE_INFINITY) - (b.audit?.mansfieldValue ?? Number.NEGATIVE_INFINITY));
+      if (sortBy === 'volumeMultiple') return dir * ((a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY));
       return dir * ((a[sortBy] as number) - (b[sortBy] as number));
     }), [filter, search, sortBy, sortDir, stocks]);
 
@@ -154,153 +158,161 @@ export function StockTable({ stocks }: StockTableProps) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((stock) => (
-              <Fragment key={stock.symbol}>
-                <tr
-                  onClick={() => setExpandedTicker(expandedTicker === stock.symbol ? null : stock.symbol)}
-                  className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${
-                    stock.finalRecommendation === 'KÖP' ? 'bg-signal-buy/5' :
-                    stock.finalRecommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
-                  }`}
-                >
-                  <td className="px-3 py-2.5">
-                    <div>
-                      <span className="font-mono text-xs font-bold">{stock.symbol}</span>
-                      <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{stock.name}</p>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 font-mono text-xs font-medium">${stock.price.toFixed(2)}</td>
-                  <td className="px-3 py-2.5">
-                    <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                      {stock.changePercent >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                      {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5"><PatternBadge pattern={stock.pattern} /></td>
-                  <td className="px-3 py-2.5 text-center"><BoolIcon value={stock.audit.above50MA} /></td>
-                  <td className="px-3 py-2.5 text-center"><BoolIcon value={stock.audit.slope50Positive} /></td>
-                  <td className="px-3 py-2.5 text-center"><BoolIcon value={stock.audit.above150MA} /></td>
-                  <td className="px-3 py-2.5 text-center"><BoolIcon value={stock.audit.breakoutValid} /></td>
-                  <td className="px-3 py-2.5 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <BoolIcon value={stock.audit.volumeValid} />
-                      <span className="font-mono text-[10px] text-muted-foreground">{stock.audit.volumeMultiple.toFixed(1)}x</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <span className={`font-mono text-xs font-medium ${stock.audit.mansfieldValue > 0 ? 'text-signal-buy' : stock.audit.mansfieldValue < 0 ? 'text-signal-sell' : 'text-muted-foreground'}`}>
-                      {stock.audit.mansfieldValue > 0 ? '+' : ''}{stock.audit.mansfieldValue.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-center"><BoolIcon value={stock.audit.sectorAligned} /></td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1">
-                      {[...Array(stock.maxScore)].map((_, i) => (
-                        <div
-                          key={i}
-                          className={`h-1.5 w-2 rounded-full ${i < stock.score ? 'bg-primary' : 'bg-border'}`}
-                        />
-                      ))}
-                      <span className="ml-1 font-mono text-[10px] text-muted-foreground">{stock.score}/{stock.maxScore}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <RecommendationBadge recommendation={stock.finalRecommendation} />
-                  </td>
-                </tr>
-                {expandedTicker === stock.symbol && (
-                  <tr className="border-b border-border bg-muted/20">
-                    <td colSpan={13} className="px-4 py-4">
-                      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_1fr_1fr]">
-                        <div className="space-y-4">
-                          <div>
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">WSP Entry Gate — Hårda regler</h4>
-                            <EntryCriteria stock={stock} />
-                          </div>
-                          <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Blocked Reasons</h4>
-                            {stock.blockedReasons.length === 0 ? (
-                              <p className="text-xs text-signal-buy">No hard-rule blockers. This setup is fully WSP-valid.</p>
-                            ) : (
-                              <div className="flex flex-wrap gap-1.5">
-                                {stock.blockedReasons.map((reason) => (
-                                  <span key={reason} className="rounded border border-signal-sell/20 bg-signal-sell/10 px-2 py-0.5 font-mono text-[10px] text-signal-sell">
-                                    {reason}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {stock.logicViolations.length > 0 && (
-                              <div className="mt-3 rounded-md border border-signal-caution/30 bg-signal-caution/10 p-2 text-xs text-signal-caution">
-                                <div className="font-semibold">Logic violation detected</div>
-                                <div className="mt-1 flex flex-wrap gap-1.5">
-                                  {stock.logicViolations.map((rule) => (
-                                    <span key={rule} className="rounded border border-signal-caution/30 px-2 py-0.5 font-mono text-[10px]">
-                                      {rule}
+            {filtered.map((stock) => {
+              const audit = stock.audit;
+              const blockedReasons = audit?.blockedReasons ?? stock.blockedReasons ?? [];
+              const logicViolations = stock.logicViolations ?? [];
+              const mansfieldValue = audit?.mansfieldValue ?? null;
+              const volumeMultiple = audit?.volumeMultiple ?? null;
+
+              return (
+                <Fragment key={stock.symbol}>
+                  <tr
+                    onClick={() => setExpandedTicker(expandedTicker === stock.symbol ? null : stock.symbol)}
+                    className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30 ${
+                      stock.finalRecommendation === 'KÖP' ? 'bg-signal-buy/5' :
+                      stock.finalRecommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
+                    }`}
+                  >
+                    <td className="px-3 py-2.5">
+                      <div>
+                        <span className="font-mono text-xs font-bold">{stock.symbol}</span>
+                        <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{stock.name}</p>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs font-medium">{formatCurrency(stock.price)}</td>
+                    <td className="px-3 py-2.5">
+                      <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                        {stock.changePercent >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                        {formatPercent(stock.changePercent)}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5"><PatternBadge pattern={stock.pattern} /></td>
+                    <td className="px-3 py-2.5 text-center"><BoolIcon value={audit?.above50MA ?? false} /></td>
+                    <td className="px-3 py-2.5 text-center"><BoolIcon value={audit?.slope50Positive ?? false} /></td>
+                    <td className="px-3 py-2.5 text-center"><BoolIcon value={audit?.above150MA ?? false} /></td>
+                    <td className="px-3 py-2.5 text-center"><BoolIcon value={audit?.breakoutValid ?? false} /></td>
+                    <td className="px-3 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <BoolIcon value={audit?.volumeValid ?? false} />
+                        <span className="font-mono text-[10px] text-muted-foreground">{formatMultiple(volumeMultiple)}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className={`font-mono text-xs font-medium ${mansfieldValue !== null && mansfieldValue > 0 ? 'text-signal-buy' : mansfieldValue !== null && mansfieldValue < 0 ? 'text-signal-sell' : 'text-muted-foreground'}`}>
+                        {formatSignedNumber(mansfieldValue, 1)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center"><BoolIcon value={audit?.sectorAligned ?? false} /></td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1">
+                        {[...Array(stock.maxScore)].map((_, i) => (
+                          <div
+                            key={i}
+                            className={`h-1.5 w-2 rounded-full ${i < stock.score ? 'bg-primary' : 'bg-border'}`}
+                          />
+                        ))}
+                        <span className="ml-1 font-mono text-[10px] text-muted-foreground">{stock.score}/{stock.maxScore}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <RecommendationBadge recommendation={stock.finalRecommendation} />
+                    </td>
+                  </tr>
+                  {expandedTicker === stock.symbol && (
+                    <tr className="border-b border-border bg-muted/20">
+                      <td colSpan={13} className="px-4 py-4">
+                        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_1fr_1fr]">
+                          <div className="space-y-4">
+                            <div>
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">WSP Entry Gate — Hårda regler</h4>
+                              <EntryCriteria stock={stock} />
+                            </div>
+                            <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Blocked Reasons</h4>
+                              {blockedReasons.length === 0 ? (
+                                <p className="text-xs text-signal-buy">No hard-rule blockers. This setup is fully WSP-valid.</p>
+                              ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {blockedReasons.map((reason) => (
+                                    <span key={reason} className="rounded border border-signal-sell/20 bg-signal-sell/10 px-2 py-0.5 font-mono text-[10px] text-signal-sell">
+                                      {reason}
                                     </span>
                                   ))}
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-                          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Audit Snapshot</h4>
-                          <div className="space-y-1.5 text-xs">
-                            <Row label="Pattern" value={stock.audit.pattern} />
-                            <Row label="Final recommendation" value={stock.audit.finalRecommendation} highlight={stock.isValidWspEntry} />
-                            <Row label="Price" value={`$${stock.price.toFixed(2)}`} />
-                            <Row label="SMA 50" value={stock.indicators.sma50 ? `$${stock.indicators.sma50.toFixed(2)}` : '—'} highlight={stock.audit.above50MA} />
-                            <Row label="SMA 150" value={stock.indicators.sma150 ? `$${stock.indicators.sma150.toFixed(2)}` : '—'} highlight={stock.audit.above150MA} />
-                            <Row label="Slope 50" value={stock.indicators.sma50Slope.toFixed(2)} highlight={stock.audit.slope50Positive} />
-                            <Row label="Resistance level" value={stock.audit.resistanceLevel !== null ? `$${stock.audit.resistanceLevel.toFixed(2)}` : '—'} />
-                            <Row label="Breakout level" value={stock.audit.breakoutLevel !== null ? `$${stock.audit.breakoutLevel.toFixed(2)}` : '—'} />
-                            <Row label="Breakout valid" value={stock.audit.breakoutValid ? 'Ja' : 'Nej'} highlight={stock.audit.breakoutValid} />
-                            <Row label="Breakout stale" value={stock.audit.breakoutStale ? 'Ja' : 'Nej'} highlight={!stock.audit.breakoutStale} />
-                            <Row label="Current volume" value={stock.audit.currentVolume.toLocaleString('en-US')} />
-                            <Row label="Average volume ref" value={stock.audit.averageVolumeReference.toLocaleString('en-US')} />
-                            <Row label="Volume multiple" value={`${stock.audit.volumeMultiple.toFixed(1)}x`} highlight={stock.audit.volumeValid} />
-                            <Row label="Mansfield value" value={`${stock.audit.mansfieldValue > 0 ? '+' : ''}${stock.audit.mansfieldValue.toFixed(1)}`} highlight={stock.audit.mansfieldValid} />
-                            <Row label="Mansfield valid" value={stock.audit.mansfieldValid ? 'Ja' : 'Nej'} highlight={stock.audit.mansfieldValid} />
-                            <Row label="Sector aligned" value={stock.audit.sectorAligned ? 'Ja' : 'Nej'} highlight={stock.audit.sectorAligned} />
-                            <Row label="Market aligned" value={stock.audit.marketAligned ? 'Ja' : 'Nej'} highlight={stock.audit.marketAligned} />
-                            <Row label="Score" value={`${stock.score}/${stock.maxScore}`} />
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decision Summary</h4>
-                            <div className="space-y-1.5 text-xs">
-                              <Row label="WSP valid entry" value={stock.isValidWspEntry ? 'Ja' : 'Nej'} highlight={stock.isValidWspEntry} />
-                              <Row label="Score role" value="Rankning endast" />
-                              <Row label="Sector" value={stock.sector} />
-                              <Row label="Industry" value={stock.industry} />
-                              <Row label="Data source" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Fallback'} />
-                              <Row label="Updated" value={stock.lastUpdated} />
+                              )}
+                              {logicViolations.length > 0 && (
+                                <div className="mt-3 rounded-md border border-signal-caution/30 bg-signal-caution/10 p-2 text-xs text-signal-caution">
+                                  <div className="font-semibold">Logic violation detected</div>
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {logicViolations.map((rule) => (
+                                      <span key={rule} className="rounded border border-signal-caution/30 px-2 py-0.5 font-mono text-[10px]">
+                                        {rule}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
 
                           <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Readable blockers</h4>
-                            {stock.blockedReasons.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Nothing is blocking this symbol; all hard gates passed.</p>
-                            ) : (
-                              <ul className="space-y-1 text-xs text-muted-foreground">
-                                {stock.blockedReasons.map((reason) => (
-                                  <li key={reason}>• {formatBlockedReason(reason)}</li>
-                                ))}
-                              </ul>
-                            )}
+                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Audit Snapshot</h4>
+                            <div className="space-y-1.5 text-xs">
+                              <Row label="Pattern" value={audit?.pattern ?? stock.pattern} />
+                              <Row label="Final recommendation" value={audit?.finalRecommendation ?? stock.finalRecommendation} highlight={stock.isValidWspEntry} />
+                              <Row label="Price" value={formatCurrency(stock.price)} />
+                              <Row label="SMA 50" value={formatCurrencyOrDash(stock.indicators?.sma50)} highlight={audit?.above50MA} />
+                              <Row label="SMA 150" value={formatCurrencyOrDash(stock.indicators?.sma150)} highlight={audit?.above150MA} />
+                              <Row label="Slope 50" value={formatNumberOrDash(stock.indicators?.sma50Slope, 2)} highlight={audit?.slope50Positive} />
+                              <Row label="Resistance level" value={formatCurrencyOrDash(audit?.resistanceLevel)} />
+                              <Row label="Breakout level" value={formatCurrencyOrDash(audit?.breakoutLevel)} />
+                              <Row label="Breakout valid" value={formatBooleanLabel(audit?.breakoutValid)} highlight={audit?.breakoutValid} />
+                              <Row label="Breakout stale" value={formatBooleanLabel(audit?.breakoutStale)} highlight={audit ? !audit.breakoutStale : undefined} />
+                              <Row label="Current volume" value={formatInteger(audit?.currentVolume)} />
+                              <Row label="Average volume ref" value={formatInteger(audit?.averageVolumeReference)} />
+                              <Row label="Volume multiple" value={formatMultiple(audit?.volumeMultiple)} highlight={audit?.volumeValid} />
+                              <Row label="Mansfield value" value={formatSignedNumber(audit?.mansfieldValue, 1)} highlight={audit?.mansfieldValid} />
+                              <Row label="Mansfield valid" value={formatBooleanLabel(audit?.mansfieldValid)} highlight={audit?.mansfieldValid} />
+                              <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
+                              <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
+                              <Row label="Score" value={`${stock.score}/${stock.maxScore}`} />
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decision Summary</h4>
+                              <div className="space-y-1.5 text-xs">
+                                <Row label="WSP valid entry" value={stock.isValidWspEntry ? 'Ja' : 'Nej'} highlight={stock.isValidWspEntry} />
+                                <Row label="Score role" value="Rankning endast" />
+                                <Row label="Sector" value={stock.sector || '—'} />
+                                <Row label="Industry" value={stock.industry || '—'} />
+                                <Row label="Data source" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Fallback'} />
+                                <Row label="Updated" value={stock.lastUpdated || '—'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Readable blockers</h4>
+                              {blockedReasons.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">Nothing is blocking this symbol; all hard gates passed.</p>
+                              ) : (
+                                <ul className="space-y-1 text-xs text-muted-foreground">
+                                  {blockedReasons.map((reason) => (
+                                    <li key={reason}>• {formatBlockedReason(reason)}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
         {filtered.length === 0 && (
@@ -318,4 +330,46 @@ function Row({ label, value, highlight }: { label: string; value: string; highli
       <span className={`font-mono text-right ${highlight === true ? 'text-signal-buy' : highlight === false ? 'text-signal-sell' : ''}`}>{value}</span>
     </div>
   );
+}
+
+function formatCurrency(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(2)}` : '—';
+}
+
+function formatCurrencyOrDash(value: number | null | undefined) {
+  return formatCurrency(value);
+}
+
+function formatNumberOrDash(value: number | null | undefined, decimals = 1) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(decimals) : '—';
+}
+
+function formatSignedNumber(value: number | null | undefined, decimals = 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+  return `${value > 0 ? '+' : ''}${value.toFixed(decimals)}`;
+}
+
+function formatMultiple(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}x` : '—';
+}
+
+function formatInteger(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+function formatBooleanLabel(value: boolean | null | undefined) {
+  if (typeof value !== 'boolean') {
+    return '—';
+  }
+  return value ? 'Ja' : 'Nej';
 }

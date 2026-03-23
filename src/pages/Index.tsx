@@ -21,10 +21,10 @@ const Index = () => {
   const debugSummary = payload?.debugSummary;
 
   const counts = useMemo(() => ({
-    buyCount: stocks.filter((s) => s.recommendation === 'KÖP').length,
-    sellCount: stocks.filter((s) => s.recommendation === 'SÄLJ').length,
-    watchCount: stocks.filter((s) => s.recommendation === 'BEVAKA').length,
-    avoidCount: stocks.filter((s) => s.recommendation === 'UNDVIK').length,
+    buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
+    sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
+    watchCount: stocks.filter((s) => s.finalRecommendation === 'BEVAKA').length,
+    avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
   }), [stocks]);
 
   const handleManualRefresh = async () => {
@@ -85,7 +85,6 @@ const Index = () => {
         )}
 
         <DebugPanel
-          stocks={stocks}
           providerStatus={providerStatus}
           debugSummary={debugSummary}
         />
