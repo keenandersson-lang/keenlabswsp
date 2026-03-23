@@ -1,10 +1,10 @@
-import { WSPPattern } from '@/lib/wsp-engine';
+import type { WSPPattern } from '@/lib/wsp-types';
 
 const patternConfig: Record<WSPPattern, { label: string; description: string; colorClass: string; bgClass: string; borderClass: string }> = {
-  base: { label: 'BASE', description: 'Sidledes konsolidering — vänta på breakout', colorClass: 'text-accent', bgClass: 'bg-signal-base\/10', borderClass: 'border-accent' },
-  climbing: { label: 'CLIMBING', description: 'Upptrend — köpsignal vid breakout', colorClass: 'text-signal-buy', bgClass: 'bg-signal-buy\/10', borderClass: 'border-signal-buy' },
-  tired: { label: 'TIRED', description: 'Topp-konsolidering — säljsignal', colorClass: 'text-signal-caution', bgClass: 'bg-signal-caution\/10', borderClass: 'border-signal-caution' },
-  downhill: { label: 'DOWNHILL', description: 'Nedtrend — undvik', colorClass: 'text-signal-sell', bgClass: 'bg-signal-sell\/10', borderClass: 'border-signal-sell' },
+  BASE: { label: 'BASE', description: 'Sidledes konsolidering — väntar på breakout', colorClass: 'text-accent', bgClass: 'bg-signal-base\/10', borderClass: 'border-accent' },
+  CLIMBING: { label: 'CLIMBING', description: 'Upptrend — potentiell köpsignal vid breakout', colorClass: 'text-signal-buy', bgClass: 'bg-signal-buy\/10', borderClass: 'border-signal-buy' },
+  TIRED: { label: 'TIRED', description: 'Topp-konsolidering — säljsignal', colorClass: 'text-signal-caution', bgClass: 'bg-signal-caution\/10', borderClass: 'border-signal-caution' },
+  DOWNHILL: { label: 'DOWNHILL', description: 'Nedtrend — undvik', colorClass: 'text-signal-sell', bgClass: 'bg-signal-sell\/10', borderClass: 'border-signal-sell' },
 };
 
 interface PatternBadgeProps {
