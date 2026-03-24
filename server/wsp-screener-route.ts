@@ -13,6 +13,7 @@ import { buildDiscoverySnapshot } from '../src/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '../src/lib/benchmarks';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
+const ROUTE_VERSION = 'wsp-screener-route@2026-03-24.1';
 
 let cachedLiveSnapshot: ScreenerApiResponse | null = null;
 let inFlightRefresh: Promise<ScreenerApiResponse> | null = null;
@@ -27,6 +28,14 @@ type PipelineStage =
   | 'snapshot_build'
   | 'fallback_build'
   | 'completed';
+
+type FallbackCause = 'necessary' | 'misconfiguration' | 'unknown';
+
+function classifyFallbackCause(finalModeReason: string, envVarPresent: boolean, routeReachable: boolean): FallbackCause {
+  if (!routeReachable || !envVarPresent) return 'misconfiguration';
+  if (finalModeReason.toLowerCase().includes('failed') || finalModeReason.toLowerCase().includes('unavailable')) return 'necessary';
+  return 'unknown';
+}
 
 export async function handleWspScreenerRequest(req: IncomingMessage, res: ServerResponse) {
   const requestUrl = new URL(req.url ?? '/', 'http://localhost');
@@ -276,6 +285,19 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           staleCacheAvailable: cachedLiveSnapshot !== null,
           fallbackBuild: 'failed',
         },
+        runtimeDiagnostics: {
+          envKeyPresent: true,
+          edgeFunctionReachable: true,
+          fetchTarget: '/api/wsp-screener',
+          authOutcome: 'not_required',
+          benchmarkFetch: anyStale ? 'stale' : 'success',
+          routeVersion: ROUTE_VERSION,
+          buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
+          finalModeReason: uiState === 'LIVE'
+            ? 'All critical benchmark and stock datasets fetched successfully.'
+            : 'Using stale/partial live dataset because one or more provider fetches failed or were stale.',
+          fallbackCause: anyStale ? 'necessary' : 'unknown',
+        },
       },
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
@@ -308,6 +330,17 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
             stockFailureCount: cachedLiveSnapshot.providerStatus.failedSymbols.length,
             staleCacheAvailable: true,
             fallbackBuild: 'failed',
+          },
+          runtimeDiagnostics: {
+            envKeyPresent: true,
+            edgeFunctionReachable: true,
+            fetchTarget: '/api/wsp-screener',
+            authOutcome: 'not_required',
+            benchmarkFetch: cachedLiveSnapshot.providerStatus.benchmarkFetchStatus,
+            routeVersion: ROUTE_VERSION,
+            buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
+            finalModeReason: 'Serving cached stale snapshot after live refresh failed.',
+            fallbackCause: 'necessary',
           },
         },
       };
@@ -477,6 +510,17 @@ function createFallbackResponse(
         staleCacheAvailable,
         fallbackBuild: 'success',
       },
+      runtimeDiagnostics: {
+        envKeyPresent: Boolean(process.env.FINNHUB_API_KEY),
+        edgeFunctionReachable: true,
+        fetchTarget: '/api/wsp-screener',
+        authOutcome: 'not_required',
+        benchmarkFetch: benchmarkSuccessCount > 0 ? 'stale' : 'failed',
+        routeVersion: ROUTE_VERSION,
+        buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
+        finalModeReason,
+        fallbackCause: classifyFallbackCause(finalModeReason, Boolean(process.env.FINNHUB_API_KEY), true),
+      },
     },
     debugSummary: buildScreenerDebugSummary(demoStocks),
   };
@@ -526,6 +570,17 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
         staleCacheAvailable: cachedLiveSnapshot !== null,
         fallbackBuild: 'failed',
       },
+      runtimeDiagnostics: {
+        envKeyPresent: Boolean(process.env.FINNHUB_API_KEY),
+        edgeFunctionReachable: routeReachable,
+        fetchTarget: '/api/wsp-screener',
+        authOutcome: 'not_required',
+        benchmarkFetch: 'failed',
+        routeVersion: ROUTE_VERSION,
+        buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
+        finalModeReason: 'No renderable live, stale, or fallback snapshot exists.',
+        fallbackCause: classifyFallbackCause('No renderable live, stale, or fallback snapshot exists.', Boolean(process.env.FINNHUB_API_KEY), routeReachable),
+      },
     },
     debugSummary: buildScreenerDebugSummary([]),
   };
@@ -561,6 +616,9 @@ function createRouteResponse(payload: ScreenerApiResponse) {
       totalSymbols: payload.providerStatus.symbolCount,
       fetchedAt: payload.providerStatus.lastFetch ?? undefined,
       cachedSymbols: cachedLiveSnapshot?.providerStatus.successCount ?? 0,
+      routeVersion: payload.providerStatus.runtimeDiagnostics?.routeVersion ?? ROUTE_VERSION,
+      finalModeReason: payload.providerStatus.runtimeDiagnostics?.finalModeReason ?? payload.providerStatus.debugPipeline?.finalModeReason,
+      fallbackCause: payload.providerStatus.runtimeDiagnostics?.fallbackCause ?? 'unknown',
     },
     debugSummary: payload.providerStatus.debugPipeline,
     ...payload,

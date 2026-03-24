@@ -339,6 +339,17 @@ export interface ProviderStatus {
     staleCacheAvailable: boolean;
     fallbackBuild: 'success' | 'failed';
   };
+  runtimeDiagnostics?: {
+    envKeyPresent: boolean;
+    edgeFunctionReachable: boolean;
+    fetchTarget: string;
+    authOutcome: 'success' | 'missing_client_auth' | 'failed' | 'not_required' | 'unknown';
+    benchmarkFetch: 'success' | 'failed' | 'stale';
+    routeVersion: string;
+    buildMarker: string;
+    finalModeReason: string;
+    fallbackCause: 'necessary' | 'misconfiguration' | 'unknown';
+  };
 }
 
 export interface ScreenerApiResponse {

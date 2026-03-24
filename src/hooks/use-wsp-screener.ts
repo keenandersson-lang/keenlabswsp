@@ -33,7 +33,22 @@ interface EdgeFunctionResponse {
     totalSymbols?: number;
     fetchedAt?: string;
     cachedSymbols?: number;
+    routeVersion?: string;
+    finalModeReason?: string;
+    fallbackCause?: 'necessary' | 'misconfiguration' | 'unknown';
   };
+}
+
+interface FetchDiagnostics {
+  target: string;
+  reachable: boolean;
+  statusCode: number | null;
+  authOutcome: 'success' | 'missing_client_auth' | 'failed' | 'not_required' | 'unknown';
+}
+
+interface SafeFetchResult {
+  payload: EdgeFunctionResponse;
+  diagnostics: FetchDiagnostics;
 }
 
 function buildEdgeFunctionUrl(): string {
@@ -53,48 +68,90 @@ function isDevMode(): boolean {
  * Safe fetch that NEVER throws on non-JSON responses.
  * Always returns a structured result.
  */
-async function safeFetch(url: string, options?: RequestInit): Promise<EdgeFunctionResponse> {
+async function safeFetch(url: string, options?: RequestInit): Promise<SafeFetchResult> {
+  const hasClientAuthHeader = !!(options?.headers && (
+    (options.headers as Record<string, string>)?.Authorization ||
+    (options.headers as Record<string, string>)?.authorization ||
+    (options.headers as Record<string, string>)?.apikey
+  ));
+
   let response: Response;
   try {
     response = await fetch(url, options);
   } catch (err) {
     return {
-      ok: false,
-      mode: 'ERROR',
-      data: null,
-      error: { code: 'NETWORK_ERROR', message: err instanceof Error ? err.message : 'Network request failed' },
-      providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      payload: {
+        ok: false,
+        mode: 'ERROR',
+        data: null,
+        error: { code: 'NETWORK_ERROR', message: err instanceof Error ? err.message : 'Network request failed' },
+        providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      },
+      diagnostics: {
+        target: url,
+        reachable: false,
+        statusCode: null,
+        authOutcome: 'unknown',
+      },
     };
   }
+
+  const authOutcome: FetchDiagnostics['authOutcome'] = response.status === 401 || response.status === 403
+    ? (hasClientAuthHeader ? 'failed' : 'missing_client_auth')
+    : (hasClientAuthHeader ? 'success' : 'not_required');
 
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) {
     // Server returned HTML or other non-JSON (e.g. SPA fallback)
     const text = await response.text().catch(() => '');
     return {
-      ok: false,
-      mode: 'ERROR',
-      data: null,
-      error: {
-        code: 'NON_JSON_RESPONSE',
-        message: `Server returned ${contentType || 'unknown content-type'} (status ${response.status}). Expected JSON.`,
-        details: text.slice(0, 200),
-      } as any,
-      providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      payload: {
+        ok: false,
+        mode: 'ERROR',
+        data: null,
+        error: {
+          code: 'NON_JSON_RESPONSE',
+          message: `Server returned ${contentType || 'unknown content-type'} (status ${response.status}). Expected JSON.`,
+          details: text.slice(0, 200),
+        } as any,
+        providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      },
+      diagnostics: {
+        target: url,
+        reachable: response.ok,
+        statusCode: response.status,
+        authOutcome,
+      },
     };
   }
 
   try {
     const text = await response.text();
     const parsed = JSON.parse(text);
-    return parsed as EdgeFunctionResponse;
+    return {
+      payload: parsed as EdgeFunctionResponse,
+      diagnostics: {
+        target: url,
+        reachable: response.ok,
+        statusCode: response.status,
+        authOutcome,
+      },
+    };
   } catch {
     return {
-      ok: false,
-      mode: 'ERROR',
-      data: null,
-      error: { code: 'JSON_PARSE_ERROR', message: 'Response claimed JSON but could not be parsed.' },
-      providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      payload: {
+        ok: false,
+        mode: 'ERROR',
+        data: null,
+        error: { code: 'JSON_PARSE_ERROR', message: 'Response claimed JSON but could not be parsed.' },
+        providerStatus: { provider: 'unknown', isLive: false, apiKeyPresent: false },
+      },
+      diagnostics: {
+        target: url,
+        reachable: response.ok,
+        statusCode: response.status,
+        authOutcome,
+      },
     };
   }
 }
@@ -115,7 +172,7 @@ function isSeriesBullish(bars: Bar[]): boolean {
   return ind.sma50 !== null && ind.sma200 !== null && latestClose > ind.sma50 && ind.sma50 > ind.sma200;
 }
 
-function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiResponse {
+function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: FetchDiagnostics): ScreenerApiResponse {
   const now = new Date().toISOString();
   const safeError = sanitizeClientErrorMessage(edgeResp.error?.message);
 
@@ -145,12 +202,23 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
         refreshIntervalMs: WSP_CONFIG.refreshInterval,
         readiness: {
           envVarPresent: edgeResp.providerStatus?.apiKeyPresent ?? false,
-          routeReachable: true,
+          routeReachable: fetchDiagnostics.reachable,
           benchmarkSymbolConfigured: true,
           trackedSymbolsCount: TRACKED_SYMBOLS.length,
           symbolsFetchedSuccessfully: 0,
           symbolsFailed: TRACKED_SYMBOLS.length,
           lastSuccessfulLiveFetch: null,
+        },
+        runtimeDiagnostics: {
+          envKeyPresent: edgeResp.providerStatus?.apiKeyPresent ?? false,
+          edgeFunctionReachable: fetchDiagnostics.reachable,
+          fetchTarget: fetchDiagnostics.target,
+          authOutcome: fetchDiagnostics.authOutcome,
+          benchmarkFetch: 'failed',
+          routeVersion: edgeResp.providerStatus?.routeVersion ?? 'unknown',
+          buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+          finalModeReason: edgeResp.providerStatus?.finalModeReason ?? safeError ?? 'Live provider request failed before usable payload.',
+          fallbackCause: edgeResp.providerStatus?.fallbackCause ?? 'unknown',
         },
       },
       debugSummary: buildScreenerDebugSummary(demoStocks),
@@ -217,7 +285,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
 
   if (evaluatedStocks.length === 0) {
     // All symbols failed — return fallback
-    return processEdgeResponse({ ...edgeResp, ok: false, mode: 'ERROR', data: null });
+    return processEdgeResponse({ ...edgeResp, ok: false, mode: 'ERROR', data: null }, fetchDiagnostics);
   }
 
   const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0;
@@ -248,12 +316,23 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
       refreshIntervalMs: WSP_CONFIG.refreshInterval,
       readiness: {
         envVarPresent: edgeResp.providerStatus.apiKeyPresent,
-        routeReachable: true,
+        routeReachable: fetchDiagnostics.reachable,
         benchmarkSymbolConfigured: true,
         trackedSymbolsCount: TRACKED_SYMBOLS.length,
         symbolsFetchedSuccessfully: evaluatedStocks.length,
         symbolsFailed: failedSymbols.length,
         lastSuccessfulLiveFetch: uiState === 'LIVE' ? now : null,
+      },
+      runtimeDiagnostics: {
+        envKeyPresent: edgeResp.providerStatus.apiKeyPresent,
+        edgeFunctionReachable: fetchDiagnostics.reachable,
+        fetchTarget: fetchDiagnostics.target,
+        authOutcome: fetchDiagnostics.authOutcome,
+        benchmarkFetch: benchmarkBars.length > 0 ? (anyStale ? 'stale' : 'success') : 'failed',
+        routeVersion: edgeResp.providerStatus?.routeVersion ?? 'unknown',
+        buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+        finalModeReason: edgeResp.providerStatus?.finalModeReason ?? (uiState === 'LIVE' ? 'Live provider data fully available.' : 'Live provider returned partial/stale data.'),
+        fallbackCause: edgeResp.providerStatus?.fallbackCause ?? 'unknown',
       },
     },
     debugSummary: buildScreenerDebugSummary(evaluatedStocks),
@@ -262,6 +341,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
 
 export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean }): Promise<ScreenerApiResponse> {
   let edgeResp: EdgeFunctionResponse;
+  let fetchDiagnostics: FetchDiagnostics = {
+    target: isDevMode() ? '/api/wsp-screener' : buildEdgeFunctionUrl(),
+    reachable: false,
+    statusCode: null,
+    authOutcome: 'unknown',
+  };
 
   if (isDevMode()) {
     // In dev mode, try the Vite plugin first, then fall back to edge function
@@ -271,42 +356,47 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     const devUrl = `/api/wsp-screener${params.size > 0 ? `?${params.toString()}` : ''}`;
     
     const devResp = await safeFetch(devUrl);
+    fetchDiagnostics = devResp.diagnostics;
     
     // If dev server returned a full ScreenerApiResponse (has providerStatus.uiState), use it directly
-    if (devResp.ok || (devResp as any)?.providerStatus?.uiState) {
+    if (devResp.payload.ok || (devResp.payload as any)?.providerStatus?.uiState) {
       // The dev server returns ScreenerApiResponse directly, not EdgeFunctionResponse
-      const raw = devResp as any;
+      const raw = devResp.payload as any;
       if (raw.market && raw.stocks && raw.providerStatus) {
         return raw as ScreenerApiResponse;
       }
     }
 
     // Dev server not available or returned non-JSON — try edge function
-    edgeResp = devResp;
+    edgeResp = devResp.payload;
     if (edgeResp.error?.code === 'NON_JSON_RESPONSE' || edgeResp.error?.code === 'NETWORK_ERROR') {
       // Try edge function as fallback
       const efUrl = buildEdgeFunctionUrl();
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      edgeResp = await safeFetch(efUrl, {
+      const efResp = await safeFetch(efUrl, {
         headers: {
           'Content-Type': 'application/json',
           ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
         },
       });
+      edgeResp = efResp.payload;
+      fetchDiagnostics = efResp.diagnostics;
     }
   } else {
     // Production: always use edge function
     const efUrl = buildEdgeFunctionUrl();
     const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    edgeResp = await safeFetch(efUrl, {
+    const efResp = await safeFetch(efUrl, {
       headers: {
         'Content-Type': 'application/json',
         ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
       },
     });
+    edgeResp = efResp.payload;
+    fetchDiagnostics = efResp.diagnostics;
   }
 
-  return processEdgeResponse(edgeResp);
+  return processEdgeResponse(edgeResp, fetchDiagnostics);
 }
 
 export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval) {

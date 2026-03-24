@@ -12,6 +12,7 @@ interface DebugPanelProps {
 
 export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta }: DebugPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const debugDiagnosticsEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).get('debug') === '1';
   const qaChecks = useMemo(() => ([
     { label: 'Engine fixtures passing', value: `${debugSummary.fixturePassCount}/${debugSummary.fixturePassCount + debugSummary.fixtureFailCount}`, ok: debugSummary.fixtureFailCount === 0 },
     { label: 'Indicator fixtures passing', value: `${debugSummary.indicatorTestPassCount}/${debugSummary.indicatorTestPassCount + debugSummary.indicatorTestFailCount}`, ok: debugSummary.indicatorTestFailCount === 0 },
@@ -101,6 +102,29 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
               </div>
             </SectionCard>
           </div>
+
+          {debugDiagnosticsEnabled && providerStatus.runtimeDiagnostics && (
+            <div className="rounded-lg border border-border bg-background/40 p-3">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Deployment / Runtime Diagnostics</div>
+              <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                <Stat label="Env key present" value={providerStatus.runtimeDiagnostics.envKeyPresent ? 'yes' : 'no'} warn={!providerStatus.runtimeDiagnostics.envKeyPresent} />
+                <Stat label="Edge function reachable" value={providerStatus.runtimeDiagnostics.edgeFunctionReachable ? 'yes' : 'no'} warn={!providerStatus.runtimeDiagnostics.edgeFunctionReachable} />
+                <Stat label="Current fetch target" value={providerStatus.runtimeDiagnostics.fetchTarget} className="sm:col-span-2" />
+                <Stat label="Auth outcome" value={providerStatus.runtimeDiagnostics.authOutcome} warn={providerStatus.runtimeDiagnostics.authOutcome === 'failed' || providerStatus.runtimeDiagnostics.authOutcome === 'missing_client_auth'} />
+                <Stat label="Benchmark fetch" value={providerStatus.runtimeDiagnostics.benchmarkFetch} warn={providerStatus.runtimeDiagnostics.benchmarkFetch === 'failed'} />
+                <Stat label="Route version" value={providerStatus.runtimeDiagnostics.routeVersion} />
+                <Stat label="Build marker" value={providerStatus.runtimeDiagnostics.buildMarker} />
+                <Stat label="Final mode reason" value={providerStatus.runtimeDiagnostics.finalModeReason} className="sm:col-span-4" warn={providerStatus.uiState !== 'LIVE'} />
+                <Stat label="Fallback classification" value={providerStatus.runtimeDiagnostics.fallbackCause} warn={providerStatus.runtimeDiagnostics.fallbackCause === 'misconfiguration'} />
+                <Stat
+                  label="Fallback required"
+                  value={providerStatus.runtimeDiagnostics.fallbackCause === 'misconfiguration' ? 'no — deployment/config issue' : (providerStatus.runtimeDiagnostics.fallbackCause === 'necessary' ? 'yes — upstream unavailable' : 'unknown')}
+                  className="sm:col-span-3"
+                  warn={providerStatus.runtimeDiagnostics.fallbackCause === 'misconfiguration'}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
             <Stat label="Discovery source" value={discoveryMeta.source} />
