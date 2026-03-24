@@ -1,0 +1,67 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { URL } from 'node:url';
+import { WSP_CONFIG } from '../src/lib/wsp-config';
+import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
+import { normalizeBarsChronologically } from '../src/lib/wsp-indicators';
+import { FinnhubProvider } from './finnhub-provider';
+import { aggregateBarsWeekly } from '../src/lib/charting';
+import type { StockDetailApiResponse } from '../src/lib/chart-types';
+
+const MAX_HISTORY_BARS = 540;
+
+export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: ServerResponse) {
+  const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+  const symbol = requestUrl.searchParams.get('symbol')?.toUpperCase().trim();
+
+  if (!symbol) {
+    return sendJson(res, 400, { ok: false, data: null, error: { code: 'MISSING_SYMBOL', message: 'Query param "symbol" is required.' } } satisfies StockDetailApiResponse);
+  }
+
+  const meta = TRACKED_SYMBOLS.find((item) => item.symbol === symbol);
+  if (!meta) {
+    return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in TRACKED_SYMBOLS.` } } satisfies StockDetailApiResponse);
+  }
+
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) {
+    return sendJson(res, 503, { ok: false, data: null, error: { code: 'MISSING_API_KEY', message: 'FINNHUB_API_KEY is not configured on the server.' } } satisfies StockDetailApiResponse);
+  }
+
+  try {
+    const provider = new FinnhubProvider(apiKey);
+    const [stockDailyResult, benchmarkDailyResult] = await Promise.all([
+      provider.fetchDailyHistory(symbol),
+      provider.fetchDailyHistory(WSP_CONFIG.benchmark),
+    ]);
+
+    const barsDaily = normalizeBarsChronologically(stockDailyResult.bars).bars.slice(-MAX_HISTORY_BARS);
+    const benchmarkDaily = normalizeBarsChronologically(benchmarkDailyResult.bars).bars.slice(-MAX_HISTORY_BARS);
+
+    const payload: StockDetailApiResponse = {
+      ok: true,
+      data: {
+        symbol,
+        name: meta.name,
+        sector: meta.sector,
+        industry: meta.industry,
+        barsDaily,
+        barsWeekly: aggregateBarsWeekly(barsDaily),
+        benchmarkDaily,
+        benchmarkWeekly: aggregateBarsWeekly(benchmarkDaily),
+        fetchedAt: new Date().toISOString(),
+      },
+      error: null,
+    };
+
+    return sendJson(res, 200, payload);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch symbol detail';
+    return sendJson(res, 500, { ok: false, data: null, error: { code: 'DETAIL_FETCH_FAILED', message } } satisfies StockDetailApiResponse);
+  }
+}
+
+function sendJson(res: ServerResponse, statusCode: number, payload: StockDetailApiResponse) {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(payload));
+}

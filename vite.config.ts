@@ -3,11 +3,16 @@ import react from '@vitejs/plugin-react-swc';
 import path from 'path';
 import { componentTagger } from 'lovable-tagger';
 import { handleWspScreenerRequest } from './server/wsp-screener-route';
+import { handleWspSymbolDetailRequest } from './server/wsp-symbol-detail-route';
 
 function wspApiPlugin(): Plugin {
   const middleware = async (req: any, res: any, next: () => void) => {
     if (req.url?.startsWith('/api/wsp-screener')) {
       await handleWspScreenerRequest(req, res);
+      return;
+    }
+    if (req.url?.startsWith('/api/wsp-symbol-detail')) {
+      await handleWspSymbolDetailRequest(req, res);
       return;
     }
     next();

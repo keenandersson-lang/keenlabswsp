@@ -471,6 +471,67 @@ export function mansfieldRS(
   };
 }
 
+export function computeMansfieldSeries(
+  stockBars: Bar[],
+  benchmarkBars: Bar[],
+  smaPeriod: number = WSP_CONFIG.wsp.mansfieldLookbackBars,
+): Array<{ date: string; value: number | null }> {
+  const benchmarkByDate = new Map(benchmarkBars.map((bar) => [bar.date, bar.close]));
+  const rsSeries: Array<{ date: string; rs: number }> = [];
+
+  for (const stockBar of stockBars) {
+    const benchmarkClose = benchmarkByDate.get(stockBar.date);
+    if (benchmarkClose === undefined || Math.abs(benchmarkClose) < EPSILON) continue;
+    rsSeries.push({ date: stockBar.date, rs: stockBar.close / benchmarkClose });
+  }
+
+  return rsSeries.map((point, index) => ({
+    date: point.date,
+    value: index >= smaPeriod - 1 ? calculateMansfieldValue(rsSeries.map((item) => item.rs), index, smaPeriod) : null,
+  }));
+}
+
+export function computeRsiSeries(
+  bars: Bar[],
+  period: number = 14,
+): Array<{ date: string; value: number | null }> {
+  if (period <= 0) return bars.map((bar) => ({ date: bar.date, value: null }));
+  if (bars.length < period + 1) return bars.map((bar) => ({ date: bar.date, value: null }));
+
+  const deltas = bars.map((bar, index) => {
+    if (index === 0) return 0;
+    return bar.close - bars[index - 1].close;
+  });
+
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let index = 1; index <= period; index += 1) {
+    const delta = deltas[index];
+    if (delta >= 0) avgGain += delta;
+    else avgLoss += Math.abs(delta);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  const result = bars.map((bar) => ({ date: bar.date, value: null as number | null }));
+  result[period] = { date: bars[period].date, value: avgLoss < EPSILON ? 100 : 100 - (100 / (1 + (avgGain / avgLoss))) };
+
+  for (let index = period + 1; index < bars.length; index += 1) {
+    const delta = deltas[index];
+    const gain = delta > 0 ? delta : 0;
+    const loss = delta < 0 ? Math.abs(delta) : 0;
+
+    avgGain = ((avgGain * (period - 1)) + gain) / period;
+    avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+
+    const rs = avgLoss < EPSILON ? Number.POSITIVE_INFINITY : (avgGain / avgLoss);
+    const value = avgLoss < EPSILON ? 100 : 100 - (100 / (1 + rs));
+    result[index] = { date: bars[index].date, value };
+  }
+
+  return result;
+}
+
 export function classifyPattern(
   bars: Bar[],
   sma50Val: number | null,
