@@ -95,7 +95,24 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
                     <Stat label="Benchmark success/fail" value={`${providerStatus.debugPipeline.benchmarkSuccessCount}/${providerStatus.debugPipeline.benchmarkFailureCount}`} warn={providerStatus.debugPipeline.benchmarkSuccessCount === 0} />
                     <Stat label="Stock success/fail" value={`${providerStatus.debugPipeline.stockSuccessCount}/${providerStatus.debugPipeline.stockFailureCount}`} warn={providerStatus.debugPipeline.stockSuccessCount === 0} />
                     <Stat label="Stale cache available" value={providerStatus.debugPipeline.staleCacheAvailable ? 'yes' : 'no'} />
+                    {providerStatus.debugPipeline.staleSnapshotQuality && (
+                      <Stat
+                        label="Stale quality gate"
+                        value={providerStatus.debugPipeline.staleSnapshotQuality}
+                        warn={providerStatus.debugPipeline.staleSnapshotQuality !== 'pass'}
+                      />
+                    )}
+                    {providerStatus.debugPipeline.benchmarkRenderable !== undefined && (
+                      <Stat
+                        label="Benchmark renderable"
+                        value={providerStatus.debugPipeline.benchmarkRenderable ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.benchmarkRenderable}
+                      />
+                    )}
                     <Stat label="Fallback builder" value={providerStatus.debugPipeline.fallbackBuild} warn={providerStatus.debugPipeline.fallbackBuild !== 'success' && providerStatus.uiState === 'FALLBACK'} />
+                    {providerStatus.debugPipeline.staleSnapshotQualityReason && (
+                      <Stat label="Stale gate reason" value={providerStatus.debugPipeline.staleSnapshotQualityReason} className="sm:col-span-3" warn={providerStatus.debugPipeline.staleSnapshotQuality === 'fail'} />
+                    )}
                     <Stat label="Mode reason" value={providerStatus.debugPipeline.finalModeReason} className="sm:col-span-3" />
                   </>
                 )}

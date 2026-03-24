@@ -40,6 +40,11 @@ interface EdgeFunctionResponse {
     benchmarkSuccessCount?: number;
     benchmarkFailureCount?: number;
   };
+  market?: MarketOverview;
+  stocks?: EvaluatedStock[];
+  sectorStatuses?: SectorStatus[];
+  discovery?: DiscoveryBuckets;
+  discoveryMeta?: DiscoveryMeta;
 }
 
 interface FetchDiagnostics {
@@ -245,7 +250,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   const { data } = edgeResp;
   const benchmarkBars = data.benchmarkBars;
 
-  // Build market overview
+  const marketFromPayload = edgeResp.market;
+  const hasRenderablePayloadBenchmarks = marketFromPayload &&
+    marketFromPayload.sp500Price !== null &&
+    marketFromPayload.nasdaqPrice !== null;
+
+  // Build market overview (prefer backend-computed market if present/renderable)
   const spyBars = data.marketBars['SPY'] ?? [];
   const qqqBars = data.marketBars['QQQ'] ?? [];
   const spyPrice = spyBars[spyBars.length - 1]?.close ?? null;
@@ -256,21 +266,29 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   const qqqBullish = isSeriesBullish(qqqBars);
   const marketTrend = spyBullish && qqqBullish ? 'bullish' as const
     : (!spyBullish && !qqqBullish ? 'bearish' as const : 'neutral' as const);
-  const marketFavorable = marketTrend === 'bullish';
+  const marketFavorable = (hasRenderablePayloadBenchmarks ? marketFromPayload.marketTrend : marketTrend) === 'bullish';
 
-  const market: MarketOverview = {
-    sp500Change, nasdaqChange, marketTrend,
-    sp500Price: spyPrice,
-    nasdaqPrice: qqqPrice,
-    sp500Symbol: SP500_BENCHMARK.symbol,
-    nasdaqSymbol: NASDAQ_BENCHMARK.symbol,
-    benchmarkState: edgeResp.mode === 'STALE' ? 'stale' : 'live',
-    benchmarkLastUpdated: edgeResp.providerStatus.fetchedAt ?? now,
-    lastUpdated: now, dataSource: 'live', pollingIntervalMs: WSP_CONFIG.refreshInterval,
-  };
+  const market: MarketOverview = hasRenderablePayloadBenchmarks
+    ? {
+      ...marketFromPayload,
+      benchmarkState: edgeResp.mode === 'STALE' ? 'stale' : marketFromPayload.benchmarkState,
+      benchmarkLastUpdated: edgeResp.providerStatus.fetchedAt ?? marketFromPayload.benchmarkLastUpdated ?? now,
+      lastUpdated: edgeResp.providerStatus.fetchedAt ?? marketFromPayload.lastUpdated ?? now,
+      pollingIntervalMs: marketFromPayload.pollingIntervalMs ?? WSP_CONFIG.refreshInterval,
+    }
+    : {
+      sp500Change, nasdaqChange, marketTrend,
+      sp500Price: spyPrice,
+      nasdaqPrice: qqqPrice,
+      sp500Symbol: SP500_BENCHMARK.symbol,
+      nasdaqSymbol: NASDAQ_BENCHMARK.symbol,
+      benchmarkState: edgeResp.mode === 'STALE' ? 'stale' : 'live',
+      benchmarkLastUpdated: edgeResp.providerStatus.fetchedAt ?? now,
+      lastUpdated: now, dataSource: 'live', pollingIntervalMs: WSP_CONFIG.refreshInterval,
+    };
 
   // Build sector statuses
-  const sectorStatuses: SectorStatus[] = Object.entries(data.sectorMap).map(([sector, etfs]) => {
+  const derivedSectorStatuses: SectorStatus[] = Object.entries(data.sectorMap).map(([sector, etfs]) => {
     const etfBars = data.sectorEtfBars[etfs[0]] ?? [];
     const sorted = normalizeBarsChronologically(etfBars).bars;
     const ind = computeIndicators(sorted, sorted);
@@ -283,29 +301,31 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       sma50AboveSma200: ind.sma50 !== null && ind.sma200 !== null ? ind.sma50 > ind.sma200 : false,
     };
   });
+  const sectorStatuses = edgeResp.sectorStatuses?.length ? edgeResp.sectorStatuses : derivedSectorStatuses;
 
   const sectorStatusMap = Object.fromEntries(sectorStatuses.map(s => [s.sector, s]));
 
   // Evaluate each stock
   const failedSymbols = edgeResp.error?.failedSymbols ?? [];
-  const evaluatedStocks: EvaluatedStock[] = data.trackedSymbols
-    .filter(meta => data.stockBars[meta.symbol]?.length > 0)
-    .map(meta => {
-      const sectorAligned = sectorStatusMap[meta.sector]?.isBullish ?? false;
-      return evaluateStock(
-        meta.symbol, meta.name, meta.sector, meta.industry,
-        data.stockBars[meta.symbol], benchmarkBars,
-        sectorAligned, marketFavorable, 'live',
-      );
-    });
+  const evaluatedStocks: EvaluatedStock[] = edgeResp.stocks?.length
+    ? edgeResp.stocks
+    : data.trackedSymbols
+      .filter(meta => data.stockBars[meta.symbol]?.length > 0)
+      .map(meta => {
+        const sectorAligned = sectorStatusMap[meta.sector]?.isBullish ?? false;
+        return evaluateStock(
+          meta.symbol, meta.name, meta.sector, meta.industry,
+          data.stockBars[meta.symbol], benchmarkBars,
+          sectorAligned, marketFavorable, 'live',
+        );
+      });
 
   const benchmarkSuccessCount = Number(edgeResp.providerStatus.benchmarkSuccessCount ?? 0);
   const benchmarkFailureCount = Number(edgeResp.providerStatus.benchmarkFailureCount ?? 0);
   const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0 || benchmarkFailureCount > 0;
   const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
-  const discoveryFromBackend = (edgeResp as unknown as { discovery?: DiscoveryBuckets; discoveryMeta?: DiscoveryMeta });
-  const discoverySnapshot = discoveryFromBackend.discovery && discoveryFromBackend.discoveryMeta
-    ? { discovery: discoveryFromBackend.discovery, discoveryMeta: discoveryFromBackend.discoveryMeta }
+  const discoverySnapshot = edgeResp.discovery && edgeResp.discoveryMeta
+    ? { discovery: edgeResp.discovery, discoveryMeta: edgeResp.discoveryMeta }
     : buildDiscoverySnapshot(evaluatedStocks, uiState);
 
   return {

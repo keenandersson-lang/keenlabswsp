@@ -215,7 +215,10 @@ Deno.serve(async (req) => {
     const benchmarkSeries = MARKET_REGIME_SYMBOLS.map((symbol) => ({ symbol, result: results.get(symbol) }));
     const benchmarkSuccessCount = benchmarkSeries.filter((entry) => (entry.result?.bars.length ?? 0) > 0).length;
     const benchmarkFailureCount = benchmarkSeries.length - benchmarkSuccessCount;
-    const benchmarkHasUsableData = benchmarkSuccessCount > 0 && (benchmarkResult?.bars.length ?? 0) > 0;
+    const missingBenchmarks = benchmarkSeries
+      .filter((entry) => (entry.result?.bars.length ?? 0) === 0)
+      .map((entry) => entry.symbol);
+    const benchmarkHasUsableData = missingBenchmarks.length === 0 && (benchmarkResult?.bars.length ?? 0) > 0;
 
     if (!benchmarkHasUsableData) {
       return jsonResponse(200, {
@@ -225,7 +228,7 @@ Deno.serve(async (req) => {
         error: {
           code: 'BENCHMARK_UNAVAILABLE',
           message: 'Market benchmarks unavailable from provider.',
-          failedSymbols: MARKET_REGIME_SYMBOLS,
+          failedSymbols: missingBenchmarks.length > 0 ? missingBenchmarks : MARKET_REGIME_SYMBOLS,
         },
         providerStatus: {
           provider: 'finnhub',
@@ -240,7 +243,7 @@ Deno.serve(async (req) => {
           buildMarker: BUILD_MARKER,
           benchmarkSuccessCount,
           benchmarkFailureCount,
-          finalModeReason: 'No usable live benchmark snapshot for SPY/QQQ; fallback required.',
+          finalModeReason: `Rejected snapshot by benchmark quality gate. Missing/unusable benchmarks: ${missingBenchmarks.join(', ') || 'SPY, QQQ'}.`,
           fallbackCause: 'necessary',
         },
       });

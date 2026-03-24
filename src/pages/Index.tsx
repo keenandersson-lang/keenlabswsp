@@ -136,6 +136,9 @@ const Index = () => {
               stocks={stocks}
               sectorStatuses={sectorStatuses}
               activeSector={activeSector}
+              degradedMessage={providerStatus.uiState === 'STALE' || providerStatus.uiState === 'FALLBACK'
+                ? 'Heatmap data is degraded in this snapshot. Core benchmark context is preserved, but sector aggregation is limited.'
+                : undefined}
               onSectorSelect={(sector) => {
                 setActiveSector(sector);
                 setActiveIndustry(null);
