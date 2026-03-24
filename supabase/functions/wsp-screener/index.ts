@@ -7,6 +7,7 @@ const corsHeaders = {
 
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const HISTORY_CALENDAR_DAYS = 550;
+const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-24.1';
 
 interface SymbolMeta {
   symbol: string;
@@ -154,7 +155,14 @@ Deno.serve(async (req) => {
         mode: 'FALLBACK',
         data: null,
         error: { code: 'NO_API_KEY', message: 'Provider authentication failed. Check server configuration.' },
-        providerStatus: { provider: 'none', isLive: false, apiKeyPresent: false },
+        providerStatus: {
+          provider: 'none',
+          isLive: false,
+          apiKeyPresent: false,
+          routeVersion: ROUTE_VERSION,
+          finalModeReason: 'Missing FINNHUB_API_KEY in edge runtime environment.',
+          fallbackCause: 'misconfiguration',
+        },
       });
     }
 
@@ -233,6 +241,11 @@ Deno.serve(async (req) => {
         totalSymbols: TRACKED_SYMBOLS.length,
         fetchedAt: new Date().toISOString(),
         cachedSymbols: barCache.size,
+        routeVersion: ROUTE_VERSION,
+        finalModeReason: anyStale
+          ? 'Live provider responded but one or more required series were stale or missing.'
+          : 'All required live provider series fetched successfully.',
+        fallbackCause: anyStale ? 'necessary' : 'unknown',
       },
     });
   } catch (err) {
@@ -244,7 +257,14 @@ Deno.serve(async (req) => {
         code: 'SERVER_ERROR',
         message: 'Market data temporarily unavailable.',
       },
-      providerStatus: { provider: 'finnhub', isLive: false, apiKeyPresent: true },
+      providerStatus: {
+        provider: 'finnhub',
+        isLive: false,
+        apiKeyPresent: true,
+        routeVersion: ROUTE_VERSION,
+        finalModeReason: 'Unhandled edge runtime error while building live snapshot.',
+        fallbackCause: 'necessary',
+      },
     });
   }
 });
