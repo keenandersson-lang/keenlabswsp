@@ -13,11 +13,11 @@ export const CREDIT_COSTS = {
   fullStockScan: 2,
 } as const;
 
-export const CREDIT_PACKS = [
+export const CREDIT_PACKS: readonly { id: string; credits: number; price: number; label: string; priceLabel: string; popular?: boolean }[] = [
   { id: 'starter', credits: 10, price: 499, label: '10 Scans', priceLabel: '$4.99' },
   { id: 'pro', credits: 50, price: 1999, label: '50 Scans', priceLabel: '$19.99', popular: true },
   { id: 'power', credits: 200, price: 4999, label: '200 Scans', priceLabel: '$49.99' },
-] as const;
+];
 
 export function useCredits() {
   const { user } = useAuth();
