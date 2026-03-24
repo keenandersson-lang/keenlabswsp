@@ -5,6 +5,7 @@ import { RecommendationBadge } from './RecommendationBadge';
 import { EntryCriteria } from './EntryCriteria';
 import { ArrowDownRight, ArrowUpRight, AlertTriangle, ChevronDown, ChevronUp, Filter, Search } from 'lucide-react';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
+import { Link } from 'react-router-dom';
 
 interface StockTableProps {
   stocks: EvaluatedStock[];
@@ -227,6 +228,13 @@ export function StockTable({ stocks }: StockTableProps) {
                         <div className="flex items-center gap-1.5">
                           <span className="font-mono text-xs font-bold">{stock.symbol}</span>
                           {hasPartialData && <AlertTriangle className="h-3.5 w-3.5 text-signal-caution" />}
+                          <Link
+                            to={`/stock/${stock.symbol}`}
+                            onClick={(event) => event.stopPropagation()}
+                            className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/20"
+                          >
+                            Detail
+                          </Link>
                         </div>
                         <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{stock.name}</p>
                       </div>
