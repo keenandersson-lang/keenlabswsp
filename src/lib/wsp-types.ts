@@ -319,6 +319,26 @@ export interface ProviderStatus {
   benchmarkFetchStatus: 'success' | 'stale' | 'failed';
   refreshIntervalMs: number;
   readiness: ProviderReadiness;
+  debugPipeline?: {
+    stage:
+      | 'init'
+      | 'env_check'
+      | 'benchmark_fetch'
+      | 'market_fetch'
+      | 'sector_fetch'
+      | 'stock_fetch'
+      | 'snapshot_build'
+      | 'fallback_build'
+      | 'completed';
+    finalModeReason: string;
+    providerAuth: 'success' | 'failed';
+    benchmarkSuccessCount: number;
+    benchmarkFailureCount: number;
+    stockSuccessCount: number;
+    stockFailureCount: number;
+    staleCacheAvailable: boolean;
+    fallbackBuild: 'success' | 'failed';
+  };
 }
 
 export interface ScreenerApiResponse {
