@@ -7,7 +7,8 @@ const corsHeaders = {
 
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const HISTORY_CALENDAR_DAYS = 550;
-const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-24.1';
+const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-24.2';
+const BUILD_MARKER = Deno.env.get('APP_BUILD_MARKER') ?? Deno.env.get('VITE_APP_BUILD_MARKER') ?? 'edge-runtime';
 
 interface SymbolMeta {
   symbol: string;
@@ -211,7 +212,42 @@ Deno.serve(async (req) => {
       if (r && r.bars.length > 0) marketBars[sym] = r.bars;
     }
 
-    const anyStale = [...results.values()].some(r => r.stale);
+    const benchmarkSeries = MARKET_REGIME_SYMBOLS.map((symbol) => ({ symbol, result: results.get(symbol) }));
+    const benchmarkSuccessCount = benchmarkSeries.filter((entry) => (entry.result?.bars.length ?? 0) > 0).length;
+    const benchmarkFailureCount = benchmarkSeries.length - benchmarkSuccessCount;
+    const benchmarkHasUsableData = benchmarkSuccessCount > 0 && (benchmarkResult?.bars.length ?? 0) > 0;
+
+    if (!benchmarkHasUsableData) {
+      return jsonResponse(200, {
+        ok: false,
+        mode: 'FALLBACK',
+        data: null,
+        error: {
+          code: 'BENCHMARK_UNAVAILABLE',
+          message: 'Market benchmarks unavailable from provider.',
+          failedSymbols: MARKET_REGIME_SYMBOLS,
+        },
+        providerStatus: {
+          provider: 'finnhub',
+          isLive: false,
+          apiKeyPresent: true,
+          symbolsFetched: Object.keys(stockBarData).length,
+          symbolsFailed: failedSymbols.length,
+          totalSymbols: TRACKED_SYMBOLS.length,
+          fetchedAt: new Date().toISOString(),
+          cachedSymbols: barCache.size,
+          routeVersion: ROUTE_VERSION,
+          buildMarker: BUILD_MARKER,
+          benchmarkSuccessCount,
+          benchmarkFailureCount,
+          finalModeReason: 'No usable live benchmark snapshot for SPY/QQQ; fallback required.',
+          fallbackCause: 'necessary',
+        },
+      });
+    }
+
+    const benchmarkStale = benchmarkSeries.some((entry) => entry.result?.stale === true || (entry.result?.bars.length ?? 0) === 0);
+    const anyStale = benchmarkStale || [...results.values()].some(r => r.stale);
     const anyError = [...results.values()].some(r => r.error);
 
     return jsonResponse(200, {
@@ -242,9 +278,12 @@ Deno.serve(async (req) => {
         fetchedAt: new Date().toISOString(),
         cachedSymbols: barCache.size,
         routeVersion: ROUTE_VERSION,
+        buildMarker: BUILD_MARKER,
+        benchmarkSuccessCount,
+        benchmarkFailureCount,
         finalModeReason: anyStale
-          ? 'Live provider responded but one or more required series were stale or missing.'
-          : 'All required live provider series fetched successfully.',
+          ? `Usable benchmark snapshot available (${benchmarkSuccessCount}/${MARKET_REGIME_SYMBOLS.length}); serving stale/partial live payload.`
+          : `Usable benchmark snapshot available (${benchmarkSuccessCount}/${MARKET_REGIME_SYMBOLS.length}); serving live payload.`,
         fallbackCause: anyStale ? 'necessary' : 'unknown',
       },
     });
@@ -262,6 +301,7 @@ Deno.serve(async (req) => {
         isLive: false,
         apiKeyPresent: true,
         routeVersion: ROUTE_VERSION,
+        buildMarker: BUILD_MARKER,
         finalModeReason: 'Unhandled edge runtime error while building live snapshot.',
         fallbackCause: 'necessary',
       },
