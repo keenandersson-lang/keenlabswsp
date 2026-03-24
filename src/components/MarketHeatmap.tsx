@@ -7,13 +7,14 @@ interface MarketHeatmapProps {
   sectorStatuses: SectorStatus[];
   activeSector: string | null;
   onSectorSelect: (sector: string) => void;
+  degradedMessage?: string;
 }
 
-export function MarketHeatmap({ stocks, sectorStatuses, activeSector, onSectorSelect }: MarketHeatmapProps) {
+export function MarketHeatmap({ stocks, sectorStatuses, activeSector, onSectorSelect, degradedMessage }: MarketHeatmapProps) {
   const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses), [stocks, sectorStatuses]);
 
   if (sectors.length === 0) {
-    return <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted-foreground">Market heatmap unavailable until sector data is loaded.</div>;
+    return <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted-foreground">{degradedMessage ?? 'Market heatmap unavailable until sector data is loaded.'}</div>;
   }
 
   return (

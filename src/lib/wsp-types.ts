@@ -338,6 +338,9 @@ export interface ProviderStatus {
     stockFailureCount: number;
     staleCacheAvailable: boolean;
     fallbackBuild: 'success' | 'failed';
+    benchmarkRenderable?: boolean;
+    staleSnapshotQuality?: 'pass' | 'fail';
+    staleSnapshotQualityReason?: string;
   };
   runtimeDiagnostics?: {
     envKeyPresent: boolean;

@@ -30,11 +30,30 @@ type PipelineStage =
   | 'completed';
 
 type FallbackCause = 'necessary' | 'misconfiguration' | 'unknown';
+interface BenchmarkQuality {
+  renderable: boolean;
+  missingSymbols: string[];
+  reason: string;
+}
 
 function classifyFallbackCause(finalModeReason: string, envVarPresent: boolean, routeReachable: boolean): FallbackCause {
   if (!routeReachable || !envVarPresent) return 'misconfiguration';
   if (finalModeReason.toLowerCase().includes('failed') || finalModeReason.toLowerCase().includes('unavailable')) return 'necessary';
   return 'unknown';
+}
+
+function assessBenchmarkQuality(market: MarketOverview): BenchmarkQuality {
+  const missingSymbols: string[] = [];
+  if (market.sp500Price === null || !Number.isFinite(market.sp500Change)) missingSymbols.push(SP500_BENCHMARK.symbol);
+  if (market.nasdaqPrice === null || !Number.isFinite(market.nasdaqChange)) missingSymbols.push(NASDAQ_BENCHMARK.symbol);
+  const renderable = missingSymbols.length === 0;
+  return {
+    renderable,
+    missingSymbols,
+    reason: renderable
+      ? 'SPY and QQQ benchmarks are present and renderable.'
+      : `Missing benchmark values for ${missingSymbols.join(', ')}.`,
+  };
 }
 
 export async function handleWspScreenerRequest(req: IncomingMessage, res: ServerResponse) {
@@ -193,6 +212,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
     const sectorStatusMap = Object.fromEntries(sectorStatuses.map((item) => [item.sector, item])) as Record<string, SectorStatus>;
     stage = 'snapshot_build';
     const marketOverview = buildMarketOverview(marketSeries, pollingIntervalMs);
+    const benchmarkQuality = assessBenchmarkQuality(marketOverview);
     const marketFavorable = marketOverview.marketTrend === 'bullish';
 
     const evaluatedStocks = resolvedStockResults.map(({ meta, result }) => {
@@ -232,6 +252,20 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       missingMarketSymbols.length > 0;
 
     const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
+    if (uiState === 'STALE' && !benchmarkQuality.renderable) {
+      stage = 'fallback_build';
+      return createFallbackResponse(
+        'Stale snapshot failed benchmark quality gate.',
+        pollingIntervalMs,
+        stage,
+        `Rejected stale snapshot: ${benchmarkQuality.reason}`,
+        cachedLiveSnapshot !== null,
+        benchmarkSuccesses.length,
+        benchmarkFailures + benchmarkQuality.missingSymbols.length,
+        evaluatedStocks.length,
+        failedSymbols.length,
+      );
+    }
     const lastFetch = new Date().toISOString();
     const { discovery, discoveryMeta } = buildDiscoverySnapshot(evaluatedStocks, uiState);
     const readiness = createReadiness({
@@ -284,6 +318,9 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           stockFailureCount: failedSymbols.length,
           staleCacheAvailable: cachedLiveSnapshot !== null,
           fallbackBuild: 'failed',
+          benchmarkRenderable: benchmarkQuality.renderable,
+          staleSnapshotQuality: uiState === 'STALE' ? 'pass' : undefined,
+          staleSnapshotQualityReason: uiState === 'STALE' ? benchmarkQuality.reason : undefined,
         },
         runtimeDiagnostics: {
           envKeyPresent: true,
@@ -330,6 +367,9 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
             stockFailureCount: cachedLiveSnapshot.providerStatus.failedSymbols.length,
             staleCacheAvailable: true,
             fallbackBuild: 'failed',
+            benchmarkRenderable: assessBenchmarkQuality(cachedLiveSnapshot.market).renderable,
+            staleSnapshotQuality: assessBenchmarkQuality(cachedLiveSnapshot.market).renderable ? 'pass' : 'fail',
+            staleSnapshotQualityReason: assessBenchmarkQuality(cachedLiveSnapshot.market).reason,
           },
           runtimeDiagnostics: {
             envKeyPresent: true,
