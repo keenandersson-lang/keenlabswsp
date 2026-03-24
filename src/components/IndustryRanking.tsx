@@ -9,9 +9,10 @@ interface IndustryRankingProps {
   activeSector: string | null;
   activeIndustry: string | null;
   onIndustrySelect: (industry: string) => void;
+  onScanTriggered: () => void;
 }
 
-export function IndustryRanking({ stocks, activeSector, activeIndustry, onIndustrySelect }: IndustryRankingProps) {
+export function IndustryRanking({ stocks, activeSector, activeIndustry, onIndustrySelect, onScanTriggered }: IndustryRankingProps) {
   const industries = useMemo(() => activeSector ? buildIndustryHeatmap(stocks, activeSector) : [], [stocks, activeSector]);
 
   if (!activeSector) {
@@ -50,7 +51,7 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, onIndust
                     </Link>
                   ))}
                 </div>
-                <PremiumScanCTA industryName={industry.industry} />
+                <PremiumScanCTA industryName={industry.industry} onScanTriggered={onScanTriggered} />
               </div>
             )}
           </div>
