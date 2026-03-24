@@ -6,6 +6,7 @@ import { normalizeBarsChronologically } from '../src/lib/wsp-indicators';
 import { FinnhubProvider } from './finnhub-provider';
 import { aggregateBarsWeekly } from '../src/lib/charting';
 import type { StockDetailApiResponse } from '../src/lib/chart-types';
+import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 
 const MAX_HISTORY_BARS = 540;
 
@@ -24,7 +25,7 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
 
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) {
-    return sendJson(res, 503, { ok: false, data: null, error: { code: 'MISSING_API_KEY', message: 'FINNHUB_API_KEY is not configured on the server.' } } satisfies StockDetailApiResponse);
+    return sendJson(res, 503, { ok: false, data: null, error: { code: 'MISSING_API_KEY', message: 'Provider authentication failed. Check server configuration.' } } satisfies StockDetailApiResponse);
   }
 
   try {
@@ -55,7 +56,7 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
 
     return sendJson(res, 200, payload);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch symbol detail';
+    const message = sanitizeClientErrorMessage(error instanceof Error ? error.message : 'Failed to fetch symbol detail');
     return sendJson(res, 500, { ok: false, data: null, error: { code: 'DETAIL_FETCH_FAILED', message } } satisfies StockDetailApiResponse);
   }
 }

@@ -10,6 +10,7 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { PatternBadge } from '@/components/PatternBadge';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
+import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
@@ -64,7 +65,7 @@ export default function StockDetail() {
       <div className="min-h-screen bg-background p-6">
         <Link to="/" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back to Screener</Link>
         <div className="rounded-lg border border-signal-sell/40 bg-signal-sell/10 p-4 text-sm text-signal-sell">
-          Failed to load chart data endpoint: {detailQuery.data?.error?.message ?? 'Unknown error'}
+          Failed to load chart data endpoint: {sanitizeClientErrorMessage(detailQuery.data?.error?.message)}
         </div>
       </div>
     );

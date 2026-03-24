@@ -64,8 +64,7 @@ async function fetchBars(symbol: string, apiKey: string): Promise<{ bars: Bar[];
     const resp = await rateLimitedFetch(url);
 
     if (!resp.ok) {
-      const text = await resp.text();
-      return { bars: [], stale: true, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+      return { bars: [], stale: true, error: `HTTP ${resp.status}` };
     }
 
     const data = await resp.json() as FinnhubCandleResponse;
@@ -88,7 +87,7 @@ async function fetchBars(symbol: string, apiKey: string): Promise<{ bars: Bar[];
     const stale = isDateStale(lastDate);
     return { bars, stale };
   } catch (err) {
-    return { bars: [], stale: true, error: err instanceof Error ? err.message : 'Unknown fetch error' };
+      return { bars: [], stale: true, error: 'Market data temporarily unavailable.' };
   }
 }
 
@@ -154,7 +153,7 @@ Deno.serve(async (req) => {
         ok: false,
         mode: 'FALLBACK',
         data: null,
-        error: { code: 'NO_API_KEY', message: 'FINNHUB_API_KEY is not configured.' },
+        error: { code: 'NO_API_KEY', message: 'Provider authentication failed. Check server configuration.' },
         providerStatus: { provider: 'none', isLive: false, apiKeyPresent: false },
       });
     }
@@ -222,7 +221,7 @@ Deno.serve(async (req) => {
       },
       error: anyError ? {
         code: 'PARTIAL_FAILURE',
-        message: `Failed symbols: ${failedSymbols.join(', ')}`,
+        message: failedSymbols.length > 0 ? 'Market data temporarily unavailable.' : 'Live provider unavailable. Demo mode active.',
         failedSymbols,
       } : null,
       providerStatus: {
@@ -243,7 +242,7 @@ Deno.serve(async (req) => {
       data: null,
       error: {
         code: 'SERVER_ERROR',
-        message: err instanceof Error ? err.message : 'Unknown error',
+        message: 'Market data temporarily unavailable.',
       },
       providerStatus: { provider: 'finnhub', isLive: false, apiKeyPresent: true },
     });

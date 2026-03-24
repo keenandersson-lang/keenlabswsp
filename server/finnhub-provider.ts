@@ -55,7 +55,7 @@ export class FinnhubProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`Finnhub HTTP ${response.status} for ${url}`);
+      throw new Error(`Finnhub provider HTTP ${response.status}`);
     }
 
     return response.json() as Promise<T>;
