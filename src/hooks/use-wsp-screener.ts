@@ -34,8 +34,11 @@ interface EdgeFunctionResponse {
     fetchedAt?: string;
     cachedSymbols?: number;
     routeVersion?: string;
+    buildMarker?: string;
     finalModeReason?: string;
     fallbackCause?: 'necessary' | 'misconfiguration' | 'unknown';
+    benchmarkSuccessCount?: number;
+    benchmarkFailureCount?: number;
   };
 }
 
@@ -52,16 +55,29 @@ interface SafeFetchResult {
 }
 
 function buildEdgeFunctionUrl(): string {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (supabaseUrl) {
+    return `${supabaseUrl.replace(/\/$/, '')}/functions/v1/wsp-screener`;
+  }
+
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
   if (projectId) {
     return `https://${projectId}.supabase.co/functions/v1/wsp-screener`;
   }
-  // Dev fallback
-  return '/api/wsp-screener';
+
+  return '';
 }
 
 function isDevMode(): boolean {
   return import.meta.env.DEV === true;
+}
+
+function buildSupabaseInvokeHeaders(): Record<string, string> {
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  return {
+    'Content-Type': 'application/json',
+    ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
+  };
 }
 
 /**
@@ -118,7 +134,7 @@ async function safeFetch(url: string, options?: RequestInit): Promise<SafeFetchR
       },
       diagnostics: {
         target: url,
-        reachable: response.ok,
+        reachable: true,
         statusCode: response.status,
         authOutcome,
       },
@@ -132,7 +148,7 @@ async function safeFetch(url: string, options?: RequestInit): Promise<SafeFetchR
       payload: parsed as EdgeFunctionResponse,
       diagnostics: {
         target: url,
-        reachable: response.ok,
+        reachable: true,
         statusCode: response.status,
         authOutcome,
       },
@@ -283,12 +299,9 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       );
     });
 
-  if (evaluatedStocks.length === 0) {
-    // All symbols failed — return fallback
-    return processEdgeResponse({ ...edgeResp, ok: false, mode: 'ERROR', data: null }, fetchDiagnostics);
-  }
-
-  const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0;
+  const benchmarkSuccessCount = Number(edgeResp.providerStatus.benchmarkSuccessCount ?? 0);
+  const benchmarkFailureCount = Number(edgeResp.providerStatus.benchmarkFailureCount ?? 0);
+  const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0 || benchmarkFailureCount > 0;
   const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
   const discoveryFromBackend = (edgeResp as unknown as { discovery?: DiscoveryBuckets; discoveryMeta?: DiscoveryMeta });
   const discoverySnapshot = discoveryFromBackend.discovery && discoveryFromBackend.discoveryMeta
@@ -330,8 +343,11 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
         authOutcome: fetchDiagnostics.authOutcome,
         benchmarkFetch: benchmarkBars.length > 0 ? (anyStale ? 'stale' : 'success') : 'failed',
         routeVersion: edgeResp.providerStatus?.routeVersion ?? 'unknown',
-        buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
-        finalModeReason: edgeResp.providerStatus?.finalModeReason ?? (uiState === 'LIVE' ? 'Live provider data fully available.' : 'Live provider returned partial/stale data.'),
+        buildMarker: edgeResp.providerStatus?.buildMarker ?? import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+        finalModeReason: edgeResp.providerStatus?.finalModeReason
+          ?? (uiState === 'LIVE'
+            ? `Live provider data fully available. Benchmark success/fail: ${benchmarkSuccessCount}/${benchmarkFailureCount}.`
+            : `Live provider returned partial/stale data. Benchmark success/fail: ${benchmarkSuccessCount}/${benchmarkFailureCount}.`),
         fallbackCause: edgeResp.providerStatus?.fallbackCause ?? 'unknown',
       },
     },
@@ -341,8 +357,9 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
 
 export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean }): Promise<ScreenerApiResponse> {
   let edgeResp: EdgeFunctionResponse;
+  const edgeFunctionUrl = buildEdgeFunctionUrl();
   let fetchDiagnostics: FetchDiagnostics = {
-    target: isDevMode() ? '/api/wsp-screener' : buildEdgeFunctionUrl(),
+    target: isDevMode() ? '/api/wsp-screener' : (edgeFunctionUrl || 'missing_supabase_function_url'),
     reachable: false,
     statusCode: null,
     authOutcome: 'unknown',
@@ -369,29 +386,37 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
 
     // Dev server not available or returned non-JSON — try edge function
     edgeResp = devResp.payload;
-    if (edgeResp.error?.code === 'NON_JSON_RESPONSE' || edgeResp.error?.code === 'NETWORK_ERROR') {
-      // Try edge function as fallback
-      const efUrl = buildEdgeFunctionUrl();
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const efResp = await safeFetch(efUrl, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
-        },
-      });
+    if ((edgeResp.error?.code === 'NON_JSON_RESPONSE' || edgeResp.error?.code === 'NETWORK_ERROR') && edgeFunctionUrl) {
+      const efResp = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
       edgeResp = efResp.payload;
       fetchDiagnostics = efResp.diagnostics;
     }
   } else {
     // Production: always use edge function
-    const efUrl = buildEdgeFunctionUrl();
-    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    const efResp = await safeFetch(efUrl, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
-      },
-    });
+    if (!edgeFunctionUrl) {
+      edgeResp = {
+        ok: false,
+        mode: 'ERROR',
+        data: null,
+        error: { code: 'MISSING_EDGE_ENDPOINT', message: 'Supabase function endpoint is not configured in runtime environment.' },
+        providerStatus: {
+          provider: 'unknown',
+          isLive: false,
+          apiKeyPresent: false,
+          finalModeReason: 'Missing VITE_SUPABASE_URL (or project id fallback), cannot invoke wsp-screener edge function.',
+          fallbackCause: 'misconfiguration',
+        },
+      };
+      fetchDiagnostics = {
+        target: 'missing_supabase_function_url',
+        reachable: false,
+        statusCode: null,
+        authOutcome: 'missing_client_auth',
+      };
+      return processEdgeResponse(edgeResp, fetchDiagnostics);
+    }
+
+    const efResp = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
     edgeResp = efResp.payload;
     fetchDiagnostics = efResp.diagnostics;
   }
