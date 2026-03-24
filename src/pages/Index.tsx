@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MarketHeader } from '@/components/MarketHeader';
 import { MarketRegime } from '@/components/MarketRegime';
 import { SectorRanking } from '@/components/SectorRanking';
@@ -10,8 +11,11 @@ import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { fetchWspScreenerData, useWspScreener } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
-import { AlertCircle, AlertTriangle, ChevronDown, ChevronUp, Info, RefreshCw, Wifi, WifiOff, Layers, BarChart3, Scan } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, RefreshCw, Wifi, WifiOff, Layers, BarChart3, Scan } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { sanitizeProviderNotice } from '@/lib/safe-messages';
+import { MarketHeatmap } from '@/components/MarketHeatmap';
+import { TrendsDashboard } from '@/components/TrendsDashboard';
 
 type ViewTab = 'topdown' | 'scanner' | 'sectors';
 
@@ -19,16 +23,17 @@ const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
   const [activeTab, setActiveTab] = useState<ViewTab>('topdown');
   const [activeSector, setActiveSector] = useState<string | null>(null);
-  const [showStockScan, setShowStockScan] = useState(false);
+  const [activeIndustry, setActiveIndustry] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { data, isFetching, isLoading, isError, error } = useWspScreener(pollingIntervalMs);
+  const navigate = useNavigate();
+  const { data, isFetching, isLoading, isError } = useWspScreener(pollingIntervalMs);
 
   const payload = data;
   const stocks = payload?.stocks ?? [];
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
   const debugSummary = payload?.debugSummary;
-  const sectorStatuses = payload?.sectorStatuses;
+  const sectorStatuses = payload?.sectorStatuses ?? [];
 
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
@@ -39,18 +44,19 @@ const Index = () => {
 
   const providerNotice = useMemo(() => {
     if (!providerStatus) return null;
+    const safeBody = sanitizeProviderNotice(providerStatus.uiState, providerStatus.errorMessage);
     switch (providerStatus.uiState) {
       case 'LIVE':
-        return { title: 'Live data active', body: providerStatus.errorMessage ?? 'Finnhub data loaded successfully.', icon: Wifi, className: 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' };
+        return { title: 'Live data active', body: safeBody, icon: Wifi, className: 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' };
       case 'STALE':
-        return { title: 'Showing stale snapshot', body: providerStatus.errorMessage ?? 'Last usable live data shown.', icon: WifiOff, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+        return { title: 'Showing stale snapshot', body: safeBody, icon: WifiOff, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
       case 'FALLBACK':
-        return { title: 'Demo mode active', body: providerStatus.errorMessage ?? 'Demo data active. Add live credentials for verification.', icon: AlertTriangle, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+        return { title: 'Demo mode active', body: safeBody, icon: AlertTriangle, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
       case 'ERROR':
       default:
-        return { title: 'No usable data', body: providerStatus.errorMessage ?? (error as Error | undefined)?.message ?? 'Could not load data.', icon: AlertCircle, className: 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' };
+        return { title: 'No usable data', body: safeBody, icon: AlertCircle, className: 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' };
     }
-  }, [error, providerStatus]);
+  }, [providerStatus]);
 
   const handleManualRefresh = async () => {
     await queryClient.fetchQuery({
@@ -65,9 +71,7 @@ const Index = () => {
         <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-3 px-4 text-center">
           <RefreshCw className={`h-6 w-6 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
           <h1 className="text-lg font-semibold">Loading WSP Screener</h1>
-          <p className="text-sm text-muted-foreground">
-            {isError ? (error as Error)?.message : 'Fetching market data and evaluating WSP engine.'}
-          </p>
+          <p className="text-sm text-muted-foreground">{isError ? 'Market data temporarily unavailable.' : 'Fetching market data and evaluating WSP engine.'}</p>
         </div>
       </div>
     );
@@ -98,33 +102,21 @@ const Index = () => {
       />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
-        {/* Credits + Auth */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-primary/10 text-primary border border-primary/30'
-                      : 'text-muted-foreground hover:text-foreground border border-transparent'
-                  }`}
-                >
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === tab.id ? 'bg-primary/10 text-primary border border-primary/30' : 'text-muted-foreground hover:text-foreground border border-transparent'}`}>
                   <Icon className="h-3.5 w-3.5" />
                   {tab.label}
                 </button>
               );
             })}
           </div>
-          <div className="relative">
-            <CreditsBadge />
-          </div>
+          <CreditsBadge />
         </div>
 
-        {/* Provider notice */}
         {providerNotice && (
           <div className={`flex items-start gap-3 rounded-lg border p-3 text-xs ${providerNotice.className}`}>
             <NoticeIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -135,66 +127,58 @@ const Index = () => {
           </div>
         )}
 
-        {/* TOP-DOWN VIEW */}
         {activeTab === 'topdown' && (
           <div className="space-y-5">
-            {/* Layer 1: Market Regime */}
             <MarketRegime market={market} />
+            <MarketHeatmap
+              stocks={stocks}
+              sectorStatuses={sectorStatuses}
+              activeSector={activeSector}
+              onSectorSelect={(sector) => {
+                setActiveSector(sector);
+                setActiveIndustry(null);
+              }}
+            />
 
-            {/* Layer 2 + 3: Sector & Industry side by side */}
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-              <SectorRanking
-                sectorStatuses={sectorStatuses}
-                activeSector={activeSector}
-                onSectorSelect={setActiveSector}
-              />
+              <SectorRanking stocks={stocks} sectorStatuses={sectorStatuses} activeSector={activeSector} onSectorSelect={(sector) => { setActiveSector(sector); setActiveIndustry(null); }} />
               <IndustryRanking
+                stocks={stocks}
                 activeSector={activeSector}
-                onScanIndustry={(industry) => {
-                  setShowStockScan(true);
-                  setActiveTab('scanner');
-                }}
+                activeIndustry={activeIndustry}
+                onIndustrySelect={setActiveIndustry}
               />
             </div>
 
-            {/* WSP info */}
-            <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
-              <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent" />
-              <div className="text-xs leading-relaxed text-muted-foreground">
-                <span className="font-semibold text-foreground">Wall Street Protocol</span> — Top-down analys: <span className="text-accent">Marknad</span> → <span className="text-accent">Sektor</span> → <span className="text-accent">Industri</span> → <span className="text-primary">Premium Stock Scan</span>. Fria sektorer och industri-ranking. Stock-level deep scan kräver credits.
+            {activeIndustry && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+                Funnel: <span className="text-foreground">Market</span> → <span className="text-foreground">{activeSector}</span> → <span className="text-foreground">{activeIndustry}</span> →
+                <button className="ml-1 text-primary underline" onClick={() => setActiveTab('scanner')}>Stock scan</button>
               </div>
-            </div>
+            )}
 
-            {/* Pattern Summary (free) */}
+            <TrendsDashboard stocks={stocks} />
             <PatternSummary stocks={stocks} />
           </div>
         )}
 
-        {/* SECTOR DEEP DIVE VIEW */}
-        {activeTab === 'sectors' && (
-          <SectorAnalysis />
-        )}
+        {activeTab === 'sectors' && <SectorAnalysis />}
 
-        {/* STOCK SCANNER VIEW (premium) */}
         {activeTab === 'scanner' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
               <Scan className="mt-0.5 h-5 w-5 text-primary flex-shrink-0" />
               <div>
                 <h3 className="text-sm font-bold text-foreground">Stock Scanner — Premium</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Fullständig WSP-analys med 3-lagers logik: Mönster → Entry Gate → Rekommendation. Varje scan kostar 1 credit.
-                  Nuvarande dataset: {stocks.length} aktier ({providerStatus.uiState} data).
-                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">Full WSP engine scan with strict gates. Current dataset: {stocks.length} stocks ({providerStatus.uiState} data).</p>
+                {activeIndustry && <button className="mt-1 text-xs text-primary underline" onClick={() => navigate(`/stock/${stocks.find((s) => s.industry === activeIndustry)?.symbol ?? stocks[0]?.symbol}`)}>Open a stock from selected industry</button>}
               </div>
             </div>
-
             <PatternSummary stocks={stocks} />
             <StockTable stocks={stocks} />
           </div>
         )}
 
-        {/* Debug Panel — always available */}
         <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} />
       </main>
     </div>

@@ -6,6 +6,7 @@ import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indic
 import { buildScreenerDebugSummary } from '@/lib/wsp-validation';
 import { demoMarket, demoStocks } from '@/lib/demo-data';
 import { TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
+import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 
 interface EdgeFunctionResponse {
   ok: boolean;
@@ -114,6 +115,7 @@ function isSeriesBullish(bars: Bar[]): boolean {
 
 function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiResponse {
   const now = new Date().toISOString();
+  const safeError = sanitizeClientErrorMessage(edgeResp.error?.message);
 
   // ERROR / FALLBACK: use demo data
   if (!edgeResp.ok || !edgeResp.data) {
@@ -131,7 +133,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
         lastFetch: now,
         failedSymbols: TRACKED_SYMBOLS.map(s => s.symbol),
         successCount: 0,
-        errorMessage: edgeResp.error?.message ?? 'No live data available',
+        errorMessage: safeError,
         isFallback: true,
         fallbackActive: true,
         symbolCount: TRACKED_SYMBOLS.length,
@@ -221,7 +223,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
       lastFetch: edgeResp.providerStatus.fetchedAt ?? now,
       failedSymbols,
       successCount: evaluatedStocks.length,
-      errorMessage: edgeResp.error?.message ?? (anyStale ? 'Some data may be stale.' : null),
+      errorMessage: edgeResp.error?.message ? safeError : (anyStale ? 'Live provider unavailable. Showing latest safe snapshot.' : null),
       isFallback: false,
       fallbackActive: false,
       symbolCount: TRACKED_SYMBOLS.length,

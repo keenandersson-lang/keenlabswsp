@@ -38,10 +38,9 @@ export function MarketRegime({ market }: MarketRegimeProps) {
       </div>
 
       <p className="mt-3 text-[10px] text-muted-foreground">
-        WSP-strategi kräver <span className="text-signal-buy font-medium">BULLISH</span> marknadsregim för KÖP-signaler.
-        {market.marketTrend !== 'bullish' && (
-          <span className="text-signal-caution"> Nuvarande marknad blockerar nya köpsignaler.</span>
-        )}
+        WSP strategy context: aggressive long setups are favored only in <span className="text-signal-buy font-medium">BULLISH</span> regime.
+        {market.marketTrend === 'neutral' && <span className="text-signal-caution"> Neutral tape: prioritize selective, higher-quality setups.</span>}
+        {market.marketTrend === 'bearish' && <span className="text-signal-sell"> Bearish tape: protect capital and avoid aggressive breakout exposure.</span>}
       </p>
     </div>
   );

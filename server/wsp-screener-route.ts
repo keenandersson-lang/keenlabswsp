@@ -8,6 +8,7 @@ import { WSP_CONFIG } from '../src/lib/wsp-config';
 import type { Bar, MarketOverview, ProviderReadiness, ScreenerApiResponse, ScreenerUiState, SectorStatus } from '../src/lib/wsp-types';
 import { FinnhubProvider } from './finnhub-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
+import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
 
@@ -37,7 +38,7 @@ export async function handleWspScreenerRequest(req: IncomingMessage, res: Server
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
-    sendJson(res, 500, createErrorResponse(message, pollingIntervalMs, true));
+    sendJson(res, 500, createErrorResponse(sanitizeClientErrorMessage(message), pollingIntervalMs, true));
   }
 }
 
@@ -72,7 +73,7 @@ async function getScreenerSnapshot({ forceRefresh, pollingIntervalMs }: { forceR
 async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResponse> {
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) {
-    return createFallbackResponse('FINNHUB_API_KEY is not set.', pollingIntervalMs);
+    return createFallbackResponse('Provider authentication failed. Check server configuration.', pollingIntervalMs);
   }
 
   const provider = new FinnhubProvider(apiKey);
@@ -169,7 +170,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         failedSymbols,
         successCount: evaluatedStocks.length,
         errorMessage: failedSymbols.length > 0
-          ? `Failed to fetch: ${failedSymbols.join(', ')}`
+          ? 'Market data temporarily unavailable.'
           : (anyStale ? 'One or more Finnhub series are stale.' : null),
         isFallback: false,
         fallbackActive: false,
@@ -182,7 +183,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to refresh Finnhub data';
+    const message = sanitizeClientErrorMessage(error instanceof Error ? error.message : 'Failed to refresh Finnhub data');
 
     if (cachedLiveSnapshot) {
       return {
@@ -285,6 +286,7 @@ function isSeriesBullish(bars: Bar[]): boolean {
 }
 
 function createFallbackResponse(reason: string, pollingIntervalMs: number): ScreenerApiResponse {
+  const safeReason = sanitizeClientErrorMessage(reason, 'Live provider unavailable. Demo mode active.');
   const lastFetch = new Date().toISOString();
   return {
     market: {
@@ -310,7 +312,7 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
       lastFetch,
       failedSymbols: TRACKED_SYMBOLS.map((item) => item.symbol),
       successCount: 0,
-      errorMessage: reason,
+      errorMessage: safeReason,
       isFallback: true,
       fallbackActive: true,
       symbolCount: TRACKED_SYMBOLS.length,
@@ -329,6 +331,7 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
 }
 
 function createErrorResponse(reason: string, pollingIntervalMs: number, routeReachable: boolean): ScreenerApiResponse {
+  const safeReason = sanitizeClientErrorMessage(reason);
   return {
     market: {
       ...demoMarket,
@@ -344,7 +347,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
       lastFetch: null,
       failedSymbols: TRACKED_SYMBOLS.map((item) => item.symbol),
       successCount: 0,
-      errorMessage: reason,
+      errorMessage: safeReason,
       isFallback: false,
       fallbackActive: false,
       symbolCount: TRACKED_SYMBOLS.length,
