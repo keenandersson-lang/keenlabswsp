@@ -33,6 +33,8 @@ const Index = () => {
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
   const debugSummary = payload?.debugSummary;
+  const discovery = payload?.discovery;
+  const discoveryMeta = payload?.discoveryMeta;
   const sectorStatuses = payload?.sectorStatuses ?? [];
 
   const counts = useMemo(() => ({
@@ -65,7 +67,7 @@ const Index = () => {
     });
   };
 
-  if (!market || !providerStatus || !debugSummary) {
+  if (!market || !providerStatus || !debugSummary || !discovery || !discoveryMeta) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-3 px-4 text-center">
@@ -157,7 +159,7 @@ const Index = () => {
               </div>
             )}
 
-            <TrendsDashboard stocks={stocks} />
+            <TrendsDashboard discovery={discovery} />
             <PatternSummary stocks={stocks} />
           </div>
         )}
@@ -179,7 +181,7 @@ const Index = () => {
           </div>
         )}
 
-        <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} />
+        <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} market={market} discoveryMeta={discoveryMeta} />
       </main>
     </div>
   );

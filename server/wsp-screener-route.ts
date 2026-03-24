@@ -9,6 +9,8 @@ import type { Bar, MarketOverview, ProviderReadiness, ScreenerApiResponse, Scree
 import { FinnhubProvider } from './finnhub-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
+import { buildDiscoverySnapshot } from '../src/lib/discovery';
+import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '../src/lib/benchmarks';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
 
@@ -143,6 +145,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
 
     const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
     const lastFetch = new Date().toISOString();
+    const { discovery, discoveryMeta } = buildDiscoverySnapshot(evaluatedStocks, uiState);
     const readiness = createReadiness({
       envVarPresent: true,
       routeReachable: true,
@@ -161,6 +164,8 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         dataSource: 'live',
       },
       stocks: evaluatedStocks,
+      discovery,
+      discoveryMeta,
       sectorStatuses,
       providerStatus: {
         provider: 'finnhub',
@@ -232,17 +237,27 @@ function createReadiness({
 }
 
 function buildMarketOverview(marketSeries: Record<string, { bars: Bar[]; stale: boolean }>, pollingIntervalMs: number): MarketOverview {
-  const spyBars = marketSeries.SPY?.bars ?? [];
-  const qqqBars = marketSeries.QQQ?.bars ?? [];
+  const spyBars = marketSeries[SP500_BENCHMARK.symbol]?.bars ?? [];
+  const qqqBars = marketSeries[NASDAQ_BENCHMARK.symbol]?.bars ?? [];
+  const spyLatestPrice = spyBars[spyBars.length - 1]?.close ?? null;
+  const qqqLatestPrice = qqqBars[qqqBars.length - 1]?.close ?? null;
   const sp500Change = computeDailyChange(spyBars);
   const nasdaqChange = computeDailyChange(qqqBars);
   const spyBullish = isSeriesBullish(spyBars);
   const qqqBullish = isSeriesBullish(qqqBars);
   const marketTrend = spyBullish && qqqBullish ? 'bullish' : (!spyBullish && !qqqBullish ? 'bearish' : 'neutral');
+  const anyStale = marketSeries[SP500_BENCHMARK.symbol]?.stale || marketSeries[NASDAQ_BENCHMARK.symbol]?.stale;
+  const benchmarkState = anyStale ? 'stale' : 'live';
 
   return {
     sp500Change,
     nasdaqChange,
+    sp500Price: spyLatestPrice,
+    nasdaqPrice: qqqLatestPrice,
+    sp500Symbol: SP500_BENCHMARK.symbol,
+    nasdaqSymbol: NASDAQ_BENCHMARK.symbol,
+    benchmarkState,
+    benchmarkLastUpdated: new Date().toISOString(),
     marketTrend,
     lastUpdated: new Date().toISOString(),
     dataSource: 'live',
@@ -292,6 +307,8 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
     market: {
       ...demoMarket,
       lastUpdated: lastFetch,
+      benchmarkState: 'fallback',
+      benchmarkLastUpdated: lastFetch,
       pollingIntervalMs,
     },
     stocks: demoStocks.map((stock) => ({
@@ -299,6 +316,7 @@ function createFallbackResponse(reason: string, pollingIntervalMs: number): Scre
       lastUpdated: lastFetch,
       dataSource: 'fallback',
     })),
+    ...buildDiscoverySnapshot(demoStocks, 'FALLBACK'),
     sectorStatuses: Object.keys(WSP_CONFIG.sectorMap).map((sector) => ({
       sector,
       isBullish: false,
@@ -336,9 +354,12 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
     market: {
       ...demoMarket,
       lastUpdated: new Date().toISOString(),
+      benchmarkState: 'fallback',
+      benchmarkLastUpdated: new Date().toISOString(),
       pollingIntervalMs,
     },
     stocks: [],
+    ...buildDiscoverySnapshot([], 'ERROR'),
     sectorStatuses: [],
     providerStatus: {
       provider: 'finnhub',

@@ -7,6 +7,7 @@ import { FinnhubProvider } from './finnhub-provider';
 import { aggregateBarsWeekly } from '../src/lib/charting';
 import type { StockDetailApiResponse } from '../src/lib/chart-types';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
+import { BENCHMARK_LOOKUP } from '../src/lib/benchmarks';
 
 const MAX_HISTORY_BARS = 540;
 
@@ -19,7 +20,8 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
   }
 
   const meta = TRACKED_SYMBOLS.find((item) => item.symbol === symbol);
-  if (!meta) {
+  const benchmarkMeta = BENCHMARK_LOOKUP[symbol];
+  if (!meta && !benchmarkMeta) {
     return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in TRACKED_SYMBOLS.` } } satisfies StockDetailApiResponse);
   }
 
@@ -42,9 +44,9 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
       ok: true,
       data: {
         symbol,
-        name: meta.name,
-        sector: meta.sector,
-        industry: meta.industry,
+        name: meta?.name ?? benchmarkMeta.name,
+        sector: meta?.sector ?? 'Benchmarks',
+        industry: meta?.industry ?? 'Market Index ETF',
         barsDaily,
         barsWeekly: aggregateBarsWeekly(barsDaily),
         benchmarkDaily,

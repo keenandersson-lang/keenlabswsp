@@ -1,14 +1,16 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import type { ProviderStatus, ScreenerDebugSummary, ValidationFixtureResult, WSPBlockedReason } from '@/lib/wsp-types';
+import type { DiscoveryMeta, MarketOverview, ProviderStatus, ScreenerDebugSummary, ValidationFixtureResult, WSPBlockedReason } from '@/lib/wsp-types';
 import { BLOCKED_REASON_ORDERED, formatBlockedReason } from '@/lib/wsp-assertions';
 import { AlertTriangle, Bug, ChevronDown, ChevronUp, FlaskConical, ListChecks, RadioTower } from 'lucide-react';
 
 interface DebugPanelProps {
   providerStatus: ProviderStatus;
   debugSummary: ScreenerDebugSummary;
+  market: MarketOverview;
+  discoveryMeta: DiscoveryMeta;
 }
 
-export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
+export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta }: DebugPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const qaChecks = useMemo(() => ([
     { label: 'Engine fixtures passing', value: `${debugSummary.fixturePassCount}/${debugSummary.fixturePassCount + debugSummary.fixtureFailCount}`, ok: debugSummary.fixtureFailCount === 0 },
@@ -75,14 +77,28 @@ export function DebugPanel({ providerStatus, debugSummary }: DebugPanelProps) {
                 <Stat label="Env var present" value={providerStatus.readiness.envVarPresent ? 'yes' : 'no'} warn={!providerStatus.readiness.envVarPresent} />
                 <Stat label="Provider route reachable" value={providerStatus.readiness.routeReachable ? 'yes' : 'no'} warn={!providerStatus.readiness.routeReachable} />
                 <Stat label="Benchmark configured" value={providerStatus.readiness.benchmarkSymbolConfigured ? 'yes' : 'no'} warn={!providerStatus.readiness.benchmarkSymbolConfigured} />
+                <Stat label="S&P proxy symbol" value={market.sp500Symbol} />
+                <Stat label="Nasdaq proxy symbol" value={market.nasdaqSymbol} />
                 <Stat label="Tracked symbols" value={providerStatus.readiness.trackedSymbolsCount} />
                 <Stat label="Fetched successfully" value={providerStatus.readiness.symbolsFetchedSuccessfully} highlight={providerStatus.readiness.symbolsFetchedSuccessfully > 0} />
                 <Stat label="Symbols failed" value={providerStatus.readiness.symbolsFailed} warn={providerStatus.readiness.symbolsFailed > 0} />
                 <Stat label="Benchmark fetch" value={providerStatus.benchmarkFetchStatus} warn={providerStatus.benchmarkFetchStatus !== 'success'} />
                 <Stat label="Current provider state" value={providerStatus.uiState} warn={providerStatus.uiState !== 'LIVE'} />
+                <Stat label="Benchmark refresh" value={market.benchmarkLastUpdated} className="sm:col-span-3" />
+                <Stat label="Benchmark data state" value={market.benchmarkState} warn={market.benchmarkState !== 'live'} />
                 <Stat label="Last successful live fetch" value={providerStatus.readiness.lastSuccessfulLiveFetch ?? '—'} warn={!providerStatus.readiness.lastSuccessfulLiveFetch} className="sm:col-span-3" />
               </div>
             </SectionCard>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+            <Stat label="Discovery source" value={discoveryMeta.source} />
+            <Stat label="Discovery data state" value={discoveryMeta.dataState} warn={discoveryMeta.dataState !== 'LIVE'} />
+            <Stat label="HOT count" value={discoveryMeta.categoryCounts.HOT} />
+            <Stat label="BREAKOUT count" value={discoveryMeta.categoryCounts.BREAKOUT} />
+            <Stat label="BULLISH count" value={discoveryMeta.categoryCounts.BULLISH} />
+            <Stat label="BEARISH count" value={discoveryMeta.categoryCounts.BEARISH} />
+            <Stat label="Discovery generated" value={discoveryMeta.generatedAt} className="sm:col-span-4" />
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">

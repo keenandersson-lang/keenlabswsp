@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState } from '@/lib/wsp-types';
+import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta } from '@/lib/wsp-types';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indicators';
@@ -7,6 +7,8 @@ import { buildScreenerDebugSummary } from '@/lib/wsp-validation';
 import { demoMarket, demoStocks } from '@/lib/demo-data';
 import { TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
+import { buildDiscoverySnapshot } from '@/lib/discovery';
+import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '@/lib/benchmarks';
 
 interface EdgeFunctionResponse {
   ok: boolean;
@@ -121,8 +123,9 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
   if (!edgeResp.ok || !edgeResp.data) {
     const uiState: ScreenerUiState = edgeResp.mode === 'FALLBACK' ? 'FALLBACK' : 'ERROR';
     return {
-      market: { ...demoMarket, lastUpdated: now, pollingIntervalMs: WSP_CONFIG.refreshInterval },
+      market: { ...demoMarket, lastUpdated: now, benchmarkLastUpdated: now, pollingIntervalMs: WSP_CONFIG.refreshInterval },
       stocks: demoStocks.map(s => ({ ...s, lastUpdated: now, dataSource: 'fallback' as const })),
+      ...buildDiscoverySnapshot(demoStocks, uiState),
       sectorStatuses: Object.keys(WSP_CONFIG.sectorMap).map(sector => ({
         sector, isBullish: false, changePercent: 0, sma50AboveSma200: false,
       })),
@@ -161,6 +164,8 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
   // Build market overview
   const spyBars = data.marketBars['SPY'] ?? [];
   const qqqBars = data.marketBars['QQQ'] ?? [];
+  const spyPrice = spyBars[spyBars.length - 1]?.close ?? null;
+  const qqqPrice = qqqBars[qqqBars.length - 1]?.close ?? null;
   const sp500Change = computeDailyChange(spyBars);
   const nasdaqChange = computeDailyChange(qqqBars);
   const spyBullish = isSeriesBullish(spyBars);
@@ -171,6 +176,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
 
   const market: MarketOverview = {
     sp500Change, nasdaqChange, marketTrend,
+    sp500Price: spyPrice,
+    nasdaqPrice: qqqPrice,
+    sp500Symbol: SP500_BENCHMARK.symbol,
+    nasdaqSymbol: NASDAQ_BENCHMARK.symbol,
+    benchmarkState: edgeResp.mode === 'STALE' ? 'stale' : 'live',
+    benchmarkLastUpdated: edgeResp.providerStatus.fetchedAt ?? now,
     lastUpdated: now, dataSource: 'live', pollingIntervalMs: WSP_CONFIG.refreshInterval,
   };
 
@@ -211,10 +222,15 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse): ScreenerApiRespons
 
   const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0;
   const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
+  const discoveryFromBackend = (edgeResp as unknown as { discovery?: DiscoveryBuckets; discoveryMeta?: DiscoveryMeta });
+  const discoverySnapshot = discoveryFromBackend.discovery && discoveryFromBackend.discoveryMeta
+    ? { discovery: discoveryFromBackend.discovery, discoveryMeta: discoveryFromBackend.discoveryMeta }
+    : buildDiscoverySnapshot(evaluatedStocks, uiState);
 
   return {
     market: { ...market, dataSource: 'live' },
     stocks: evaluatedStocks,
+    ...discoverySnapshot,
     sectorStatuses,
     providerStatus: {
       provider: 'finnhub',
