@@ -87,6 +87,17 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
                 <Stat label="Benchmark refresh" value={market.benchmarkLastUpdated} className="sm:col-span-3" />
                 <Stat label="Benchmark data state" value={market.benchmarkState} warn={market.benchmarkState !== 'live'} />
                 <Stat label="Last successful live fetch" value={providerStatus.readiness.lastSuccessfulLiveFetch ?? '—'} warn={!providerStatus.readiness.lastSuccessfulLiveFetch} className="sm:col-span-3" />
+                {providerStatus.debugPipeline && (
+                  <>
+                    <Stat label="Pipeline stage" value={providerStatus.debugPipeline.stage} warn={providerStatus.debugPipeline.stage !== 'completed'} />
+                    <Stat label="Provider auth" value={providerStatus.debugPipeline.providerAuth} warn={providerStatus.debugPipeline.providerAuth !== 'success'} />
+                    <Stat label="Benchmark success/fail" value={`${providerStatus.debugPipeline.benchmarkSuccessCount}/${providerStatus.debugPipeline.benchmarkFailureCount}`} warn={providerStatus.debugPipeline.benchmarkSuccessCount === 0} />
+                    <Stat label="Stock success/fail" value={`${providerStatus.debugPipeline.stockSuccessCount}/${providerStatus.debugPipeline.stockFailureCount}`} warn={providerStatus.debugPipeline.stockSuccessCount === 0} />
+                    <Stat label="Stale cache available" value={providerStatus.debugPipeline.staleCacheAvailable ? 'yes' : 'no'} />
+                    <Stat label="Fallback builder" value={providerStatus.debugPipeline.fallbackBuild} warn={providerStatus.debugPipeline.fallbackBuild !== 'success' && providerStatus.uiState === 'FALLBACK'} />
+                    <Stat label="Mode reason" value={providerStatus.debugPipeline.finalModeReason} className="sm:col-span-3" />
+                  </>
+                )}
               </div>
             </SectionCard>
           </div>
