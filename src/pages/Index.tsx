@@ -147,6 +147,7 @@ const Index = () => {
                 activeSector={activeSector}
                 activeIndustry={activeIndustry}
                 onIndustrySelect={setActiveIndustry}
+                onScanTriggered={() => setActiveTab('scanner')}
               />
             </div>
 
