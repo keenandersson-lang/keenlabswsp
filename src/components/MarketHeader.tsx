@@ -55,8 +55,8 @@ export function MarketHeader({
           <div className="flex flex-col gap-3 xl:items-end">
             <div className="flex flex-wrap items-center gap-6">
               <div className="flex items-center gap-4">
-                <IndexChip label="S&P 500" change={market.sp500Change} />
-                <IndexChip label="NASDAQ" change={market.nasdaqChange} />
+                <IndexChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+                <IndexChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
               </div>
 
               <div className="hidden h-8 w-px bg-border lg:block" />
@@ -125,11 +125,12 @@ function formatInterval(value: number) {
   return `${minutes}m`;
 }
 
-function IndexChip({ label, change }: { label: string; change: number }) {
+function IndexChip({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
   const positive = change >= 0;
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">{label} ({symbol})</span>
+      <span className="font-mono text-xs text-foreground">{price === null ? 'N/A' : `$${price.toFixed(2)}`}</span>
       <div className={`flex items-center gap-0.5 font-mono text-sm font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
         {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
         {positive ? '+' : ''}{change.toFixed(2)}%

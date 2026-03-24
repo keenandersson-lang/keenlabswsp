@@ -11,6 +11,7 @@ import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { PatternBadge } from '@/components/PatternBadge';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
+import { isBenchmarkSymbol } from '@/lib/benchmarks';
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
@@ -21,6 +22,8 @@ export default function StockDetail() {
   const screenerQuery = useWspScreener();
   const detailQuery = useStockDetail(symbol);
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === symbol?.toUpperCase());
+  const requestedSymbol = symbol?.toUpperCase() ?? '';
+  const isBenchmark = isBenchmarkSymbol(requestedSymbol);
 
   const detailData = detailQuery.data?.data;
   const timeframeBars = useMemo(() => {
@@ -52,11 +55,28 @@ export default function StockDetail() {
     );
   }, [detailData, liveStock, asOfEnabled, asOfIndex, timeframeBars]);
 
+  const benchmarkStock = useMemo(() => {
+    if (!detailData || !isBenchmark) return null;
+    if (detailData.barsDaily.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+    return evaluateStock(
+      detailData.symbol,
+      detailData.name,
+      detailData.sector,
+      detailData.industry,
+      detailData.barsDaily,
+      detailData.benchmarkDaily,
+      true,
+      true,
+      'live',
+      { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
+    );
+  }, [detailData, isBenchmark]);
+
   if (screenerQuery.isLoading || detailQuery.isLoading) {
     return <div className="min-h-screen bg-background p-6 text-sm text-muted-foreground">Loading stock detail analysis...</div>;
   }
 
-  if (!liveStock) {
+  if (!liveStock && !isBenchmark) {
     return <div className="min-h-screen bg-background p-6 text-sm text-signal-sell">Could not locate this ticker in the current tracked universe.</div>;
   }
 
@@ -71,7 +91,10 @@ export default function StockDetail() {
     );
   }
 
-  const stock = historicalStock ?? liveStock;
+  const stock = historicalStock ?? liveStock ?? benchmarkStock;
+  if (!stock) {
+    return <div className="min-h-screen bg-background p-6 text-sm text-signal-sell">Could not build symbol analysis from current chart data.</div>;
+  }
 
   return (
     <div className="min-h-screen bg-background">

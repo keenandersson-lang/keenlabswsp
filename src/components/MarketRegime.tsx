@@ -1,5 +1,6 @@
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { MarketOverview } from '@/lib/wsp-types';
+import { Link } from 'react-router-dom';
 
 interface MarketRegimeProps {
   market: MarketOverview;
@@ -33,8 +34,8 @@ export function MarketRegime({ market }: MarketRegimeProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <IndexCard label="S&P 500" symbol="SPY" change={market.sp500Change} />
-        <IndexCard label="NASDAQ 100" symbol="QQQ" change={market.nasdaqChange} />
+        <IndexCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+        <IndexCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
       </div>
 
       <p className="mt-3 text-[10px] text-muted-foreground">
@@ -46,20 +47,21 @@ export function MarketRegime({ market }: MarketRegimeProps) {
   );
 }
 
-function IndexCard({ label, symbol, change }: { label: string; symbol: string; change: number }) {
+function IndexCard({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
   const positive = change >= 0;
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
+    <Link to={`/stock/${symbol}`} className="rounded-lg border border-border bg-card p-3 hover:border-primary/30">
       <div className="flex items-center justify-between">
         <div>
           <span className="text-xs text-muted-foreground">{label}</span>
           <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({symbol})</span>
+          <div className="font-mono text-sm text-foreground">{price === null ? 'N/A' : `$${price.toFixed(2)}`}</div>
         </div>
         <div className={`flex items-center gap-0.5 font-mono text-sm font-semibold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
           {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
           {positive ? '+' : ''}{change.toFixed(2)}%
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

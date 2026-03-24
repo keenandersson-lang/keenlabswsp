@@ -103,6 +103,12 @@ export const demoStocks: EvaluatedStock[] = TRACKED_SYMBOLS.map((meta) => {
 export const demoMarket: MarketOverview = {
   sp500Change: 0.82,
   nasdaqChange: 1.24,
+  sp500Price: 520.12,
+  nasdaqPrice: 446.35,
+  sp500Symbol: 'SPY',
+  nasdaqSymbol: 'QQQ',
+  benchmarkState: 'fallback',
+  benchmarkLastUpdated: new Date().toISOString(),
   marketTrend: 'bullish',
   lastUpdated: new Date().toLocaleString('sv-SE'),
   dataSource: 'fallback',

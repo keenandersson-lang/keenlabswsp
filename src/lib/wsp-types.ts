@@ -6,6 +6,7 @@
 export type WSPPattern = 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL';
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
+export type TrendBucket = 'HOT' | 'BREAKOUT' | 'BULLISH' | 'BEARISH';
 
 export type WSPBlockedReason =
   | 'below_50ma'
@@ -270,10 +271,30 @@ export interface EvaluatedStock {
 export interface MarketOverview {
   sp500Change: number;
   nasdaqChange: number;
+  sp500Price: number | null;
+  nasdaqPrice: number | null;
+  sp500Symbol: string;
+  nasdaqSymbol: string;
+  benchmarkState: 'live' | 'stale' | 'fallback';
+  benchmarkLastUpdated: string;
   marketTrend: 'bullish' | 'bearish' | 'neutral';
   lastUpdated: string;
   dataSource: 'live' | 'fallback';
   pollingIntervalMs?: number;
+}
+
+export interface DiscoveryMeta {
+  source: 'backend_wsp_engine';
+  dataState: ScreenerUiState;
+  categoryCounts: Record<TrendBucket, number>;
+  generatedAt: string;
+}
+
+export interface DiscoveryBuckets {
+  HOT: EvaluatedStock[];
+  BREAKOUT: EvaluatedStock[];
+  BULLISH: EvaluatedStock[];
+  BEARISH: EvaluatedStock[];
 }
 
 export interface SectorStatus {
@@ -303,6 +324,8 @@ export interface ProviderStatus {
 export interface ScreenerApiResponse {
   market: MarketOverview;
   stocks: EvaluatedStock[];
+  discovery: DiscoveryBuckets;
+  discoveryMeta: DiscoveryMeta;
   sectorStatuses: SectorStatus[];
   providerStatus: ProviderStatus;
   debugSummary: ScreenerDebugSummary;

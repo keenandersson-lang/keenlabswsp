@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { EvaluatedStock } from '@/lib/wsp-types';
-import { buildTrendBuckets, type TrendBucket } from '@/lib/discovery';
+import type { DiscoveryBuckets, TrendBucket } from '@/lib/wsp-types';
 
 const TABS: TrendBucket[] = ['HOT', 'BREAKOUT', 'BULLISH', 'BEARISH'];
 
-export function TrendsDashboard({ stocks }: { stocks: EvaluatedStock[] }) {
+export function TrendsDashboard({ discovery }: { discovery: DiscoveryBuckets }) {
   const [active, setActive] = useState<TrendBucket>('HOT');
-  const buckets = useMemo(() => buildTrendBuckets(stocks), [stocks]);
+  const buckets = useMemo(() => discovery, [discovery]);
   const visible = buckets[active] ?? [];
 
   return (

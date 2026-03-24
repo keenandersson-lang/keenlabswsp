@@ -1,6 +1,4 @@
-import type { EvaluatedStock, SectorStatus } from '@/lib/wsp-types';
-
-export type TrendBucket = 'HOT' | 'BREAKOUT' | 'BULLISH' | 'BEARISH';
+import type { DiscoveryBuckets, DiscoveryMeta, EvaluatedStock, ScreenerUiState, SectorStatus, TrendBucket } from '@/lib/wsp-types';
 
 export interface SectorHeatCell {
   sector: string;
@@ -83,23 +81,27 @@ export function buildIndustryHeatmap(stocks: EvaluatedStock[], sector: string): 
 }
 
 export function classifyTrendBucket(stock: EvaluatedStock): TrendBucket {
-  const breakoutReady = stock.audit.breakoutValid && stock.audit.breakoutQualityPass && stock.audit.volumeValid;
-  const bullishStructure = stock.audit.above50MA && stock.audit.above150MA && stock.audit.slope50Positive;
+  const breakoutReady = stock.audit.breakoutValid && stock.audit.breakoutQualityPass && stock.audit.volumeValid && stock.audit.breakoutStale === false;
+  const climbingAndConstructive = stock.pattern === 'CLIMBING' &&
+    stock.audit.above50MA &&
+    stock.audit.above150MA &&
+    stock.audit.slope50Positive &&
+    stock.audit.mansfieldValid;
 
-  if (stock.finalRecommendation === 'SÄLJ' || stock.finalRecommendation === 'UNDVIK' || stock.pattern === 'DOWNHILL') {
+  if (stock.pattern === 'DOWNHILL' || stock.pattern === 'TIRED' || stock.finalRecommendation === 'SÄLJ' || stock.finalRecommendation === 'UNDVIK') {
     return 'BEARISH';
   }
-  if (breakoutReady && stock.pattern === 'CLIMBING') {
+  if (breakoutReady && climbingAndConstructive) {
     return 'BREAKOUT';
   }
-  if (bullishStructure || stock.finalRecommendation === 'KÖP' || stock.finalRecommendation === 'BEVAKA') {
+  if (climbingAndConstructive || stock.finalRecommendation === 'KÖP' || stock.finalRecommendation === 'BEVAKA') {
     return 'BULLISH';
   }
   return 'BEARISH';
 }
 
-export function buildTrendBuckets(stocks: EvaluatedStock[]): Record<TrendBucket, EvaluatedStock[]> {
-  const buckets: Record<TrendBucket, EvaluatedStock[]> = { HOT: [], BREAKOUT: [], BULLISH: [], BEARISH: [] };
+export function buildTrendBuckets(stocks: EvaluatedStock[]): DiscoveryBuckets {
+  const buckets: DiscoveryBuckets = { HOT: [], BREAKOUT: [], BULLISH: [], BEARISH: [] };
   for (const stock of stocks) {
     const bucket = classifyTrendBucket(stock);
     buckets[bucket].push(stock);
@@ -110,11 +112,39 @@ export function buildTrendBuckets(stocks: EvaluatedStock[]): Record<TrendBucket,
   buckets.BEARISH.sort((a, b) => a.score - b.score);
 
   buckets.HOT = [...stocks]
-    .filter((stock) => classifyTrendBucket(stock) !== 'BEARISH')
+    .filter((stock) => {
+      const bucket = classifyTrendBucket(stock);
+      const highPriorityOpportunity = (stock.finalRecommendation === 'KÖP' || stock.finalRecommendation === 'BEVAKA') &&
+        stock.audit.breakoutQualityPass &&
+        stock.audit.mansfieldValid &&
+        stock.audit.slope50Positive;
+      return bucket !== 'BEARISH' && highPriorityOpportunity;
+    })
     .sort(sortByOpportunity)
     .slice(0, 12);
 
   return buckets;
+}
+
+export function buildDiscoverySnapshot(stocks: EvaluatedStock[], uiState: ScreenerUiState): {
+  discovery: DiscoveryBuckets;
+  discoveryMeta: DiscoveryMeta;
+} {
+  const discovery = buildTrendBuckets(stocks);
+  return {
+    discovery,
+    discoveryMeta: {
+      source: 'backend_wsp_engine',
+      dataState: uiState,
+      categoryCounts: {
+        HOT: discovery.HOT.length,
+        BREAKOUT: discovery.BREAKOUT.length,
+        BULLISH: discovery.BULLISH.length,
+        BEARISH: discovery.BEARISH.length,
+      },
+      generatedAt: new Date().toISOString(),
+    },
+  };
 }
 
 function sortByOpportunity(a: EvaluatedStock, b: EvaluatedStock): number {
