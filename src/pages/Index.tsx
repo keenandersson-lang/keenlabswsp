@@ -11,7 +11,7 @@ import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { fetchWspScreenerData, useWspScreener } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
-import { AlertCircle, AlertTriangle, Info, RefreshCw, Wifi, WifiOff, Layers, BarChart3, Scan } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, RefreshCw, Wifi, WifiOff, Layers, BarChart3, Scan, ChevronRight } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { sanitizeProviderNotice } from '@/lib/safe-messages';
 import { MarketHeatmap } from '@/components/MarketHeatmap';
@@ -49,14 +49,14 @@ const Index = () => {
     const safeBody = sanitizeProviderNotice(providerStatus.uiState, providerStatus.errorMessage);
     switch (providerStatus.uiState) {
       case 'LIVE':
-        return { title: 'Live data active', body: safeBody, icon: Wifi, className: 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' };
+        return { title: 'Live market data', body: safeBody, icon: Wifi, className: 'border-signal-buy/20 bg-signal-buy/5 text-signal-buy' };
       case 'STALE':
-        return { title: 'Showing stale snapshot', body: safeBody, icon: WifiOff, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+        return { title: 'Using recent snapshot', body: safeBody, icon: WifiOff, className: 'border-signal-caution/20 bg-signal-caution/5 text-signal-caution' };
       case 'FALLBACK':
-        return { title: 'Demo mode active', body: safeBody, icon: AlertTriangle, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+        return { title: 'Demo mode', body: safeBody, icon: AlertTriangle, className: 'border-signal-caution/20 bg-signal-caution/5 text-signal-caution' };
       case 'ERROR':
       default:
-        return { title: 'No usable data', body: safeBody, icon: AlertCircle, className: 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' };
+        return { title: 'Data unavailable', body: safeBody, icon: AlertCircle, className: 'border-signal-sell/20 bg-signal-sell/5 text-signal-sell' };
     }
   }, [providerStatus]);
 
@@ -70,10 +70,16 @@ const Index = () => {
   if (!market || !providerStatus || !debugSummary || !discovery || !discoveryMeta) {
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-3 px-4 text-center">
-          <RefreshCw className={`h-6 w-6 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
-          <h1 className="text-lg font-semibold">Loading WSP Screener</h1>
-          <p className="text-sm text-muted-foreground">{isError ? 'Market data temporarily unavailable.' : 'Fetching market data and evaluating WSP engine.'}</p>
+        <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 px-4 text-center">
+          <div className="relative">
+            <RefreshCw className={`h-8 w-8 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-foreground">WSP Screener</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isError ? 'Market data temporarily unavailable. Retrying...' : 'Connecting to market data provider...'}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -82,9 +88,9 @@ const Index = () => {
   const NoticeIcon = providerNotice?.icon ?? Info;
 
   const tabs: { id: ViewTab; label: string; icon: typeof Layers }[] = [
-    { id: 'topdown', label: 'Top-Down', icon: Layers },
-    { id: 'sectors', label: 'Sektorer', icon: BarChart3 },
-    { id: 'scanner', label: 'Stock Scanner', icon: Scan },
+    { id: 'topdown', label: 'Discovery', icon: Layers },
+    { id: 'sectors', label: 'Sectors', icon: BarChart3 },
+    { id: 'scanner', label: 'Scanner', icon: Scan },
   ];
 
   return (
@@ -104,12 +110,17 @@ const Index = () => {
       />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
+        {/* Tab bar + credits */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === tab.id ? 'bg-primary/10 text-primary border border-primary/30' : 'text-muted-foreground hover:text-foreground border border-transparent'}`}>
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${activeTab === tab.id ? 'bg-primary/10 text-primary border border-primary/30 shadow-sm' : 'text-muted-foreground hover:text-foreground border border-transparent'}`}
+                >
                   <Icon className="h-3.5 w-3.5" />
                   {tab.label}
                 </button>
@@ -119,26 +130,30 @@ const Index = () => {
           <CreditsBadge />
         </div>
 
-        {providerNotice && (
-          <div className={`flex items-start gap-3 rounded-lg border p-3 text-xs ${providerNotice.className}`}>
-            <NoticeIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />
-            <div>
-              <p className="font-semibold">{providerNotice.title}</p>
-              <p>{providerNotice.body}</p>
-            </div>
+        {/* Provider status notice — compact */}
+        {providerNotice && providerStatus.uiState !== 'LIVE' && (
+          <div className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[11px] ${providerNotice.className}`}>
+            <NoticeIcon className="h-3.5 w-3.5 flex-shrink-0" />
+            <span><span className="font-semibold">{providerNotice.title}.</span> {providerNotice.body}</span>
           </div>
         )}
 
+        {/* ═══ TOP-DOWN DISCOVERY ═══ */}
         {activeTab === 'topdown' && (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <MarketRegime market={market} />
+
             <MarketHeatmap
               stocks={stocks}
               sectorStatuses={sectorStatuses}
               activeSector={activeSector}
-              degradedMessage={providerStatus.uiState === 'STALE' || providerStatus.uiState === 'FALLBACK'
-                ? 'Heatmap data is degraded in this snapshot. Core benchmark context is preserved, but sector aggregation is limited.'
-                : undefined}
+              degradedMessage={
+                providerStatus.uiState === 'FALLBACK'
+                  ? 'Sector data is demo-only in fallback mode. Connect live provider for real sector analysis.'
+                  : providerStatus.uiState === 'STALE'
+                  ? 'Some sector data may be delayed. Core benchmark context is preserved.'
+                  : undefined
+              }
               onSectorSelect={(sector) => {
                 setActiveSector(sector);
                 setActiveIndustry(null);
@@ -146,7 +161,12 @@ const Index = () => {
             />
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-              <SectorRanking stocks={stocks} sectorStatuses={sectorStatuses} activeSector={activeSector} onSectorSelect={(sector) => { setActiveSector(sector); setActiveIndustry(null); }} />
+              <SectorRanking
+                stocks={stocks}
+                sectorStatuses={sectorStatuses}
+                activeSector={activeSector}
+                onSectorSelect={(sector) => { setActiveSector(sector); setActiveIndustry(null); }}
+              />
               <IndustryRanking
                 stocks={stocks}
                 activeSector={activeSector}
@@ -155,10 +175,16 @@ const Index = () => {
               />
             </div>
 
+            {/* Funnel breadcrumb */}
             {activeIndustry && (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
-                Funnel: <span className="text-foreground">Market</span> → <span className="text-foreground">{activeSector}</span> → <span className="text-foreground">{activeIndustry}</span> →
-                <button className="ml-1 text-primary underline" onClick={() => setActiveTab('scanner')}>Stock scan</button>
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs">
+                <ChevronRight className="h-3.5 w-3.5 text-primary" />
+                <span className="text-muted-foreground">
+                  <span className="text-foreground font-medium">Market</span> → <span className="text-foreground font-medium">{activeSector}</span> → <span className="text-foreground font-medium">{activeIndustry}</span>
+                </span>
+                <button className="ml-auto text-primary font-medium hover:underline" onClick={() => setActiveTab('scanner')}>
+                  Open Scanner →
+                </button>
               </div>
             )}
 
@@ -167,16 +193,20 @@ const Index = () => {
           </div>
         )}
 
+        {/* ═══ SECTORS ═══ */}
         {activeTab === 'sectors' && <SectorAnalysis />}
 
+        {/* ═══ STOCK SCANNER ═══ */}
         {activeTab === 'scanner' && (
           <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
               <Scan className="mt-0.5 h-5 w-5 text-primary flex-shrink-0" />
               <div>
-                <h3 className="text-sm font-bold text-foreground">Stock Scanner — Premium</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Full WSP engine scan with strict gates. Current dataset: {stocks.length} stocks ({providerStatus.uiState} data).</p>
-                {activeIndustry && <button className="mt-1 text-xs text-primary underline" onClick={() => navigate(`/stock/${stocks.find((s) => s.industry === activeIndustry)?.symbol ?? stocks[0]?.symbol}`)}>Open a stock from selected industry</button>}
+                <h3 className="text-sm font-bold text-foreground">Full Stock Scanner</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Strict WSP 3-layer engine evaluation across {stocks.length} tracked stocks.
+                  {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> Data state: {providerStatus.uiState}.</span>}
+                </p>
               </div>
             </div>
             <PatternSummary stocks={stocks} />
@@ -184,6 +214,7 @@ const Index = () => {
           </div>
         )}
 
+        {/* ═══ DEBUG ═══ */}
         <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} market={market} discoveryMeta={discoveryMeta} />
       </main>
     </div>

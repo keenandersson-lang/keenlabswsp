@@ -1,4 +1,4 @@
-import { Activity, ArrowUpRight, ArrowDownRight, AlertTriangle, RefreshCw, Wifi, WifiOff, Clock3, ServerCrash } from 'lucide-react';
+import { Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Wifi, WifiOff, Clock3, ServerCrash, AlertTriangle, Shield } from 'lucide-react';
 import type { MarketOverview, ScreenerUiState } from '@/lib/wsp-types';
 
 interface MarketHeaderProps {
@@ -33,75 +33,68 @@ export function MarketHeader({
   const stateMeta = getStateMeta(uiState);
 
   return (
-    <div className="border-b border-border bg-card/50 backdrop-blur-sm">
-      <div className="mx-auto max-w-7xl px-4 py-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+    <header className="border-b border-border bg-card/80 backdrop-blur-md">
+      <div className="mx-auto max-w-7xl px-4 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          {/* Brand + status */}
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-              <Activity className="h-5 w-5 text-primary" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
+              <Activity className="h-4.5 w-4.5 text-primary" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">WSP Screener</h1>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xs text-muted-foreground">Wall Street Protocol • {market.lastUpdated}</p>
-                <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${stateMeta.className}`}>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold tracking-tight text-foreground">WSP Screener</h1>
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateMeta.className}`}>
                   <stateMeta.icon className="h-2.5 w-2.5" />
                   {uiState}
                 </span>
               </div>
+              <p className="text-[11px] text-muted-foreground truncate">Wall Street Protocol · Strict 3-Layer Engine</p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 xl:items-end">
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-4">
-                <IndexChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-                <IndexChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
-              </div>
-
-              <div className="hidden h-8 w-px bg-border lg:block" />
-
-              <div className="flex flex-wrap items-center gap-3">
-                <SignalChip label="KÖP" count={buyCount} dotClass="bg-signal-buy" textClass="text-signal-buy" pulse />
-                <SignalChip label="BEVAKA" count={watchCount} dotClass="bg-accent" textClass="text-accent" />
-                <SignalChip label="SÄLJ" count={sellCount} dotClass="bg-signal-caution" textClass="text-signal-caution" />
-                <SignalChip label="UNDVIK" count={avoidCount} dotClass="bg-signal-sell" textClass="text-signal-sell" />
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-sm text-muted-foreground">{totalStocks}</span>
-                  <span className="text-xs text-muted-foreground">totalt</span>
-                </div>
+          {/* Benchmarks + Signals + Controls */}
+          <div className="flex flex-col gap-2 lg:items-end">
+            <div className="flex flex-wrap items-center gap-4">
+              <BenchmarkChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+              <div className="hidden h-6 w-px bg-border lg:block" />
+              <BenchmarkChip label="Nasdaq" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+              <div className="hidden h-6 w-px bg-border lg:block" />
+              <div className="flex items-center gap-2.5">
+                <SignalDot label="KÖP" count={buyCount} colorVar="signal-buy" pulse />
+                <SignalDot label="BEVAKA" count={watchCount} colorVar="accent" />
+                <SignalDot label="SÄLJ" count={sellCount} colorVar="signal-caution" />
+                <SignalDot label="UNDVIK" count={avoidCount} colorVar="signal-sell" />
+                <span className="text-[11px] text-muted-foreground">{totalStocks} <span className="hidden sm:inline">tracked</span></span>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 text-muted-foreground">
-                <Clock3 className="h-3.5 w-3.5" />
-                <span>Polling</span>
+            <div className="flex items-center gap-2 text-xs">
+              <label className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-muted-foreground">
+                <Clock3 className="h-3 w-3" />
                 <select
                   value={pollingIntervalMs}
-                  onChange={(event) => onPollingIntervalChange(Number(event.target.value))}
-                  className="bg-transparent text-foreground outline-none"
+                  onChange={(e) => onPollingIntervalChange(Number(e.target.value))}
+                  className="bg-transparent text-foreground outline-none text-xs"
                 >
-                  {pollingOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {formatInterval(option)}
-                    </option>
+                  {pollingOptions.map((opt) => (
+                    <option key={opt} value={opt}>{formatInterval(opt)}</option>
                   ))}
                 </select>
               </label>
               <button
                 type="button"
                 onClick={onRefresh}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-foreground transition-colors hover:border-primary/40 hover:text-primary"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -121,30 +114,32 @@ function getStateMeta(uiState: ScreenerUiState) {
 }
 
 function formatInterval(value: number) {
-  const minutes = Math.round(value / 60_000);
-  return `${minutes}m`;
+  return `${Math.round(value / 60_000)}m`;
 }
 
-function IndexChip({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
+function BenchmarkChip({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
   const positive = change >= 0;
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">{label} ({symbol})</span>
-      <span className="font-mono text-xs text-foreground">{price === null ? 'N/A' : `$${price.toFixed(2)}`}</span>
-      <div className={`flex items-center gap-0.5 font-mono text-sm font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
-        {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-        {positive ? '+' : ''}{change.toFixed(2)}%
+    <div className="flex items-center gap-2">
+      <div>
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-sm font-medium text-foreground">{price === null ? '—' : `$${price.toFixed(2)}`}</span>
+          <span className={`flex items-center gap-0.5 font-mono text-xs font-semibold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
+            {positive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+            {positive ? '+' : ''}{change.toFixed(2)}%
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function SignalChip({ label, count, dotClass, textClass, pulse }: { label: string; count: number; dotClass: string; textClass: string; pulse?: boolean }) {
+function SignalDot({ label, count, colorVar, pulse }: { label: string; count: number; colorVar: string; pulse?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <div className={`h-2 w-2 rounded-full ${dotClass} ${pulse ? 'animate-pulse-subtle' : ''}`} />
-      <span className={`font-mono text-sm font-semibold ${textClass}`}>{count}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="flex items-center gap-1" title={label}>
+      <div className={`h-1.5 w-1.5 rounded-full bg-${colorVar} ${pulse && count > 0 ? 'animate-pulse' : ''}`} />
+      <span className={`font-mono text-xs font-semibold text-${colorVar}`}>{count}</span>
     </div>
   );
 }

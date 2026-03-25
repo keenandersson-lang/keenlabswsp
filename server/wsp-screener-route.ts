@@ -647,6 +647,7 @@ function createRouteResponse(payload: ScreenerApiResponse) {
       message: payload.providerStatus.errorMessage,
       failedSymbols: payload.providerStatus.failedSymbols,
     } : null,
+    ...payload,
     providerStatus: {
       provider: payload.providerStatus.provider,
       isLive: payload.providerStatus.isLive,
@@ -661,7 +662,6 @@ function createRouteResponse(payload: ScreenerApiResponse) {
       fallbackCause: payload.providerStatus.runtimeDiagnostics?.fallbackCause ?? 'unknown',
     },
     debugSummary: payload.providerStatus.debugPipeline,
-    ...payload,
   };
 }
 

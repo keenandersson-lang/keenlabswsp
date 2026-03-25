@@ -118,7 +118,8 @@ export const StockChartModule = memo(function StockChartModule({
             min={bars[0]?.date}
             onChange={(event) => {
               const targetDate = event.target.value;
-              const idx = bars.findLastIndex((bar) => bar.date <= targetDate);
+              let idx = -1;
+              for (let i = bars.length - 1; i >= 0; i--) { if (bars[i].date <= targetDate) { idx = i; break; } }
               onAsOfIndexChange(idx >= 0 ? idx : bars.length - 1);
             }}
             className="h-8 w-full md:w-[160px]"

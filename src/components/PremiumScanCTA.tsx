@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Zap, Lock, Coins, Scan } from 'lucide-react';
+import { Zap, Lock, Coins, Scan, ArrowRight } from 'lucide-react';
 import { useCredits, CREDIT_COSTS } from '@/hooks/use-credits';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthModal } from './AuthModal';
 
 interface PremiumScanCTAProps {
   industryName: string;
-  onScanTriggered: () => void;
+  onScanTriggered?: () => void;
   scanning?: boolean;
 }
 
@@ -25,7 +25,7 @@ export function PremiumScanCTA({ industryName, onScanTriggered, scanning }: Prem
     }
 
     if (!hasCredits(cost)) {
-      setError('Otillräckliga credits. Köp fler för att fortsätta.');
+      setError('Insufficient credits. Purchase more to continue.');
       return;
     }
 
@@ -35,7 +35,7 @@ export function PremiumScanCTA({ industryName, onScanTriggered, scanning }: Prem
         amount: cost,
         description: `Deep scan: ${industryName}`,
       });
-      onScanTriggered();
+      onScanTriggered?.();
     } catch (err: any) {
       setError(err.message);
     }
@@ -43,45 +43,41 @@ export function PremiumScanCTA({ industryName, onScanTriggered, scanning }: Prem
 
   return (
     <>
-      <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Scan className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Deep Stock Scan</h3>
+      <div className="rounded-lg border border-primary/20 bg-gradient-to-r from-primary/5 to-transparent p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Scan className="h-4 w-4 text-primary flex-shrink-0" />
+            <div className="min-w-0">
+              <h4 className="text-xs font-semibold text-foreground">Unlock Deep Analysis</h4>
+              <p className="text-[10px] text-muted-foreground truncate">
+                Full WSP scan for <span className="text-foreground font-medium">{industryName}</span>
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Kör WSP-motorn på alla aktier i <span className="text-accent font-medium">{industryName}</span> för att hitta KÖP-signaler, breakouts och entry-setups.
-            </p>
           </div>
           <button
             onClick={handleScan}
             disabled={scanning}
-            className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 whitespace-nowrap"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 whitespace-nowrap"
           >
             {scanning ? (
               'Scanning...'
             ) : !user ? (
-              <>
-                <Lock className="h-3 w-3" /> Logga in
-              </>
+              <><Lock className="h-3 w-3" /> Sign in</>
             ) : (
-              <>
-                <Zap className="h-3 w-3" /> Scanna ({cost} credit)
-              </>
+              <><Zap className="h-3 w-3" /> Scan · {cost} cr</>
             )}
           </button>
         </div>
 
         {user && (
-          <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <Coins className="h-3 w-3" />
-            <span>Ditt saldo: <span className="font-mono font-semibold text-foreground">{credits.balance}</span> credits</span>
+          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Coins className="h-2.5 w-2.5" />
+            <span>Balance: <span className="font-mono font-semibold text-foreground">{credits.balance}</span> credits</span>
           </div>
         )}
 
         {error && (
-          <p className="mt-2 rounded border border-signal-sell/30 bg-signal-sell/10 px-2 py-1 text-xs text-signal-sell">{error}</p>
+          <p className="mt-1.5 rounded border border-signal-sell/30 bg-signal-sell/10 px-2 py-1 text-[10px] text-signal-sell">{error}</p>
         )}
       </div>
 

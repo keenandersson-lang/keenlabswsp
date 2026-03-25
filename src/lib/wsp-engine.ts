@@ -16,8 +16,8 @@ export type { WSPPattern, WSPRecommendation, EvaluatedStock, MarketOverview, Sec
 
 interface EvaluateStockOptions {
   overrideAnalysis?: {
-    pattern: WSPPattern;
-    indicators: StockIndicators;
+    pattern?: WSPPattern;
+    indicators?: StockIndicators;
     price?: number;
     prevClose?: number;
     volume?: number;

@@ -1,4 +1,4 @@
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Minus, Shield } from 'lucide-react';
 import type { MarketOverview } from '@/lib/wsp-types';
 import { Link } from 'react-router-dom';
 
@@ -6,61 +6,93 @@ interface MarketRegimeProps {
   market: MarketOverview;
 }
 
-export function MarketRegime({ market }: MarketRegimeProps) {
-  const trendConfig = {
-    bullish: { label: 'BULLISH', icon: TrendingUp, colorClass: 'text-signal-buy', bgClass: 'bg-signal-buy/10', borderClass: 'border-signal-buy/30', desc: 'SPY & QQQ ovan 50MA, 50MA > 200MA' },
-    bearish: { label: 'BEARISH', icon: TrendingDown, colorClass: 'text-signal-sell', bgClass: 'bg-signal-sell/10', borderClass: 'border-signal-sell/30', desc: 'Både SPY och QQQ under viktiga glidande medelvärden' },
-    neutral: { label: 'NEUTRAL', icon: Minus, colorClass: 'text-signal-caution', bgClass: 'bg-signal-caution/10', borderClass: 'border-signal-caution/30', desc: 'Blandade signaler — en av indexen visar svaghet' },
-  };
+const regimeConfig = {
+  bullish: {
+    label: 'BULLISH',
+    icon: TrendingUp,
+    colorClass: 'text-signal-buy',
+    bgClass: 'bg-signal-buy/8',
+    borderClass: 'border-signal-buy/25',
+    guidance: 'Aggressive long setups favored. WSP breakout entries are high-probability in this environment.',
+    context: 'Both S&P 500 and Nasdaq 100 trading above rising 50-day moving averages with 50MA > 200MA.',
+  },
+  bearish: {
+    label: 'BEARISH',
+    icon: TrendingDown,
+    colorClass: 'text-signal-sell',
+    bgClass: 'bg-signal-sell/8',
+    borderClass: 'border-signal-sell/25',
+    guidance: 'Protect capital. Avoid aggressive breakout exposure. Reduce position sizing.',
+    context: 'Both S&P 500 and Nasdaq 100 below key moving averages — indicating broad market weakness.',
+  },
+  neutral: {
+    label: 'NEUTRAL',
+    icon: Minus,
+    colorClass: 'text-signal-caution',
+    bgClass: 'bg-signal-caution/8',
+    borderClass: 'border-signal-caution/25',
+    guidance: 'Selective approach required. Prioritize only the highest-quality setups with strong volume confirmation.',
+    context: 'Mixed signals — one major index showing strength while the other signals weakness.',
+  },
+};
 
-  const t = trendConfig[market.marketTrend];
-  const TrendIcon = t.icon;
+export function MarketRegime({ market }: MarketRegimeProps) {
+  const config = regimeConfig[market.marketTrend];
+  const TrendIcon = config.icon;
 
   return (
-    <div className={`rounded-xl border ${t.borderClass} ${t.bgClass} p-5`}>
-      <div className="flex items-center justify-between mb-4">
+    <section className={`rounded-xl border ${config.borderClass} ${config.bgClass} overflow-hidden`}>
+      {/* Regime header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${t.bgClass} border ${t.borderClass}`}>
-            <TrendIcon className={`h-5 w-5 ${t.colorClass}`} />
+          <div className={`flex h-10 w-10 items-center justify-center rounded-lg border ${config.borderClass} bg-background/60`}>
+            <TrendIcon className={`h-5 w-5 ${config.colorClass}`} />
           </div>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Marknadsregim</h2>
-            <p className="text-[10px] text-muted-foreground">{t.desc}</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Market Regime</h2>
+              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${config.colorClass} ${config.borderClass} bg-background/40`}>
+                {config.label}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">{config.context}</p>
           </div>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${t.colorClass} ${t.bgClass} ${t.borderClass}`}>
-          {t.label}
-        </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <IndexCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-        <IndexCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+      {/* Benchmark cards */}
+      <div className="grid grid-cols-1 gap-3 px-5 sm:grid-cols-2">
+        <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+        <BenchmarkCard label="Nasdaq 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
       </div>
 
-      <p className="mt-3 text-[10px] text-muted-foreground">
-        WSP strategy context: aggressive long setups are favored only in <span className="text-signal-buy font-medium">BULLISH</span> regime.
-        {market.marketTrend === 'neutral' && <span className="text-signal-caution"> Neutral tape: prioritize selective, higher-quality setups.</span>}
-        {market.marketTrend === 'bearish' && <span className="text-signal-sell"> Bearish tape: protect capital and avoid aggressive breakout exposure.</span>}
-      </p>
-    </div>
+      {/* Strategy guidance */}
+      <div className="flex items-start gap-2 px-5 py-4 mt-2">
+        <Shield className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${config.colorClass}`} />
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <span className="font-medium text-foreground">WSP strategy context:</span> {config.guidance}
+        </p>
+      </div>
+    </section>
   );
 }
 
-function IndexCard({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
+function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
   const positive = change >= 0;
   return (
-    <Link to={`/stock/${symbol}`} className="rounded-lg border border-border bg-card p-3 hover:border-primary/30">
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-xs text-muted-foreground">{label}</span>
-          <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({symbol})</span>
-          <div className="font-mono text-sm text-foreground">{price === null ? 'N/A' : `$${price.toFixed(2)}`}</div>
+    <Link
+      to={`/stock/${symbol}`}
+      className="group flex items-center justify-between rounded-lg border border-border/60 bg-card/80 px-4 py-3 transition-all hover:border-primary/30 hover:bg-card"
+    >
+      <div>
+        <div className="text-[11px] text-muted-foreground">{label} <span className="font-mono opacity-60">({symbol})</span></div>
+        <div className="font-mono text-lg font-semibold text-foreground mt-0.5">
+          {price === null ? '—' : `$${price.toFixed(2)}`}
         </div>
-        <div className={`flex items-center gap-0.5 font-mono text-sm font-semibold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
-          {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-          {positive ? '+' : ''}{change.toFixed(2)}%
-        </div>
+      </div>
+      <div className={`flex items-center gap-1 font-mono text-base font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
+        {positive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+        {positive ? '+' : ''}{change.toFixed(2)}%
       </div>
     </Link>
   );
