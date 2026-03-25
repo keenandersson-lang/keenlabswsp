@@ -29,7 +29,7 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState,
     <div className="space-y-2">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Industries — {activeSector}</h3>
-        <span className="text-[10px] text-muted-foreground">{industries.length} groups</span>
+        <span className="text-[10px] text-muted-foreground">{industries.length} groups · tracked strength</span>
       </div>
 
       {industries.length === 0 ? (
@@ -55,6 +55,7 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState,
                     S{industry.displayValue.toFixed(1)}
                   </div>
                   <div className="text-[10px] text-muted-foreground">{industry.valueLabel}</div>
+                  {industry.confidence !== 'high' && <div className="text-[10px] text-signal-caution">Limited sample</div>}
                 </div>
               </div>
             </button>

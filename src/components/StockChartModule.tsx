@@ -22,6 +22,7 @@ interface StockChartModuleProps {
   onAsOfEnabledChange: (value: boolean) => void;
   asOfIndex: number;
   onAsOfIndexChange: (value: number) => void;
+  dataState?: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
 }
 
 const TIMEFRAMES: ChartTimeframe[] = ['1D', '1W', '1M', '3M', '6M', '1Y', '2Y'];
@@ -38,6 +39,7 @@ export const StockChartModule = memo(function StockChartModule({
   onAsOfEnabledChange,
   asOfIndex,
   onAsOfIndexChange,
+  dataState = 'LIVE',
 }: StockChartModuleProps) {
   const { bars, cadence } = useMemo(() => barsForTimeframe(timeframe, dailyBars, weeklyBars), [timeframe, dailyBars, weeklyBars]);
   const benchmarkBars = barsForTimeframe(timeframe, dailyBenchmark, weeklyBenchmark).bars;
@@ -98,6 +100,14 @@ export const StockChartModule = memo(function StockChartModule({
           <Switch id="asof-mode" checked={asOfEnabled} onCheckedChange={onAsOfEnabledChange} />
           <span className="rounded border border-border px-2 py-0.5 font-mono uppercase">{cadence}</span>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[10px]">
+        <span className="rounded border border-border px-2 py-0.5 text-muted-foreground">Pattern: {stock.pattern}</span>
+        <span className="rounded border border-border px-2 py-0.5 text-muted-foreground">Recommendation: {stock.finalRecommendation}</span>
+        <span className={`rounded border px-2 py-0.5 ${dataState === 'LIVE' ? 'border-signal-buy/25 bg-signal-buy/10 text-signal-buy' : 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution'}`}>
+          Context: {dataState}
+        </span>
+        {stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-2 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
       </div>
 
       {asOfEnabled && (

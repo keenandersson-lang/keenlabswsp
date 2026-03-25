@@ -18,7 +18,7 @@ export function SectorRanking({ stocks, sectorStatuses, uiState, activeSector, o
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Sector Ranking</h2>
-        <span className="text-[10px] text-muted-foreground">Strength-ranked</span>
+        <span className="text-[10px] text-muted-foreground">{uiState === 'FALLBACK' ? 'Tracked strength ranked' : 'Proxy/strength ranked'}</span>
       </div>
       <div className="space-y-1.5">
         {sectors.map((sector, idx) => {
@@ -52,6 +52,7 @@ export function SectorRanking({ stocks, sectorStatuses, uiState, activeSector, o
                     : `S${sector.displayValue.toFixed(1)}`}
                 </div>
                 <div className="text-[10px] text-muted-foreground">{sector.valueLabel}</div>
+                {sector.confidence !== 'high' && <div className="text-[10px] text-signal-caution">Limited sample confidence</div>}
               </div>
             </button>
           );

@@ -184,6 +184,9 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
             <Stat label="Trend mode" value={discoveryMeta.trendClassificationMode} warn={discoveryMeta.trendClassificationMode !== 'strict_wsp'} />
             <Stat label="Sector ranking mode" value={discoveryMeta.ranking.sectorMode} warn={discoveryMeta.ranking.sectorMode !== 'proxy_return'} />
             <Stat label="Industry ranking mode" value={discoveryMeta.ranking.industryMode} />
+            <Stat label="Sector ranking label" value={discoveryMeta.ranking.sectorValueLabel} className="sm:col-span-2" />
+            <Stat label="Industry ranking label" value={discoveryMeta.ranking.industryValueLabel} className="sm:col-span-2" />
+            <Stat label="Proxy returns active" value={discoveryMeta.ranking.usesProxyReturns ? 'yes' : 'no'} warn={!discoveryMeta.ranking.usesProxyReturns} />
             <Stat label="HOT count" value={discoveryMeta.categoryCounts.HOT} />
             <Stat label="BREAKOUT count" value={discoveryMeta.categoryCounts.BREAKOUT} />
             <Stat label="BULLISH count" value={discoveryMeta.categoryCounts.BULLISH} />
@@ -201,6 +204,8 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
             <Stat label="Totala symboler" value={debugSummary.totalStocks} />
             <Stat label="Provider symbol count" value={providerStatus.symbolCount} />
+            <Stat label="Chart-ready symbols" value={providerStatus.successCount} warn={providerStatus.successCount === 0} />
+            <Stat label="Scan provenance" value="central WSP/discovery snapshot" className="sm:col-span-2" />
             <Stat label="Valid WSP Entry" value={debugSummary.validEntryCount} highlight />
             <Stat label="KÖP signaler" value={debugSummary.recommendationCounts['KÖP']} highlight />
             <Stat label="BEVAKA" value={debugSummary.recommendationCounts['BEVAKA']} />

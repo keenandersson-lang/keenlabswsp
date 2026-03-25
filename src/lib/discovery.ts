@@ -44,6 +44,14 @@ interface TrendClassificationResult {
   degradedQualified: boolean;
 }
 
+export interface DiscoveryStockTrustContext {
+  bucket: TrendBucket;
+  strictQualified: boolean;
+  degradedQualified: boolean;
+  withinTrackedUniverse: boolean;
+  uiState: ScreenerUiState;
+}
+
 export function buildSectorHeatmap(
   stocks: EvaluatedStock[],
   sectorStatuses: SectorStatus[] = [],
@@ -159,6 +167,20 @@ export function classifyTrendBucket(stock: EvaluatedStock, uiState: ScreenerUiSt
   }
 
   return { bucket: 'BEARISH', strictQualified: exhausted, degradedQualified: false };
+}
+
+export function deriveStockTrustContext(
+  stock: EvaluatedStock,
+  uiState: ScreenerUiState = 'LIVE',
+): DiscoveryStockTrustContext {
+  const classification = classifyTrendBucket(stock, uiState);
+  return {
+    bucket: classification.bucket,
+    strictQualified: classification.strictQualified,
+    degradedQualified: classification.degradedQualified,
+    withinTrackedUniverse: true,
+    uiState,
+  };
 }
 
 export function buildTrendBuckets(stocks: EvaluatedStock[], uiState: ScreenerUiState = 'LIVE'): {
