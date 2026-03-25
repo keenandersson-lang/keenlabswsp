@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import type { EvaluatedStock, IndicatorWarning, StockAudit, WSPBlockedReason, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+import type { DiscoveryMeta, EvaluatedStock, IndicatorWarning, StockAudit, WSPBlockedReason, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { PatternBadge } from './PatternBadge';
 import { RecommendationBadge } from './RecommendationBadge';
 import { EntryCriteria } from './EntryCriteria';
@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 
 interface StockTableProps {
   stocks: EvaluatedStock[];
+  discoveryMeta?: DiscoveryMeta;
 }
 
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | 'all' | 'valid-wsp';
@@ -84,7 +85,7 @@ function BoolCell({ value }: { value: boolean | null | undefined }) {
   );
 }
 
-export function StockTable({ stocks }: StockTableProps) {
+export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
   const [filter, setFilter] = useState<FilterValue>('all');
   const [search, setSearch] = useState('');
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
@@ -135,6 +136,17 @@ export function StockTable({ stocks }: StockTableProps) {
   return (
     <div>
       <div className="mb-4 space-y-2">
+        {discoveryMeta && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[10px] text-muted-foreground">
+            <span>Scanner provenance: backend WSP engine</span>
+            <span>•</span>
+            <span>Data: {discoveryMeta.dataState}</span>
+            <span>•</span>
+            <span>Trend mode: {discoveryMeta.trendClassificationMode}</span>
+            <span>•</span>
+            <span>Scope: tracked universe</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative max-w-xs flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

@@ -208,12 +208,13 @@ const Index = () => {
                 <h3 className="text-sm font-bold text-foreground">Full Stock Scanner</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Strict WSP 3-layer engine evaluation across {stocks.length} tracked stocks.
+                  <span> Discovery mode: {discoveryMeta.trendClassificationMode}.</span>
                   {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> Data state: {providerStatus.uiState}.</span>}
                 </p>
               </div>
             </div>
             <PatternSummary stocks={stocks} />
-            <StockTable stocks={stocks} />
+            <StockTable stocks={stocks} discoveryMeta={discoveryMeta} />
           </div>
         )}
 

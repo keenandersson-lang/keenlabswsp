@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { DiscoveryBuckets, DiscoveryMeta, TrendBucket } from '@/lib/wsp-types';
 import { Flame, Zap, TrendingUp, TrendingDown } from 'lucide-react';
+import { deriveStockTrustContext } from '@/lib/discovery';
 
 const TABS: { id: TrendBucket; label: string; icon: typeof Flame; desc: string }[] = [
   { id: 'HOT', label: 'Hot', icon: Flame, desc: 'Highest-conviction WSP setups' },
@@ -57,31 +58,49 @@ export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: Disco
           </p>
         ) : (
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {visible.slice(0, 18).map((stock) => (
-              <Link
-                key={`${active}-${stock.symbol}`}
-                to={`/stock/${stock.symbol}`}
-                className="group rounded-lg border border-border bg-background p-3 transition-all hover:border-primary/30 hover:bg-card"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-mono text-sm font-semibold text-foreground">{stock.symbol}</div>
-                    <div className="truncate text-[10px] text-muted-foreground">{stock.name}</div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className={`font-mono text-xs font-semibold ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                      {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+            {visible.slice(0, 18).map((stock) => {
+              const trust = deriveStockTrustContext(stock, discoveryMeta?.dataState ?? 'LIVE');
+              const breakoutTag = trust.bucket === 'BREAKOUT'
+                ? 'Strict breakout gate'
+                : stock.audit.breakoutValid
+                  ? 'Breakout seen (not bucket-qualified)'
+                  : null;
+
+              return (
+                <Link
+                  key={`${active}-${stock.symbol}`}
+                  to={`/stock/${stock.symbol}`}
+                  className="group rounded-lg border border-border bg-background p-3 transition-all hover:border-primary/30 hover:bg-card"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-sm font-semibold text-foreground">{stock.symbol}</div>
+                      <div className="truncate text-[10px] text-muted-foreground">{stock.name}</div>
                     </div>
-                    <div className="font-mono text-[10px] text-muted-foreground">${stock.price.toFixed(2)}</div>
+                    <div className="text-right flex-shrink-0">
+                      <div className={`font-mono text-xs font-semibold ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                        {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                      </div>
+                      <div className="font-mono text-[10px] text-muted-foreground">${stock.price.toFixed(2)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${patternClass(stock.pattern)}`}>{stock.pattern}</span>
-                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${recClass(stock.finalRecommendation)}`}>{stock.finalRecommendation}</span>
-                  {stock.audit.breakoutValid && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-medium text-accent border border-accent/20">Breakout</span>}
-                </div>
-              </Link>
-            ))}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${patternClass(stock.pattern)}`}>{stock.pattern}</span>
+                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${recClass(stock.finalRecommendation)}`}>{stock.finalRecommendation}</span>
+                    {breakoutTag && (
+                      <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium border ${trust.bucket === 'BREAKOUT' ? 'bg-accent/10 text-accent border-accent/20' : 'bg-signal-caution/10 text-signal-caution border-signal-caution/20'}`}>
+                        {breakoutTag}
+                      </span>
+                    )}
+                    {trust.degradedQualified && (
+                      <span className="rounded border border-signal-caution/20 bg-signal-caution/10 px-1.5 py-0.5 text-[9px] font-medium text-signal-caution">
+                        Degraded snapshot
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

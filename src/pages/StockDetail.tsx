@@ -12,6 +12,7 @@ import { PatternBadge } from '@/components/PatternBadge';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { isBenchmarkSymbol } from '@/lib/benchmarks';
+import { deriveStockTrustContext } from '@/lib/discovery';
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
@@ -26,6 +27,7 @@ export default function StockDetail() {
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
 
   const detailData = detailQuery.data?.data;
+  const discoveryMeta = screenerQuery.data?.discoveryMeta;
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
     return barsForTimeframe(timeframe, detailData.barsDaily, detailData.barsWeekly);
@@ -105,6 +107,14 @@ export default function StockDetail() {
     );
   }
 
+  const trustContext = stock ? deriveStockTrustContext(stock, discoveryMeta?.dataState ?? screenerQuery.data?.providerStatus.uiState ?? 'LIVE') : null;
+  const discoverySourceLabel = discoveryMeta?.dataState === 'FALLBACK'
+    ? 'Tracked-universe fallback snapshot'
+    : discoveryMeta?.dataState === 'STALE'
+      ? 'Tracked-universe stale snapshot'
+      : 'Tracked-universe live snapshot';
+  const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
+
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
@@ -148,6 +158,7 @@ export default function StockDetail() {
           onAsOfEnabledChange={setAsOfEnabled}
           asOfIndex={asOfIndex}
           onAsOfIndexChange={setAsOfIndex}
+          dataState={contextState}
         />
 
         {/* Analysis panels */}
@@ -158,12 +169,22 @@ export default function StockDetail() {
               <Shield className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-bold text-foreground">Opportunity Summary</h2>
             </div>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {trustContext && (
+                <>
+                  <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Trend bucket: {trustContext.bucket}</span>
+                  <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">{discoverySourceLabel}</span>
+                  {trustContext.degradedQualified && <span className="rounded border border-signal-caution/30 bg-signal-caution/10 px-2 py-0.5 text-[10px] text-signal-caution">Degraded classification</span>}
+                  {trustContext.withinTrackedUniverse && <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Scope: tracked universe only</span>}
+                </>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-4">
               {stock.finalRecommendation === 'KÖP'
-                ? 'This setup meets all strict WSP entry criteria — breakout confirmed, volume surge validated, trend alignment verified across all three layers.'
+                ? 'Current snapshot passes strict WSP entry gate for this symbol (pattern, entry filter, and recommendation are aligned).'
                 : stock.finalRecommendation === 'BEVAKA'
-                ? 'Setup is constructive but not yet cleared by all WSP gates. Monitor for breakout confirmation and volume trigger.'
-                : 'Setup is currently blocked by one or more WSP filters. Review the audit context below before considering any position.'}
+                ? 'Constructive setup, but one or more strict gates remain unresolved. Wait for gate-level confirmation before treating as qualified.'
+                : 'Setup is blocked by one or more strict WSP filters in the current snapshot. Review blockers before taking action.'}
             </p>
             <div className="grid grid-cols-2 gap-2">
               <InfoCell label="Resistance" value={stock.audit.resistanceLevel?.toFixed(2) ?? '—'} />
@@ -182,6 +203,8 @@ export default function StockDetail() {
               <h2 className="text-sm font-bold text-foreground">WSP Audit Context</h2>
             </div>
             <div className="space-y-1.5 text-xs">
+              <AuditRow label="Data context" value={contextState} ok={contextState === 'LIVE'} />
+              <AuditRow label="Discovery scope" value="Tracked universe" />
               <AuditRow label="Pattern state" value={stock.pattern} />
               <AuditRow label="Trend (SMA50)" value={stock.audit.sma50SlopeDirection} />
               <AuditRow label="Above 50MA" value={stock.audit.above50MA ? 'Yes' : 'No'} ok={stock.audit.above50MA} />
@@ -190,6 +213,7 @@ export default function StockDetail() {
               <AuditRow label="Mansfield valid" value={stock.audit.mansfieldValid ? 'Yes' : 'No'} ok={stock.audit.mansfieldValid} />
               <AuditRow label="Sector aligned" value={stock.audit.sectorAligned ? 'Yes' : 'No'} ok={stock.audit.sectorAligned} />
               <AuditRow label="Market aligned" value={stock.audit.marketAligned ? 'Yes' : 'No'} ok={stock.audit.marketAligned} />
+              <AuditRow label="Benchmark context" value={detailData.benchmarkDaily.length > 0 ? 'Renderable' : 'Limited'} ok={detailData.benchmarkDaily.length > 0} />
             </div>
 
             {(stock.blockedReasons.length > 0 || stock.logicViolations.length > 0) && (
