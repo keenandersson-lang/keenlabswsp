@@ -1,4 +1,4 @@
-import type { DiscoveryBuckets, DiscoveryMeta, EvaluatedStock, ScreenerUiState, SectorStatus, TrendBucket } from '@/lib/wsp-types';
+import type { DiscoveryBuckets, DiscoveryMeta, EvaluatedStock, ScreenerUiState, SectorStatus, TrendBucket } from './wsp-types';
 
 export interface SectorHeatCell {
   sector: string;
