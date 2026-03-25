@@ -1,18 +1,19 @@
 import { useMemo } from 'react';
-import type { EvaluatedStock, SectorStatus } from '@/lib/wsp-types';
+import type { EvaluatedStock, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
 import { buildSectorHeatmap, type SectorHeatCell } from '@/lib/discovery';
 import { TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
 
 interface MarketHeatmapProps {
   stocks: EvaluatedStock[];
   sectorStatuses: SectorStatus[];
+  uiState: ScreenerUiState;
   activeSector: string | null;
   onSectorSelect: (sector: string) => void;
   degradedMessage?: string;
 }
 
-export function MarketHeatmap({ stocks, sectorStatuses, activeSector, onSectorSelect, degradedMessage }: MarketHeatmapProps) {
-  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses), [stocks, sectorStatuses]);
+export function MarketHeatmap({ stocks, sectorStatuses, uiState, activeSector, onSectorSelect, degradedMessage }: MarketHeatmapProps) {
+  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses, uiState), [stocks, sectorStatuses, uiState]);
 
   if (sectors.length === 0) {
     return (
@@ -55,9 +56,11 @@ export function MarketHeatmap({ stocks, sectorStatuses, activeSector, onSectorSe
               </div>
               <div className="flex items-end justify-between">
                 <div>
-                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Change</div>
-                  <div className={`font-mono text-sm font-bold ${sector.avgChange >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                    {formatSigned(sector.avgChange)}%
+                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    {sector.valueMode === 'proxy_return' ? 'Proxy' : 'Strength'}
+                  </div>
+                  <div className={`font-mono text-sm font-bold ${sector.displayValue >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                    {sector.valueMode === 'proxy_return' ? `${formatSigned(sector.displayValue)}%` : `S${sector.displayValue.toFixed(1)}`}
                   </div>
                 </div>
                 <div className="text-right">

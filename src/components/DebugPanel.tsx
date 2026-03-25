@@ -181,10 +181,20 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
           <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
             <Stat label="Discovery source" value={discoveryMeta.source} />
             <Stat label="Discovery data state" value={discoveryMeta.dataState} warn={discoveryMeta.dataState !== 'LIVE'} />
+            <Stat label="Trend mode" value={discoveryMeta.trendClassificationMode} warn={discoveryMeta.trendClassificationMode !== 'strict_wsp'} />
+            <Stat label="Sector ranking mode" value={discoveryMeta.ranking.sectorMode} warn={discoveryMeta.ranking.sectorMode !== 'proxy_return'} />
+            <Stat label="Industry ranking mode" value={discoveryMeta.ranking.industryMode} />
             <Stat label="HOT count" value={discoveryMeta.categoryCounts.HOT} />
             <Stat label="BREAKOUT count" value={discoveryMeta.categoryCounts.BREAKOUT} />
             <Stat label="BULLISH count" value={discoveryMeta.categoryCounts.BULLISH} />
             <Stat label="BEARISH count" value={discoveryMeta.categoryCounts.BEARISH} />
+            <Stat label="HOT degraded" value={discoveryMeta.categoryDiagnostics.HOT.degradedQualified} warn={discoveryMeta.categoryDiagnostics.HOT.degradedQualified > 0} />
+            <Stat label="BREAKOUT degraded" value={discoveryMeta.categoryDiagnostics.BREAKOUT.degradedQualified} warn={discoveryMeta.categoryDiagnostics.BREAKOUT.degradedQualified > 0} />
+            <Stat label="BULLISH degraded" value={discoveryMeta.categoryDiagnostics.BULLISH.degradedQualified} warn={discoveryMeta.categoryDiagnostics.BULLISH.degradedQualified > 0} />
+            <Stat label="BEARISH degraded" value={discoveryMeta.categoryDiagnostics.BEARISH.degradedQualified} warn={discoveryMeta.categoryDiagnostics.BEARISH.degradedQualified > 0} />
+            {discoveryMeta.degraded.reasons.length > 0 && (
+              <Stat label="Discovery limits" value={discoveryMeta.degraded.reasons.join(' | ')} warn className="sm:col-span-4" />
+            )}
             <Stat label="Discovery generated" value={discoveryMeta.generatedAt} className="sm:col-span-4" />
           </div>
 

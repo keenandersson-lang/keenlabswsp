@@ -146,14 +146,13 @@ const Index = () => {
             <MarketHeatmap
               stocks={stocks}
               sectorStatuses={sectorStatuses}
+              uiState={providerStatus.uiState}
               activeSector={activeSector}
               degradedMessage={
                 providerStatus.uiState === 'FALLBACK'
-                  ? 'Sector data is demo-only in fallback mode. Connect live provider for real sector analysis.'
+                  ? 'Fallback snapshot: sector values are tracked-universe strength only (not market-wide returns).'
                   : providerStatus.uiState === 'STALE'
-                  ? (providerStatus.debugPipeline?.benchmarkCardsRenderable
-                    ? 'Some sector data may be delayed. Core benchmark context is preserved.'
-                    : 'Stale snapshot quality is insufficient; benchmark context could not be preserved.')
+                  ? 'Stale snapshot: sector tone is constrained and may lag current tape.'
                   : undefined
               }
               onSectorSelect={(sector) => {
@@ -166,6 +165,7 @@ const Index = () => {
               <SectorRanking
                 stocks={stocks}
                 sectorStatuses={sectorStatuses}
+                uiState={providerStatus.uiState}
                 activeSector={activeSector}
                 onSectorSelect={(sector) => { setActiveSector(sector); setActiveIndustry(null); }}
               />
@@ -173,6 +173,7 @@ const Index = () => {
                 stocks={stocks}
                 activeSector={activeSector}
                 activeIndustry={activeIndustry}
+                uiState={providerStatus.uiState}
                 onIndustrySelect={setActiveIndustry}
               />
             </div>
@@ -190,7 +191,7 @@ const Index = () => {
               </div>
             )}
 
-            <TrendsDashboard discovery={discovery} />
+            <TrendsDashboard discovery={discovery} discoveryMeta={discoveryMeta} />
             <PatternSummary stocks={stocks} />
           </div>
         )}
