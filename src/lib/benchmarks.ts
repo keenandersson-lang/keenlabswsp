@@ -17,5 +17,5 @@ export const BENCHMARK_LOOKUP = Object.fromEntries(
 ) as Record<string, BenchmarkMeta>;
 
 export function isBenchmarkSymbol(symbol: string): boolean {
-  return Object.hasOwn(BENCHMARK_LOOKUP, symbol.toUpperCase());
+  return Object.prototype.hasOwnProperty.call(BENCHMARK_LOOKUP, symbol.toUpperCase());
 }

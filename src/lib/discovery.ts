@@ -37,7 +37,7 @@ export function buildSectorHeatmap(stocks: EvaluatedStock[], sectorStatuses: Sec
     const breakoutRatio = ratio(items.filter((s) => s.audit.breakoutValid).length, items.length);
     const strengthScore = Number((avgChange * 0.45 + bullishRatio * 100 * 0.35 + breakoutRatio * 100 * 0.2).toFixed(2));
     const status = statusMap.get(sector);
-    const trendState = strengthScore >= 45 || status?.isBullish ? 'bullish' : strengthScore <= 20 ? 'bearish' : 'neutral';
+    const trendState: 'bullish' | 'neutral' | 'bearish' = strengthScore >= 45 || status?.isBullish ? 'bullish' : strengthScore <= 20 ? 'bearish' : 'neutral';
 
     return {
       sector,

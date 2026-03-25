@@ -1,4 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+// Edge runtime types provided by Deno.serve
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

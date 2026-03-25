@@ -6,7 +6,7 @@ import { AuthModal } from './AuthModal';
 
 interface PremiumScanCTAProps {
   industryName: string;
-  onScanTriggered: () => void;
+  onScanTriggered?: () => void;
   scanning?: boolean;
 }
 
@@ -35,7 +35,7 @@ export function PremiumScanCTA({ industryName, onScanTriggered, scanning }: Prem
         amount: cost,
         description: `Deep scan: ${industryName}`,
       });
-      onScanTriggered();
+      onScanTriggered?.();
     } catch (err: any) {
       setError(err.message);
     }
