@@ -32,7 +32,17 @@ type PipelineStage =
 type FallbackCause = 'necessary' | 'misconfiguration' | 'unknown';
 interface BenchmarkQuality {
   renderable: boolean;
+  pricePresent: boolean;
+  dailyMovePresent: boolean;
   missingSymbols: string[];
+  reason: string;
+}
+
+interface SnapshotQuality {
+  pass: boolean;
+  benchmarkCardsRenderable: boolean;
+  sectorDataPresent: boolean;
+  discoveryDataPresent: boolean;
   reason: string;
 }
 
@@ -44,15 +54,47 @@ function classifyFallbackCause(finalModeReason: string, envVarPresent: boolean, 
 
 function assessBenchmarkQuality(market: MarketOverview): BenchmarkQuality {
   const missingSymbols: string[] = [];
+  const pricePresent = market.sp500Price !== null && market.nasdaqPrice !== null;
+  const dailyMovePresent = Number.isFinite(market.sp500Change) && Number.isFinite(market.nasdaqChange);
   if (market.sp500Price === null || !Number.isFinite(market.sp500Change)) missingSymbols.push(SP500_BENCHMARK.symbol);
   if (market.nasdaqPrice === null || !Number.isFinite(market.nasdaqChange)) missingSymbols.push(NASDAQ_BENCHMARK.symbol);
   const renderable = missingSymbols.length === 0;
   return {
     renderable,
+    pricePresent,
+    dailyMovePresent,
     missingSymbols,
     reason: renderable
       ? 'SPY and QQQ benchmarks are present and renderable.'
       : `Missing benchmark values for ${missingSymbols.join(', ')}.`,
+  };
+}
+
+function assessSnapshotQuality({
+  benchmarkQuality,
+  sectorStatuses,
+  discovery,
+}: {
+  benchmarkQuality: BenchmarkQuality;
+  sectorStatuses: SectorStatus[];
+  discovery: ScreenerApiResponse['discovery'];
+}): SnapshotQuality {
+  const sectorDataPresent = sectorStatuses.some((status) => Number.isFinite(status.changePercent));
+  const discoveryCount = discovery.HOT.length + discovery.BREAKOUT.length + discovery.BULLISH.length + discovery.BEARISH.length;
+  const discoveryDataPresent = discoveryCount > 0;
+  const benchmarkCardsRenderable = benchmarkQuality.renderable;
+  const pass = benchmarkCardsRenderable && sectorDataPresent && discoveryDataPresent;
+  const reasons: string[] = [];
+  if (!benchmarkCardsRenderable) reasons.push(benchmarkQuality.reason);
+  if (!sectorDataPresent) reasons.push('Sector ranking context is missing.');
+  if (!discoveryDataPresent) reasons.push('Discovery buckets are empty.');
+
+  return {
+    pass,
+    benchmarkCardsRenderable,
+    sectorDataPresent,
+    discoveryDataPresent,
+    reason: pass ? 'Stale snapshot passed benchmark + discovery + sector quality gates.' : reasons.join(' '),
   };
 }
 
@@ -252,13 +294,20 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       missingMarketSymbols.length > 0;
 
     const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
-    if (uiState === 'STALE' && !benchmarkQuality.renderable) {
+    const { discovery, discoveryMeta } = buildDiscoverySnapshot(evaluatedStocks, uiState);
+    const snapshotQuality = assessSnapshotQuality({
+      benchmarkQuality,
+      sectorStatuses,
+      discovery,
+    });
+
+    if (uiState === 'STALE' && !snapshotQuality.pass) {
       stage = 'fallback_build';
       return createFallbackResponse(
         'Stale snapshot failed benchmark quality gate.',
         pollingIntervalMs,
         stage,
-        `Rejected stale snapshot: ${benchmarkQuality.reason}`,
+        `Rejected stale snapshot: ${snapshotQuality.reason}`,
         cachedLiveSnapshot !== null,
         benchmarkSuccesses.length,
         benchmarkFailures + benchmarkQuality.missingSymbols.length,
@@ -267,7 +316,6 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       );
     }
     const lastFetch = new Date().toISOString();
-    const { discovery, discoveryMeta } = buildDiscoverySnapshot(evaluatedStocks, uiState);
     const readiness = createReadiness({
       envVarPresent: true,
       routeReachable: true,
@@ -319,8 +367,13 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           staleCacheAvailable: cachedLiveSnapshot !== null,
           fallbackBuild: 'failed',
           benchmarkRenderable: benchmarkQuality.renderable,
+          benchmarkPricePresent: benchmarkQuality.pricePresent,
+          benchmarkDailyMovePresent: benchmarkQuality.dailyMovePresent,
+          benchmarkCardsRenderable: snapshotQuality.benchmarkCardsRenderable,
+          sectorDataPresent: snapshotQuality.sectorDataPresent,
+          discoveryDataPresent: snapshotQuality.discoveryDataPresent,
           staleSnapshotQuality: uiState === 'STALE' ? 'pass' : undefined,
-          staleSnapshotQualityReason: uiState === 'STALE' ? benchmarkQuality.reason : undefined,
+          staleSnapshotQualityReason: uiState === 'STALE' ? snapshotQuality.reason : undefined,
         },
         runtimeDiagnostics: {
           envKeyPresent: true,
@@ -342,6 +395,26 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
     const message = sanitizeClientErrorMessage(error instanceof Error ? error.message : 'Failed to refresh Finnhub data');
 
     if (cachedLiveSnapshot) {
+      const cachedBenchmarkQuality = assessBenchmarkQuality(cachedLiveSnapshot.market);
+      const cachedSnapshotQuality = assessSnapshotQuality({
+        benchmarkQuality: cachedBenchmarkQuality,
+        sectorStatuses: cachedLiveSnapshot.sectorStatuses,
+        discovery: cachedLiveSnapshot.discovery,
+      });
+      if (!cachedSnapshotQuality.pass) {
+        return createFallbackResponse(
+          message,
+          pollingIntervalMs,
+          'fallback_build',
+          `Cached stale snapshot rejected by quality gate. ${cachedSnapshotQuality.reason}`,
+          true,
+          0,
+          2,
+          cachedLiveSnapshot.providerStatus.successCount,
+          cachedLiveSnapshot.providerStatus.failedSymbols.length,
+        );
+      }
+
       return {
         ...cachedLiveSnapshot,
         providerStatus: {
@@ -367,9 +440,14 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
             stockFailureCount: cachedLiveSnapshot.providerStatus.failedSymbols.length,
             staleCacheAvailable: true,
             fallbackBuild: 'failed',
-            benchmarkRenderable: assessBenchmarkQuality(cachedLiveSnapshot.market).renderable,
-            staleSnapshotQuality: assessBenchmarkQuality(cachedLiveSnapshot.market).renderable ? 'pass' : 'fail',
-            staleSnapshotQualityReason: assessBenchmarkQuality(cachedLiveSnapshot.market).reason,
+            benchmarkRenderable: cachedBenchmarkQuality.renderable,
+            benchmarkPricePresent: cachedBenchmarkQuality.pricePresent,
+            benchmarkDailyMovePresent: cachedBenchmarkQuality.dailyMovePresent,
+            benchmarkCardsRenderable: cachedSnapshotQuality.benchmarkCardsRenderable,
+            sectorDataPresent: cachedSnapshotQuality.sectorDataPresent,
+            discoveryDataPresent: cachedSnapshotQuality.discoveryDataPresent,
+            staleSnapshotQuality: cachedSnapshotQuality.pass ? 'pass' : 'fail',
+            staleSnapshotQualityReason: cachedSnapshotQuality.reason,
           },
           runtimeDiagnostics: {
             envKeyPresent: true,
@@ -499,6 +577,20 @@ function createFallbackResponse(
 ): ScreenerApiResponse {
   const safeReason = sanitizeClientErrorMessage(reason, 'Live provider unavailable. Demo mode active.');
   const lastFetch = new Date().toISOString();
+  const fallbackSectorStatuses = Object.keys(WSP_CONFIG.sectorMap).map((sector) => {
+    const sectorStocks = demoStocks.filter((stock) => stock.sector === sector);
+    const bullishCount = sectorStocks.filter((stock) => stock.gate.sectorAligned).length;
+    const avgChange = sectorStocks.length === 0
+      ? 0
+      : Number((sectorStocks.reduce((acc, stock) => acc + stock.changePercent, 0) / sectorStocks.length).toFixed(2));
+    return {
+      sector,
+      isBullish: bullishCount >= Math.ceil(Math.max(1, sectorStocks.length / 2)),
+      changePercent: avgChange,
+      sma50AboveSma200: bullishCount > 0,
+    };
+  });
+
   return {
     market: {
       ...demoMarket,
@@ -513,12 +605,7 @@ function createFallbackResponse(
       dataSource: 'fallback',
     })),
     ...buildDiscoverySnapshot(demoStocks, 'FALLBACK'),
-    sectorStatuses: Object.keys(WSP_CONFIG.sectorMap).map((sector) => ({
-      sector,
-      isBullish: false,
-      changePercent: 0,
-      sma50AboveSma200: false,
-    })),
+    sectorStatuses: fallbackSectorStatuses,
     providerStatus: {
       provider: 'demo',
       isLive: false,
@@ -549,6 +636,12 @@ function createFallbackResponse(
         stockFailureCount,
         staleCacheAvailable,
         fallbackBuild: 'success',
+        benchmarkRenderable: demoMarket.sp500Price !== null && demoMarket.nasdaqPrice !== null,
+        benchmarkPricePresent: demoMarket.sp500Price !== null && demoMarket.nasdaqPrice !== null,
+        benchmarkDailyMovePresent: Number.isFinite(demoMarket.sp500Change) && Number.isFinite(demoMarket.nasdaqChange),
+        benchmarkCardsRenderable: demoMarket.sp500Price !== null && demoMarket.nasdaqPrice !== null,
+        sectorDataPresent: fallbackSectorStatuses.length > 0,
+        discoveryDataPresent: true,
       },
       runtimeDiagnostics: {
         envKeyPresent: Boolean(process.env.FINNHUB_API_KEY),

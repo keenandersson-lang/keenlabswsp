@@ -109,6 +109,41 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
                         warn={!providerStatus.debugPipeline.benchmarkRenderable}
                       />
                     )}
+                    {providerStatus.debugPipeline.benchmarkPricePresent !== undefined && (
+                      <Stat
+                        label="Benchmark price present"
+                        value={providerStatus.debugPipeline.benchmarkPricePresent ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.benchmarkPricePresent}
+                      />
+                    )}
+                    {providerStatus.debugPipeline.benchmarkDailyMovePresent !== undefined && (
+                      <Stat
+                        label="Benchmark move present"
+                        value={providerStatus.debugPipeline.benchmarkDailyMovePresent ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.benchmarkDailyMovePresent}
+                      />
+                    )}
+                    {providerStatus.debugPipeline.benchmarkCardsRenderable !== undefined && (
+                      <Stat
+                        label="Benchmark cards renderable"
+                        value={providerStatus.debugPipeline.benchmarkCardsRenderable ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.benchmarkCardsRenderable}
+                      />
+                    )}
+                    {providerStatus.debugPipeline.sectorDataPresent !== undefined && (
+                      <Stat
+                        label="Sector data present"
+                        value={providerStatus.debugPipeline.sectorDataPresent ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.sectorDataPresent}
+                      />
+                    )}
+                    {providerStatus.debugPipeline.discoveryDataPresent !== undefined && (
+                      <Stat
+                        label="Discovery data present"
+                        value={providerStatus.debugPipeline.discoveryDataPresent ? 'yes' : 'no'}
+                        warn={!providerStatus.debugPipeline.discoveryDataPresent}
+                      />
+                    )}
                     <Stat label="Fallback builder" value={providerStatus.debugPipeline.fallbackBuild} warn={providerStatus.debugPipeline.fallbackBuild !== 'success' && providerStatus.uiState === 'FALLBACK'} />
                     {providerStatus.debugPipeline.staleSnapshotQualityReason && (
                       <Stat label="Stale gate reason" value={providerStatus.debugPipeline.staleSnapshotQualityReason} className="sm:col-span-3" warn={providerStatus.debugPipeline.staleSnapshotQuality === 'fail'} />

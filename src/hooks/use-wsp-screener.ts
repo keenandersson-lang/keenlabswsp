@@ -200,13 +200,25 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   // ERROR / FALLBACK: use demo data
   if (!edgeResp.ok || !edgeResp.data) {
     const uiState: ScreenerUiState = edgeResp.mode === 'FALLBACK' ? 'FALLBACK' : 'ERROR';
+    const fallbackSectorStatuses = Object.keys(WSP_CONFIG.sectorMap).map((sector) => {
+      const sectorStocks = demoStocks.filter((stock) => stock.sector === sector);
+      const bullishCount = sectorStocks.filter((stock) => stock.gate.sectorAligned).length;
+      const avgChange = sectorStocks.length === 0
+        ? 0
+        : Number((sectorStocks.reduce((acc, stock) => acc + stock.changePercent, 0) / sectorStocks.length).toFixed(2));
+      return {
+        sector,
+        isBullish: bullishCount >= Math.ceil(Math.max(1, sectorStocks.length / 2)),
+        changePercent: avgChange,
+        sma50AboveSma200: bullishCount > 0,
+      };
+    });
+
     return {
       market: { ...demoMarket, lastUpdated: now, benchmarkLastUpdated: now, pollingIntervalMs: WSP_CONFIG.refreshInterval },
       stocks: demoStocks.map(s => ({ ...s, lastUpdated: now, dataSource: 'fallback' as const })),
       ...buildDiscoverySnapshot(demoStocks, uiState),
-      sectorStatuses: Object.keys(WSP_CONFIG.sectorMap).map(sector => ({
-        sector, isBullish: false, changePercent: 0, sma50AboveSma200: false,
-      })),
+      sectorStatuses: fallbackSectorStatuses,
       providerStatus: {
         provider: 'demo',
         isLive: false,
@@ -395,9 +407,8 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     const devResp = await safeFetch(devUrl);
     fetchDiagnostics = devResp.diagnostics;
     
-    // If dev server returned a full ScreenerApiResponse (has providerStatus.uiState), use it directly
-    if (devResp.payload.ok || (devResp.payload as any)?.providerStatus?.uiState) {
-      // The dev server returns ScreenerApiResponse directly, not EdgeFunctionResponse
+    // If dev server returned a full ScreenerApiResponse (not wrapped in edge payload), use it directly
+    if (!(devResp.payload as any)?.ok && (devResp.payload as any)?.providerStatus?.uiState) {
       const raw = devResp.payload as any;
       if (raw.market && raw.stocks && raw.providerStatus) {
         return raw as ScreenerApiResponse;

@@ -151,7 +151,9 @@ const Index = () => {
                 providerStatus.uiState === 'FALLBACK'
                   ? 'Sector data is demo-only in fallback mode. Connect live provider for real sector analysis.'
                   : providerStatus.uiState === 'STALE'
-                  ? 'Some sector data may be delayed. Core benchmark context is preserved.'
+                  ? (providerStatus.debugPipeline?.benchmarkCardsRenderable
+                    ? 'Some sector data may be delayed. Core benchmark context is preserved.'
+                    : 'Stale snapshot quality is insufficient; benchmark context could not be preserved.')
                   : undefined
               }
               onSectorSelect={(sector) => {
