@@ -339,6 +339,11 @@ export interface ProviderStatus {
     staleCacheAvailable: boolean;
     fallbackBuild: 'success' | 'failed';
     benchmarkRenderable?: boolean;
+    benchmarkPricePresent?: boolean;
+    benchmarkDailyMovePresent?: boolean;
+    benchmarkCardsRenderable?: boolean;
+    sectorDataPresent?: boolean;
+    discoveryDataPresent?: boolean;
     staleSnapshotQuality?: 'pass' | 'fail';
     staleSnapshotQualityReason?: string;
   };
