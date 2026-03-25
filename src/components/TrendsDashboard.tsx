@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { DiscoveryBuckets, TrendBucket } from '@/lib/wsp-types';
+import type { DiscoveryBuckets, DiscoveryMeta, TrendBucket } from '@/lib/wsp-types';
 import { Flame, Zap, TrendingUp, TrendingDown } from 'lucide-react';
 
 const TABS: { id: TrendBucket; label: string; icon: typeof Flame; desc: string }[] = [
@@ -10,7 +10,7 @@ const TABS: { id: TrendBucket; label: string; icon: typeof Flame; desc: string }
   { id: 'BEARISH', label: 'Bearish', icon: TrendingDown, desc: 'Weakening or declining setups' },
 ];
 
-export function TrendsDashboard({ discovery }: { discovery: DiscoveryBuckets }) {
+export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: DiscoveryBuckets; discoveryMeta?: DiscoveryMeta }) {
   const [active, setActive] = useState<TrendBucket>('HOT');
   const visible = discovery[active] ?? [];
   const activeTab = TABS.find(t => t.id === active)!;
@@ -19,7 +19,9 @@ export function TrendsDashboard({ discovery }: { discovery: DiscoveryBuckets }) 
     <section className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Trend Streams</h3>
-        <span className="text-[10px] text-muted-foreground">WSP opportunity classification</span>
+        <span className="text-[10px] text-muted-foreground">
+          {discoveryMeta?.trendClassificationMode === 'degraded_snapshot' ? 'Constrained snapshot classification' : 'Strict WSP opportunity classification'}
+        </span>
       </div>
 
       {/* Tab bar */}

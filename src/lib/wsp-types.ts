@@ -7,6 +7,8 @@ export type WSPPattern = 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL';
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
 export type TrendBucket = 'HOT' | 'BREAKOUT' | 'BULLISH' | 'BEARISH';
+export type TrendClassificationMode = 'strict_wsp' | 'degraded_snapshot';
+export type RankValueMode = 'proxy_return' | 'tracked_strength';
 
 export type WSPBlockedReason =
   | 'below_50ma'
@@ -286,7 +288,23 @@ export interface MarketOverview {
 export interface DiscoveryMeta {
   source: 'backend_wsp_engine';
   dataState: ScreenerUiState;
+  trendClassificationMode: TrendClassificationMode;
+  ranking: {
+    sectorMode: RankValueMode;
+    industryMode: RankValueMode;
+    sectorValueLabel: string;
+    industryValueLabel: string;
+    usesProxyReturns: boolean;
+  };
+  degraded: {
+    snapshotLimited: boolean;
+    reasons: string[];
+  };
   categoryCounts: Record<TrendBucket, number>;
+  categoryDiagnostics: Record<TrendBucket, {
+    strictQualified: number;
+    degradedQualified: number;
+  }>;
   generatedAt: string;
 }
 

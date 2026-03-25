@@ -1,17 +1,18 @@
 import { useMemo } from 'react';
-import type { EvaluatedStock, SectorStatus } from '@/lib/wsp-types';
+import type { EvaluatedStock, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
 import { buildSectorHeatmap } from '@/lib/discovery';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface SectorRankingProps {
   stocks: EvaluatedStock[];
   sectorStatuses?: SectorStatus[];
+  uiState: ScreenerUiState;
   activeSector: string | null;
   onSectorSelect: (sector: string) => void;
 }
 
-export function SectorRanking({ stocks, sectorStatuses, activeSector, onSectorSelect }: SectorRankingProps) {
-  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses ?? []), [stocks, sectorStatuses]);
+export function SectorRanking({ stocks, sectorStatuses, uiState, activeSector, onSectorSelect }: SectorRankingProps) {
+  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses ?? [], uiState), [stocks, sectorStatuses, uiState]);
 
   return (
     <div>
@@ -45,10 +46,12 @@ export function SectorRanking({ stocks, sectorStatuses, activeSector, onSectorSe
                 </div>
               </div>
               <div className="text-right">
-                <div className={`font-mono text-xs font-semibold ${sector.avgChange >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                  {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
+                <div className={`font-mono text-xs font-semibold ${sector.displayValue >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                  {sector.valueMode === 'proxy_return'
+                    ? `${sector.displayValue >= 0 ? '+' : ''}${sector.displayValue.toFixed(2)}%`
+                    : `S${sector.displayValue.toFixed(1)}`}
                 </div>
-                <div className="text-[10px] text-muted-foreground">score {sector.strengthScore.toFixed(1)}</div>
+                <div className="text-[10px] text-muted-foreground">{sector.valueLabel}</div>
               </div>
             </button>
           );

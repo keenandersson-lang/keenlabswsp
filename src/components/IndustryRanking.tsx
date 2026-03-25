@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import type { EvaluatedStock } from '@/lib/wsp-types';
+import type { EvaluatedStock, ScreenerUiState } from '@/lib/wsp-types';
 import { buildIndustryHeatmap } from '@/lib/discovery';
 import { PremiumScanCTA } from './PremiumScanCTA';
 import { ChevronRight, Zap } from 'lucide-react';
@@ -9,11 +9,12 @@ interface IndustryRankingProps {
   stocks: EvaluatedStock[];
   activeSector: string | null;
   activeIndustry: string | null;
+  uiState: ScreenerUiState;
   onIndustrySelect: (industry: string) => void;
 }
 
-export function IndustryRanking({ stocks, activeSector, activeIndustry, onIndustrySelect }: IndustryRankingProps) {
-  const industries = useMemo(() => activeSector ? buildIndustryHeatmap(stocks, activeSector) : [], [stocks, activeSector]);
+export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState, onIndustrySelect }: IndustryRankingProps) {
+  const industries = useMemo(() => activeSector ? buildIndustryHeatmap(stocks, activeSector, uiState) : [], [stocks, activeSector, uiState]);
 
   if (!activeSector) {
     return (
@@ -50,10 +51,10 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, onIndust
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className={`font-mono text-xs font-semibold ${industry.avgChange >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                    {industry.avgChange >= 0 ? '+' : ''}{industry.avgChange.toFixed(2)}%
+                  <div className="font-mono text-xs font-semibold text-foreground">
+                    S{industry.displayValue.toFixed(1)}
                   </div>
-                  <div className="text-[10px] text-muted-foreground">str. {industry.strengthScore.toFixed(1)}</div>
+                  <div className="text-[10px] text-muted-foreground">{industry.valueLabel}</div>
                 </div>
               </div>
             </button>
