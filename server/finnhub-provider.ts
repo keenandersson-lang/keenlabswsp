@@ -1,5 +1,6 @@
 import { WSP_CONFIG } from '../src/lib/wsp-config';
 import type { Bar } from '../src/lib/wsp-types';
+import type { LatestQuoteMap } from './alpaca-provider';
 
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const HISTORY_CALENDAR_DAYS = 550;
@@ -14,12 +15,19 @@ interface FinnhubCandleResponse {
   v: number[];
 }
 
+interface FinnhubQuoteResponse {
+  c: number;
+  t: number;
+}
+
 export interface ProviderFetchResult {
   bars: Bar[];
   stale: boolean;
 }
 
 export class FinnhubProvider {
+  readonly providerName = 'finnhub' as const;
+
   constructor(private readonly apiKey: string) {}
 
   async fetchDailyHistory(symbol: string): Promise<ProviderFetchResult> {
@@ -44,6 +52,33 @@ export class FinnhubProvider {
     const stale = isDateStale(lastBarDate);
 
     return { bars, stale };
+  }
+
+  async fetchLatestQuotes(symbols: string[]): Promise<LatestQuoteMap> {
+    const dedupedSymbols = [...new Set(symbols.map((item) => item.trim().toUpperCase()).filter(Boolean))];
+    const responses = await Promise.allSettled(dedupedSymbols.map(async (symbol) => {
+      const payload = await this.request<FinnhubQuoteResponse>(`/quote?symbol=${encodeURIComponent(symbol)}`);
+      return {
+        symbol,
+        price: Number.isFinite(payload.c) ? payload.c : null,
+        asOf: Number.isFinite(payload.t) ? new Date(payload.t * 1000).toISOString() : null,
+        stale: !Number.isFinite(payload.t) || Date.now() - (payload.t * 1000) > 10 * 60 * 1000,
+      };
+    }));
+
+    return Object.fromEntries(dedupedSymbols.map((symbol, idx) => {
+      const settled = responses[idx];
+      if (settled.status === 'fulfilled') {
+        return [symbol, settled.value];
+      }
+
+      return [symbol, {
+        symbol,
+        price: null,
+        asOf: null,
+        stale: true,
+      }];
+    }));
   }
 
   private async request<T>(path: string): Promise<T> {

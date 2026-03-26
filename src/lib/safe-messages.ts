@@ -1,5 +1,7 @@
 const SECRET_PATTERNS: RegExp[] = [
   /FINNHUB_API_KEY/gi,
+  /ALPACA_API_KEY_ID/gi,
+  /ALPACA_API_SECRET_KEY/gi,
   /token\s*=\s*[^\s&]+/gi,
   /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._-]+/gi,
   /apikey\s*[=:]\s*[A-Za-z0-9._-]+/gi,
