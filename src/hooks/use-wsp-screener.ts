@@ -54,6 +54,8 @@ interface EdgeFunctionResponse {
     fallbackCause?: 'necessary' | 'misconfiguration' | 'unknown' | 'none';
     benchmarkSuccessCount?: number;
     benchmarkFailureCount?: number;
+    cacheInvalidated?: boolean;
+    activeProvider?: string;
   };
   market?: MarketOverview;
   stocks?: EvaluatedStock[];
