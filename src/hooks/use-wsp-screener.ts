@@ -10,6 +10,17 @@ import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { buildDiscoverySnapshot } from '@/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '@/lib/benchmarks';
 
+interface QuoteData {
+  price: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+  open: number;
+  prevClose: number;
+  timestamp: number;
+}
+
 interface EdgeFunctionResponse {
   ok: boolean;
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
@@ -23,21 +34,24 @@ interface EdgeFunctionResponse {
     sectorMap: Record<string, string[]>;
     marketRegimeSymbols: string[];
   } | null;
+  quotes?: Record<string, QuoteData>;
   error: { code: string; message: string; failedSymbols?: string[] } | null;
   providerStatus: {
     provider: string;
     isLive: boolean;
     apiKeyPresent: boolean;
     apiKeyValid?: boolean;
+    hasCandleAccess?: boolean;
     symbolsFetched?: number;
     symbolsFailed?: number;
     totalSymbols?: number;
+    quotesAvailable?: number;
     fetchedAt?: string;
     cachedSymbols?: number;
     routeVersion?: string;
     buildMarker?: string;
     finalModeReason?: string;
-    fallbackCause?: 'necessary' | 'misconfiguration' | 'unknown';
+    fallbackCause?: 'necessary' | 'misconfiguration' | 'unknown' | 'none';
     benchmarkSuccessCount?: number;
     benchmarkFailureCount?: number;
   };
