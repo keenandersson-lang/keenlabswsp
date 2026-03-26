@@ -16,43 +16,43 @@ export function SectorRanking({ stocks, sectorStatuses, uiState, activeSector, o
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Sector Ranking</h2>
-        <span className="text-[10px] text-muted-foreground">{uiState === 'FALLBACK' ? 'Tracked strength ranked' : 'Proxy/strength ranked'}</span>
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">SECTOR RANKING</h2>
+        <span className="text-[8px] font-mono text-muted-foreground">{uiState === 'FALLBACK' ? 'TRACKED STR' : 'PROXY/STR'}</span>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {sectors.map((sector, idx) => {
           const active = activeSector === sector.sector;
           const trendIcon = sector.trendState === 'bullish'
-            ? <TrendingUp className="h-3 w-3 text-signal-buy" />
+            ? <TrendingUp className="h-2.5 w-2.5 text-signal-buy" />
             : sector.trendState === 'bearish'
-            ? <TrendingDown className="h-3 w-3 text-signal-sell" />
-            : <Minus className="h-3 w-3 text-signal-caution" />;
+            ? <TrendingDown className="h-2.5 w-2.5 text-signal-sell" />
+            : <Minus className="h-2.5 w-2.5 text-signal-caution" />;
 
           return (
             <button
               key={sector.sector}
               onClick={() => onSectorSelect(sector.sector)}
-              className={`flex w-full items-center justify-between rounded-lg border p-3 text-left transition-all ${active ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-primary/20'}`}
+              className={`flex w-full items-center justify-between rounded border p-2.5 text-left transition-all ${active ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-primary/20'}`}
             >
-              <div className="flex items-center gap-3">
-                <span className="flex h-6 w-6 items-center justify-center rounded bg-muted text-[10px] font-bold text-muted-foreground">{idx + 1}</span>
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-5 w-5 items-center justify-center rounded bg-muted text-[9px] font-mono font-bold text-muted-foreground">{idx + 1}</span>
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-foreground">{sector.sector}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-mono font-semibold text-foreground">{sector.sector}</span>
                     {trendIcon}
                   </div>
-                  <div className="text-[10px] text-muted-foreground">{sector.industries.length} industries · {sector.stocks.length} stocks</div>
+                  <div className="text-[8px] font-mono text-muted-foreground">{sector.industries.length} ind · {sector.stocks.length} stk</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className={`font-mono text-xs font-semibold ${sector.displayValue >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                <div className={`font-mono text-[11px] font-bold ${sector.displayValue >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
                   {sector.valueMode === 'proxy_return'
                     ? `${sector.displayValue >= 0 ? '+' : ''}${sector.displayValue.toFixed(2)}%`
                     : `S${sector.displayValue.toFixed(1)}`}
                 </div>
-                <div className="text-[10px] text-muted-foreground">{sector.valueLabel}</div>
-                {sector.confidence !== 'high' && <div className="text-[10px] text-signal-caution">Limited sample confidence</div>}
+                <div className="text-[8px] font-mono text-muted-foreground">{sector.valueLabel}</div>
+                {sector.confidence !== 'high' && <div className="text-[8px] font-mono text-signal-caution">Limited</div>}
               </div>
             </button>
           );

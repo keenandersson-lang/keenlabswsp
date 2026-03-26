@@ -8,6 +8,8 @@ export const WSP_CONFIG = {
     'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'TSLA', 'GOOGL',
     'JPM', 'XOM', 'LLY', 'UNH', 'CAT', 'BA', 'AVGO', 'V',
     'AMD', 'NFLX', 'CRM', 'COST', 'HD',
+    // Metals & Mining
+    'GLD', 'SLV', 'COPX', 'GDX', 'NEM', 'FCX', 'PPLT',
   ],
 
   benchmark: 'SPY',
@@ -25,6 +27,7 @@ export const WSP_CONFIG = {
     Materials: ['XLB'],
     'Real Estate': ['XLRE'],
     Utilities: ['XLU'],
+    'Metals & Mining': ['GDX'],
   } as Record<string, string[]>,
 
   symbolSectorMap: {
@@ -35,6 +38,8 @@ export const WSP_CONFIG = {
     XOM: 'Energy',
     LLY: 'Healthcare', UNH: 'Healthcare',
     CAT: 'Industrials', BA: 'Industrials',
+    GLD: 'Metals & Mining', SLV: 'Metals & Mining', COPX: 'Metals & Mining', GDX: 'Metals & Mining',
+    NEM: 'Metals & Mining', FCX: 'Metals & Mining', PPLT: 'Metals & Mining',
   } as Record<string, string>,
 
   refreshInterval: 5 * 60 * 1000,

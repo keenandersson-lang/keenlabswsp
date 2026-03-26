@@ -6,13 +6,14 @@ import { StockChartModule } from '@/components/StockChartModule';
 import type { ChartTimeframe } from '@/lib/chart-types';
 import { barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
 import { evaluateStock } from '@/lib/wsp-engine';
-import { ArrowLeft, AlertTriangle, Shield, BarChart3 } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Shield, BarChart3, TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle } from 'lucide-react';
 import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { PatternBadge } from '@/components/PatternBadge';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { isBenchmarkSymbol } from '@/lib/benchmarks';
 import { deriveStockTrustContext } from '@/lib/discovery';
+import { TRACKED_SYMBOL_LOOKUP } from '@/lib/tracked-symbols';
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
@@ -25,6 +26,8 @@ export default function StockDetail() {
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === symbol?.toUpperCase());
   const requestedSymbol = symbol?.toUpperCase() ?? '';
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
+  const symbolMeta = TRACKED_SYMBOL_LOOKUP[requestedSymbol];
+  const isMetals = symbolMeta?.assetClass === 'metals';
 
   const detailData = detailQuery.data?.data;
   const discoveryMeta = screenerQuery.data?.discoveryMeta;
@@ -60,37 +63,34 @@ export default function StockDetail() {
     );
   }, [detailData, isBenchmark]);
 
-  // Loading state
   if (screenerQuery.isLoading || detailQuery.isLoading) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back</Link>
+        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3 w-3" /> BACK</Link>
         <div className="flex items-center gap-3 mt-8">
-          <BarChart3 className="h-5 w-5 text-primary animate-pulse" />
-          <span className="text-sm text-muted-foreground">Loading analysis for {requestedSymbol}...</span>
+          <BarChart3 className="h-4 w-4 text-primary animate-pulse" />
+          <span className="text-xs text-muted-foreground font-mono">Loading {requestedSymbol}...</span>
         </div>
       </div>
     );
   }
 
-  // Not found
   if (!liveStock && !isBenchmark) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back</Link>
-        <div className="mt-8 rounded-lg border border-signal-sell/20 bg-signal-sell/5 p-4 text-sm text-signal-sell">
-          <strong>{requestedSymbol}</strong> is not in the current tracked universe.
+        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3 w-3" /> BACK</Link>
+        <div className="mt-8 rounded border border-signal-sell/20 bg-signal-sell/5 p-4 text-xs text-signal-sell font-mono">
+          {requestedSymbol} is not in the tracked universe.
         </div>
       </div>
     );
   }
 
-  // Chart data error
   if (!detailQuery.data?.ok || !detailData) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back</Link>
-        <div className="mt-8 rounded-lg border border-signal-sell/20 bg-signal-sell/5 p-4 text-sm text-signal-sell">
+        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3 w-3" /> BACK</Link>
+        <div className="mt-8 rounded border border-signal-sell/20 bg-signal-sell/5 p-4 text-xs text-signal-sell font-mono">
           Chart data unavailable: {sanitizeClientErrorMessage(detailQuery.data?.error?.message)}
         </div>
       </div>
@@ -101,39 +101,38 @@ export default function StockDetail() {
   if (!stock) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Back</Link>
-        <div className="mt-8 text-sm text-muted-foreground">Could not build analysis from available data.</div>
+        <Link to="/" className="mb-4 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3 w-3" /> BACK</Link>
+        <div className="mt-8 text-xs text-muted-foreground font-mono">Could not build analysis from available data.</div>
       </div>
     );
   }
 
   const trustContext = stock ? deriveStockTrustContext(stock, discoveryMeta?.dataState ?? screenerQuery.data?.providerStatus.uiState ?? 'LIVE') : null;
-  const discoverySourceLabel = discoveryMeta?.dataState === 'FALLBACK'
-    ? 'Tracked-universe fallback snapshot'
-    : discoveryMeta?.dataState === 'STALE'
-      ? 'Tracked-universe stale snapshot'
-      : 'Tracked-universe live snapshot';
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
+      <main className="mx-auto max-w-7xl space-y-3 px-4 py-4">
         {/* Header */}
         <div>
-          <Link to="/" className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft className="h-3.5 w-3.5" /> Back to Screener</Link>
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <Link to="/" className="mb-2 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft className="h-3 w-3" /> BACK TO SCREENER</Link>
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">{stock.symbol} <span className="text-lg text-muted-foreground font-normal">{stock.name}</span></h1>
-              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight text-foreground font-mono">{stock.symbol}</h1>
+                <span className="text-sm text-muted-foreground">{stock.name}</span>
+                {isMetals && <span className="rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[8px] font-mono text-accent">METAL</span>}
+              </div>
+              <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
                 <span>{stock.sector}</span>
                 <span className="text-border">·</span>
                 <span>{stock.industry}</span>
               </div>
             </div>
             <div className="text-right space-y-1">
-              <div className="text-2xl font-bold font-mono text-foreground">
+              <div className="text-xl font-bold font-mono text-foreground">
                 ${stock.price.toFixed(2)}
-                <span className={`ml-2 text-base ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                <span className={`ml-2 text-sm ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
                   {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
                 </span>
               </div>
@@ -144,6 +143,13 @@ export default function StockDetail() {
             </div>
           </div>
         </div>
+
+        {/* Metals disclaimer */}
+        {isMetals && (
+          <div className="rounded border border-signal-caution/20 bg-signal-caution/5 px-3 py-2 text-[10px] font-mono text-signal-caution">
+            ⚠ Metals analysis uses daily-close WSP indicators. Sector/industry alignment context is limited for non-equity instruments.
+          </div>
+        )}
 
         {/* Chart */}
         <StockChartModule
@@ -162,69 +168,83 @@ export default function StockDetail() {
         />
 
         {/* Analysis panels */}
-        <section className="grid gap-4 lg:grid-cols-2">
-          {/* Opportunity summary */}
-          <div className="rounded-xl border border-border bg-card p-5">
+        <section className="grid gap-3 lg:grid-cols-2">
+          {/* Decision summary */}
+          <div className="rounded border border-border bg-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Shield className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-bold text-foreground">Opportunity Summary</h2>
+              <Shield className="h-3.5 w-3.5 text-primary" />
+              <h2 className="text-[11px] font-bold text-foreground font-mono tracking-wider">DECISION SUMMARY</h2>
             </div>
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {trustContext && (
-                <>
-                  <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Trend bucket: {trustContext.bucket}</span>
-                  <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">{discoverySourceLabel}</span>
-                  {trustContext.degradedQualified && <span className="rounded border border-signal-caution/30 bg-signal-caution/10 px-2 py-0.5 text-[10px] text-signal-caution">Degraded classification</span>}
-                  {trustContext.withinTrackedUniverse && <span className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground">Scope: tracked universe only</span>}
-                </>
-              )}
+
+            {/* Quick verdict */}
+            <div className={`rounded border p-3 mb-3 ${stock.finalRecommendation === 'KÖP' ? 'border-signal-buy/30 bg-signal-buy/5' : stock.finalRecommendation === 'BEVAKA' ? 'border-accent/30 bg-accent/5' : 'border-signal-sell/20 bg-signal-sell/5'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                {stock.finalRecommendation === 'KÖP' ? <CheckCircle2 className="h-3.5 w-3.5 text-signal-buy" /> : stock.finalRecommendation === 'BEVAKA' ? <Minus className="h-3.5 w-3.5 text-accent" /> : <XCircle className="h-3.5 w-3.5 text-signal-sell" />}
+                <span className="text-xs font-mono font-bold">{stock.finalRecommendation === 'KÖP' ? 'VALID WSP ENTRY' : stock.finalRecommendation === 'BEVAKA' ? 'WATCH — NOT YET QUALIFIED' : stock.finalRecommendation === 'SÄLJ' ? 'SELL SIGNAL' : 'AVOID'}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {stock.finalRecommendation === 'KÖP'
+                  ? 'All strict WSP gates pass. Pattern, entry filter, and recommendation are aligned.'
+                  : stock.finalRecommendation === 'BEVAKA'
+                  ? `${stock.blockedReasons.length} gate(s) unresolved. Wait for confirmation before entry.`
+                  : `${stock.blockedReasons.length} blocker(s) active. Review before action.`}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-              {stock.finalRecommendation === 'KÖP'
-                ? 'Current snapshot passes strict WSP entry gate for this symbol (pattern, entry filter, and recommendation are aligned).'
-                : stock.finalRecommendation === 'BEVAKA'
-                ? 'Constructive setup, but one or more strict gates remain unresolved. Wait for gate-level confirmation before treating as qualified.'
-                : 'Setup is blocked by one or more strict WSP filters in the current snapshot. Review blockers before taking action.'}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
+
+            {/* What needs to change */}
+            {stock.blockedReasons.length > 0 && stock.finalRecommendation !== 'KÖP' && (
+              <div className="mb-3">
+                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-1.5">TO BECOME VALID ENTRY:</div>
+                <ul className="space-y-0.5">
+                  {stock.blockedReasons.map((reason) => (
+                    <li key={reason} className="flex items-start gap-1.5 text-[10px] font-mono text-signal-caution">
+                      <XCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                      {formatBlockedReason(reason)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-1.5">
               <InfoCell label="Resistance" value={stock.audit.resistanceLevel?.toFixed(2) ?? '—'} />
-              <InfoCell label="Breakout Level" value={stock.audit.breakoutLevel?.toFixed(2) ?? '—'} />
-              <InfoCell label="Support (SMA50)" value={stock.audit.sma50?.toFixed(2) ?? '—'} />
-              <InfoCell label="Mansfield RS" value={stock.audit.mansfieldValue?.toFixed(2) ?? '—'} />
-              <InfoCell label="Volume Multiple" value={stock.audit.volumeMultiple?.toFixed(2) ?? '—'} />
-              <InfoCell label="Score" value={`${stock.score} / ${stock.maxScore}`} />
+              <InfoCell label="Breakout" value={stock.audit.breakoutLevel?.toFixed(2) ?? '—'} />
+              <InfoCell label="SMA50" value={stock.audit.sma50?.toFixed(2) ?? '—'} />
+              <InfoCell label="SMA150" value={stock.audit.sma150?.toFixed(2) ?? '—'} />
+              <InfoCell label="SMA200" value={stock.audit.sma200?.toFixed(2) ?? '—'} />
+              <InfoCell label="Mansfield" value={stock.audit.mansfieldValue?.toFixed(2) ?? '—'} />
+              <InfoCell label="Vol Multiple" value={stock.audit.volumeMultiple?.toFixed(2) ?? '—'} />
+              <InfoCell label="Score" value={`${stock.score}/${stock.maxScore}`} />
             </div>
           </div>
 
-          {/* WSP Audit context */}
-          <div className="rounded-xl border border-border bg-card p-5">
+          {/* WSP Audit */}
+          <div className="rounded border border-border bg-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <BarChart3 className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-bold text-foreground">WSP Audit Context</h2>
+              <BarChart3 className="h-3.5 w-3.5 text-primary" />
+              <h2 className="text-[11px] font-bold text-foreground font-mono tracking-wider">WSP AUDIT</h2>
             </div>
-            <div className="space-y-1.5 text-xs">
+            <div className="space-y-0.5 text-[10px] font-mono">
               <AuditRow label="Data context" value={contextState} ok={contextState === 'LIVE'} />
-              <AuditRow label="Discovery scope" value="Tracked universe" />
-              <AuditRow label="Pattern state" value={stock.pattern} />
-              <AuditRow label="Trend (SMA50)" value={stock.audit.sma50SlopeDirection} />
-              <AuditRow label="Above 50MA" value={stock.audit.above50MA ? 'Yes' : 'No'} ok={stock.audit.above50MA} />
-              <AuditRow label="Above 150MA" value={stock.audit.above150MA ? 'Yes' : 'No'} ok={stock.audit.above150MA} />
-              <AuditRow label="Breakout quality" value={stock.audit.breakoutQualityPass ? 'Pass' : 'Blocked'} ok={stock.audit.breakoutQualityPass} />
-              <AuditRow label="Mansfield valid" value={stock.audit.mansfieldValid ? 'Yes' : 'No'} ok={stock.audit.mansfieldValid} />
-              <AuditRow label="Sector aligned" value={stock.audit.sectorAligned ? 'Yes' : 'No'} ok={stock.audit.sectorAligned} />
-              <AuditRow label="Market aligned" value={stock.audit.marketAligned ? 'Yes' : 'No'} ok={stock.audit.marketAligned} />
-              <AuditRow label="Benchmark context" value={detailData.benchmarkDaily.length > 0 ? 'Renderable' : 'Limited'} ok={detailData.benchmarkDaily.length > 0} />
+              <AuditRow label="Pattern" value={stock.pattern} />
+              <AuditRow label="SMA50 slope" value={stock.audit.sma50SlopeDirection} ok={stock.audit.slope50Positive} />
+              <AuditRow label="Above 50MA" value={stock.audit.above50MA ? 'YES' : 'NO'} ok={stock.audit.above50MA} />
+              <AuditRow label="Above 150MA" value={stock.audit.above150MA ? 'YES' : 'NO'} ok={stock.audit.above150MA} />
+              <AuditRow label="Breakout valid" value={stock.audit.breakoutValid ? 'YES' : 'NO'} ok={stock.audit.breakoutValid} />
+              <AuditRow label="Breakout quality" value={stock.audit.breakoutQualityPass ? 'PASS' : 'FAIL'} ok={stock.audit.breakoutQualityPass} />
+              <AuditRow label="Volume sufficient" value={stock.audit.volumeValid ? 'YES' : 'NO'} ok={stock.audit.volumeValid} />
+              <AuditRow label="Mansfield valid" value={stock.audit.mansfieldValid ? 'YES' : 'NO'} ok={stock.audit.mansfieldValid} />
+              <AuditRow label="Sector aligned" value={stock.audit.sectorAligned ? 'YES' : 'NO'} ok={stock.audit.sectorAligned} />
+              <AuditRow label="Market aligned" value={stock.audit.marketAligned ? 'YES' : 'NO'} ok={stock.audit.marketAligned} />
+              <AuditRow label="Breakout age" value={stock.audit.breakoutAgeBars !== null ? `${stock.audit.breakoutAgeBars} bars` : '—'} ok={stock.audit.breakoutAgeBars !== null && !stock.audit.breakoutStale} />
+              <AuditRow label="Gate overall" value={stock.gate.isValidWspEntry ? 'PASS' : 'FAIL'} ok={stock.gate.isValidWspEntry} />
             </div>
 
-            {(stock.blockedReasons.length > 0 || stock.logicViolations.length > 0) && (
-              <div className="mt-4 rounded-lg border border-signal-caution/30 bg-signal-caution/5 p-3">
-                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-signal-caution">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Blocked Reasons
-                </div>
-                <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-muted-foreground">
-                  {stock.blockedReasons.map((reason) => <li key={reason}>{formatBlockedReason(reason)}</li>)}
-                  {stock.logicViolations.map((v) => <li key={`lv-${v}`} className="text-signal-sell">Logic violation: {formatBlockedReason(v)}</li>)}
+            {stock.logicViolations.length > 0 && (
+              <div className="mt-3 rounded border border-signal-sell/30 bg-signal-sell/5 p-2">
+                <div className="text-[9px] font-mono font-bold text-signal-sell mb-1">LOGIC VIOLATIONS</div>
+                <ul className="space-y-0.5">
+                  {stock.logicViolations.map((v) => <li key={v} className="text-[9px] font-mono text-signal-sell">{formatBlockedReason(v)}</li>)}
                 </ul>
               </div>
             )}
@@ -237,18 +257,18 @@ export default function StockDetail() {
 
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-background px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="font-mono text-xs font-semibold text-foreground mt-0.5">{value}</div>
+    <div className="rounded border border-border bg-background px-2.5 py-1.5">
+      <div className="text-[8px] uppercase tracking-widest text-muted-foreground font-mono">{label}</div>
+      <div className="font-mono text-[11px] font-semibold text-foreground mt-0.5">{value}</div>
     </div>
   );
 }
 
 function AuditRow({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
+    <div className="flex items-center justify-between py-0.5 border-b border-border/30 last:border-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`font-medium ${ok === true ? 'text-signal-buy' : ok === false ? 'text-signal-sell' : 'text-foreground'}`}>{value}</span>
+      <span className={`font-semibold ${ok === true ? 'text-signal-buy' : ok === false ? 'text-signal-sell' : 'text-foreground'}`}>{value}</span>
     </div>
   );
 }

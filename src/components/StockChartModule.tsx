@@ -27,6 +27,25 @@ interface StockChartModuleProps {
 
 const TIMEFRAMES: ChartTimeframe[] = ['1D', '1W', '1M', '3M', '6M', '1Y', '2Y'];
 
+const SMA_COLORS = {
+  sma20: '#22d3ee',
+  sma50: '#10b981',
+  sma150: '#f59e0b',
+  sma200: '#a855f7',
+} as const;
+
+function computeBollingerBands(bars: PriceBar[], period: number = 20, multiplier: number = 2): { upper: number | null; lower: number | null; middle: number | null }[] {
+  return bars.map((_, index, array) => {
+    const slice = array.slice(0, index + 1);
+    if (slice.length < period) return { upper: null, lower: null, middle: null };
+    const window = slice.slice(-period);
+    const mean = window.reduce((sum, b) => sum + b.close, 0) / period;
+    const variance = window.reduce((sum, b) => sum + Math.pow(b.close - mean, 2), 0) / period;
+    const std = Math.sqrt(variance);
+    return { upper: mean + multiplier * std, lower: mean - multiplier * std, middle: mean };
+  });
+}
+
 export const StockChartModule = memo(function StockChartModule({
   stock,
   dailyBars,
@@ -41,6 +60,8 @@ export const StockChartModule = memo(function StockChartModule({
   onAsOfIndexChange,
   dataState = 'LIVE',
 }: StockChartModuleProps) {
+  const [showBollinger, setShowBollinger] = useState(false);
+
   const { bars, cadence } = useMemo(() => barsForTimeframe(timeframe, dailyBars, weeklyBars), [timeframe, dailyBars, weeklyBars]);
   const benchmarkBars = barsForTimeframe(timeframe, dailyBenchmark, weeklyBenchmark).bars;
 
@@ -59,6 +80,7 @@ export const StockChartModule = memo(function StockChartModule({
   const chartData = useMemo(() => {
     const rsi = new Map(computeRsiSeries(visibleBars).map((item) => [item.date, item.value]));
     const mansfield = new Map(computeMansfieldSeries(visibleBars, benchmarkBars).map((item) => [item.date, item.value]));
+    const bbands = showBollinger ? computeBollingerBands(zoomedBars) : null;
 
     return zoomedBars.map((bar, index, array) => {
       const localSeries = array.slice(0, index + 1);
@@ -71,9 +93,11 @@ export const StockChartModule = memo(function StockChartModule({
         sma200: sma(localSeries, 200),
         rsi: rsi.get(bar.date) ?? null,
         mansfield: mansfield.get(bar.date) ?? null,
+        bbUpper: bbands?.[index]?.upper ?? null,
+        bbLower: bbands?.[index]?.lower ?? null,
       };
     });
-  }, [zoomedBars, visibleBars, benchmarkBars]);
+  }, [zoomedBars, visibleBars, benchmarkBars, showBollinger]);
 
   const hasMansfieldData = chartData.some((entry) => typeof entry.mansfield === 'number' && Number.isFinite(entry.mansfield));
 
@@ -82,40 +106,71 @@ export const StockChartModule = memo(function StockChartModule({
     : null;
   const breakoutDate = breakoutIndex !== null ? chartData[breakoutIndex]?.date : null;
 
+  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].close : null;
+
   if (bars.length === 0) {
-    return <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">No chart data available for this symbol.</div>;
+    return <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground font-mono">No chart data available for this symbol.</div>;
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-card p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ToggleGroup type="single" value={timeframe} onValueChange={(value) => value && onTimeframeChange(value as ChartTimeframe)} className="rounded-md border border-border bg-background p-1">
-          {TIMEFRAMES.map((tf) => (
-            <ToggleGroupItem key={tf} value={tf} className="px-2.5 py-1 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary">
-              {tf}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+    <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+      {/* Controls bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <ToggleGroup type="single" value={timeframe} onValueChange={(value) => value && onTimeframeChange(value as ChartTimeframe)} className="rounded border border-border bg-background p-0.5">
+            {TIMEFRAMES.map((tf) => (
+              <ToggleGroupItem key={tf} value={tf} className="px-2 py-1 text-[10px] font-mono data-[state=on]:bg-primary/20 data-[state=on]:text-primary">
+                {tf}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <button
+            onClick={() => setShowBollinger(!showBollinger)}
+            className={`rounded border px-2 py-1 text-[10px] font-mono transition-colors ${showBollinger ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          >
+            BB
+          </button>
+        </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Label htmlFor="asof-mode" className="text-xs text-muted-foreground">As-Of mode</Label>
-          <Switch id="asof-mode" checked={asOfEnabled} onCheckedChange={onAsOfEnabledChange} />
-          <span className="rounded border border-border px-2 py-0.5 font-mono uppercase">{cadence}</span>
+        <div className="flex items-center gap-3">
+          {/* SMA Legend */}
+          <div className="hidden sm:flex items-center gap-2">
+            {Object.entries(SMA_COLORS).map(([key, color]) => (
+              <span key={key} className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground">
+                <span className="inline-block h-[2px] w-3 rounded" style={{ backgroundColor: color }} />
+                {key.toUpperCase()}
+              </span>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Label htmlFor="asof-mode" className="text-[10px] text-muted-foreground font-mono">AS-OF</Label>
+            <Switch id="asof-mode" checked={asOfEnabled} onCheckedChange={onAsOfEnabledChange} />
+            <span className="rounded border border-border px-1.5 py-0.5 font-mono uppercase text-[9px]">{cadence}</span>
+          </div>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-[10px]">
-        <span className="rounded border border-border px-2 py-0.5 text-muted-foreground">Pattern: {stock.pattern}</span>
-        <span className="rounded border border-border px-2 py-0.5 text-muted-foreground">Recommendation: {stock.finalRecommendation}</span>
-        <span className={`rounded border px-2 py-0.5 ${dataState === 'LIVE' ? 'border-signal-buy/25 bg-signal-buy/10 text-signal-buy' : 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution'}`}>
-          Context: {dataState}
+
+      {/* Info strip */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono">
+        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">{stock.pattern}</span>
+        <span className={`rounded border px-1.5 py-0.5 ${stock.finalRecommendation === 'KÖP' ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : stock.finalRecommendation === 'SÄLJ' ? 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' : 'border-border text-muted-foreground'}`}>
+          {stock.finalRecommendation}
         </span>
-        {stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-2 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
+        <span className={`rounded border px-1.5 py-0.5 ${dataState === 'LIVE' ? 'border-signal-buy/25 bg-signal-buy/10 text-signal-buy' : 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution'}`}>
+          {dataState}
+        </span>
+        {stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-1.5 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
+        {currentPrice !== null && (
+          <span className="ml-auto rounded border border-primary/20 bg-primary/5 px-2 py-0.5 text-primary font-semibold">
+            ${currentPrice.toFixed(2)}
+          </span>
+        )}
       </div>
 
       {asOfEnabled && (
-        <div className="grid gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 md:grid-cols-[1fr_auto] md:items-center">
+        <div className="grid gap-2 rounded border border-primary/20 bg-primary/5 p-2 md:grid-cols-[1fr_auto] md:items-center">
           <div>
-            <div className="mb-2 text-xs text-muted-foreground">Historical cutoff: {bars[clampedAsOfIndex]?.date ?? 'N/A'}</div>
+            <div className="mb-1.5 text-[10px] text-muted-foreground font-mono">Cutoff: {bars[clampedAsOfIndex]?.date ?? 'N/A'}</div>
             <Slider
               value={[clampedAsOfIndex]}
               max={Math.max(0, bars.length - 1)}
@@ -134,36 +189,48 @@ export const StockChartModule = memo(function StockChartModule({
               for (let i = bars.length - 1; i >= 0; i--) { if (bars[i].date <= targetDate) { idx = i; break; } }
               onAsOfIndexChange(idx >= 0 ? idx : bars.length - 1);
             }}
-            className="h-8 w-full md:w-[160px]"
+            className="h-7 w-full md:w-[150px] font-mono text-[10px]"
           />
         </div>
       )}
 
-      <div className="h-[460px] w-full">
+      {/* Main price chart */}
+      <div className="h-[480px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} syncId="stock-detail-sync" margin={{ left: 4, right: 8, top: 8, bottom: 24 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="date" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} minTickGap={36} />
-            <YAxis yAxisId="price" domain={[(value: number) => Math.max(0, value * 0.985), (value: number) => value * 1.015]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} width={72} />
-            <Tooltip content={<PriceTooltip />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
+          <ComposedChart data={chartData} syncId="stock-detail-sync" margin={{ left: 0, right: 8, top: 8, bottom: 24 }}>
+            <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: 'hsl(215 15% 50%)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }} minTickGap={40} axisLine={{ stroke: 'hsl(220 14% 18%)' }} tickLine={false} />
+            <YAxis yAxisId="price" domain={[(v: number) => Math.max(0, v * 0.985), (v: number) => v * 1.015]} tick={{ fill: 'hsl(215 15% 50%)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }} width={68} orientation="right" axisLine={{ stroke: 'hsl(220 14% 18%)' }} tickLine={false} />
+            <Tooltip content={<PriceTooltip />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
 
+            {/* Invisible bar for Customized alignment */}
             <Bar yAxisId="price" dataKey="close" fill="transparent" stroke="transparent" isAnimationActive={false} legendType="none" />
-            <Customized component={(customProps) => <CandlestickLayer {...customProps} />} />
+            <Customized component={(customProps: any) => <CandlestickLayer {...customProps} />} />
 
-            <Line yAxisId="price" type="monotone" dataKey="sma20" dot={false} stroke="#22d3ee" strokeWidth={1.4} isAnimationActive={false} />
-            <Line yAxisId="price" type="monotone" dataKey="sma50" dot={false} stroke="#10b981" strokeWidth={1.5} isAnimationActive={false} />
-            <Line yAxisId="price" type="monotone" dataKey="sma150" dot={false} stroke="#f59e0b" strokeWidth={1.4} isAnimationActive={false} />
-            <Line yAxisId="price" type="monotone" dataKey="sma200" dot={false} stroke="#a855f7" strokeWidth={1.6} isAnimationActive={false} />
-
-            {stock.audit.resistanceLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.resistanceLevel} stroke="#eab308" strokeDasharray="4 4" label={{ value: 'Resistance', fill: '#eab308', fontSize: 10 }} />}
-            {stock.audit.breakoutLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.breakoutLevel} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: 'Breakout', fill: '#60a5fa', fontSize: 10 }} />}
-            {stock.audit.sma50 !== null && <ReferenceLine yAxisId="price" y={stock.audit.sma50} stroke="#10b981" strokeDasharray="5 3" label={{ value: 'Support (SMA50)', fill: '#34d399', fontSize: 10 }} />}
-            {stock.audit.resistanceUpperBound !== null && stock.audit.resistanceLevel !== null && (
-              <ReferenceArea yAxisId="price" y1={stock.audit.resistanceLevel} y2={stock.audit.resistanceUpperBound} fill="#eab308" fillOpacity={0.08} />
+            {/* Bollinger Bands */}
+            {showBollinger && (
+              <>
+                <Line yAxisId="price" type="monotone" dataKey="bbUpper" dot={false} stroke="rgba(148,163,184,0.3)" strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
+                <Line yAxisId="price" type="monotone" dataKey="bbLower" dot={false} stroke="rgba(148,163,184,0.3)" strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
+              </>
             )}
-            {breakoutDate && <ReferenceLine x={breakoutDate} stroke="#60a5fa" strokeDasharray="6 4" label={{ value: 'Breakout bar', fill: '#93c5fd', fontSize: 10, position: 'insideTopLeft' }} />}
 
-            <Brush dataKey="date" height={24} stroke="#3b82f6" onChange={(range) => {
+            {/* SMA overlays */}
+            <Line yAxisId="price" type="monotone" dataKey="sma20" dot={false} stroke={SMA_COLORS.sma20} strokeWidth={1} isAnimationActive={false} />
+            <Line yAxisId="price" type="monotone" dataKey="sma50" dot={false} stroke={SMA_COLORS.sma50} strokeWidth={1.5} isAnimationActive={false} />
+            <Line yAxisId="price" type="monotone" dataKey="sma150" dot={false} stroke={SMA_COLORS.sma150} strokeWidth={1.2} isAnimationActive={false} />
+            <Line yAxisId="price" type="monotone" dataKey="sma200" dot={false} stroke={SMA_COLORS.sma200} strokeWidth={1.5} isAnimationActive={false} />
+
+            {/* Technical levels */}
+            {stock.audit.resistanceLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.resistanceLevel} stroke="#eab308" strokeDasharray="4 4" strokeWidth={0.8} label={{ value: 'R', fill: '#eab308', fontSize: 9, fontFamily: 'JetBrains Mono' }} />}
+            {stock.audit.breakoutLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.breakoutLevel} stroke="#3b82f6" strokeDasharray="3 3" strokeWidth={0.8} label={{ value: 'BO', fill: '#60a5fa', fontSize: 9, fontFamily: 'JetBrains Mono' }} />}
+            {currentPrice !== null && <ReferenceLine yAxisId="price" y={currentPrice} stroke="hsl(160 80% 45%)" strokeDasharray="6 3" strokeWidth={0.6} label={{ value: `$${currentPrice.toFixed(2)}`, fill: 'hsl(160 80% 45%)', fontSize: 9, fontFamily: 'JetBrains Mono', position: 'right' }} />}
+            {stock.audit.resistanceUpperBound !== null && stock.audit.resistanceLevel !== null && (
+              <ReferenceArea yAxisId="price" y1={stock.audit.resistanceLevel} y2={stock.audit.resistanceUpperBound} fill="#eab308" fillOpacity={0.04} />
+            )}
+            {breakoutDate && <ReferenceLine x={breakoutDate} stroke="#60a5fa" strokeDasharray="4 4" strokeWidth={0.6} label={{ value: '▲ BO', fill: '#93c5fd', fontSize: 8, position: 'insideTopLeft', fontFamily: 'JetBrains Mono' }} />}
+
+            <Brush dataKey="date" height={20} stroke="hsl(220 14% 18%)" fill="hsl(220 20% 7%)" tickFormatter={() => ''} onChange={(range) => {
               if (!range || range.startIndex == null || range.endIndex == null) {
                 setZoomRange(null);
               } else {
@@ -174,24 +241,26 @@ export const StockChartModule = memo(function StockChartModule({
         </ResponsiveContainer>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <div className="h-[150px] rounded-md border border-border bg-background p-2">
-          <ResponsiveContainer width="100%" height="100%">
+      {/* Volume + Indicators */}
+      <div className="grid gap-2 xl:grid-cols-2">
+        <div className="h-[130px] rounded border border-border bg-background p-1.5">
+          <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">Volume</div>
+          <ResponsiveContainer width="100%" height="85%">
             <BarChart data={chartData} syncId="stock-detail-sync">
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
               <XAxis dataKey="date" hide />
-              <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} width={54} />
-              <Tooltip content={<VolumeTooltip />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
+              <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 8, fontFamily: 'JetBrains Mono, monospace' }} width={50} axisLine={false} tickLine={false} />
+              <Tooltip content={<VolumeTooltip />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
               <Bar dataKey="volume" isAnimationActive={false}>
-                {chartData.map((entry) => <Cell key={`vol-${entry.date}`} fill={entry.isBull ? 'rgba(34,197,94,0.55)' : 'rgba(239,68,68,0.55)'} />)}
+                {chartData.map((entry) => <Cell key={`vol-${entry.date}`} fill={entry.isBull ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)'} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="grid gap-3">
-          <IndicatorPanel title="RSI (14)" dataKey="rsi" data={chartData} thresholds={[70, 30]} emptyState="RSI needs at least 14 daily bars." />
-          <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} emptyState={hasMansfieldData ? null : 'Mansfield RS unavailable: benchmark alignment or lookback data is insufficient.'} />
+        <div className="grid gap-2">
+          <IndicatorPanel title="RSI (14)" dataKey="rsi" data={chartData} thresholds={[70, 30]} emptyState="RSI needs ≥14 daily bars." />
+          <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} emptyState={hasMansfieldData ? null : 'Mansfield unavailable — benchmark data insufficient.'} />
         </div>
       </div>
     </div>
@@ -209,26 +278,26 @@ function IndicatorPanel({ title, data, dataKey, thresholds, emptyState }: {
 
   if (!hasValues) {
     return (
-      <div className="h-[120px] rounded-md border border-border bg-background p-2">
-        <div className="mb-1 text-[11px] font-medium text-muted-foreground">{title}</div>
-        <div className="flex h-[85%] items-center justify-center text-center text-[11px] text-muted-foreground">
-          {emptyState ?? `${title} is unavailable for the selected range.`}
+      <div className="h-[110px] rounded border border-border bg-background p-1.5">
+        <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">{title}</div>
+        <div className="flex h-[80%] items-center justify-center text-center text-[10px] text-muted-foreground font-mono">
+          {emptyState ?? `${title} unavailable.`}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-[120px] rounded-md border border-border bg-background p-2">
-      <div className="mb-1 text-[11px] font-medium text-muted-foreground">{title}</div>
+    <div className="h-[110px] rounded border border-border bg-background p-1.5">
+      <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">{title}</div>
       <ResponsiveContainer width="100%" height="85%">
         <ComposedChart data={data} syncId="stock-detail-sync">
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
           <XAxis dataKey="date" hide />
-          <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} width={42} />
-          <Tooltip content={<IndicatorTooltip title={title} valueKey={dataKey} />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
-          {thresholds.map((line) => <ReferenceLine key={`${title}-${line}`} y={line} stroke="rgba(148,163,184,0.6)" strokeDasharray="4 4" />)}
-          <Line dataKey={dataKey} type="monotone" dot={false} stroke="#60a5fa" strokeWidth={1.5} isAnimationActive={false} />
+          <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 8, fontFamily: 'JetBrains Mono, monospace' }} width={38} axisLine={false} tickLine={false} />
+          <Tooltip content={<IndicatorTooltip title={title} valueKey={dataKey} />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
+          {thresholds.map((line) => <ReferenceLine key={`${title}-${line}`} y={line} stroke="rgba(148,163,184,0.35)" strokeDasharray="4 4" />)}
+          <Line dataKey={dataKey} type="monotone" dot={false} stroke="#60a5fa" strokeWidth={1.2} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -236,7 +305,7 @@ function IndicatorPanel({ title, data, dataKey, thresholds, emptyState }: {
 }
 
 function TooltipCard({ children }: { children: ReactNode }) {
-  return <div className="rounded-md border border-border bg-card/95 p-2 text-xs text-foreground shadow-lg backdrop-blur">{children}</div>;
+  return <div className="rounded border border-border bg-card/95 p-2 text-[10px] font-mono text-foreground shadow-lg backdrop-blur">{children}</div>;
 }
 
 function PriceTooltip({ active, payload, label }: any) {
@@ -246,18 +315,21 @@ function PriceTooltip({ active, payload, label }: any) {
 
   return (
     <TooltipCard>
-      <div className="mb-1 text-[11px] font-semibold">{label}</div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px]">
-        <span>Open</span><span>{formatNumber(candle.open)}</span>
-        <span>High</span><span>{formatNumber(candle.high)}</span>
-        <span>Low</span><span>{formatNumber(candle.low)}</span>
-        <span>Close</span><span>{formatNumber(candle.close)}</span>
-        <span>SMA20</span><span>{formatNumber(candle.sma20)}</span>
-        <span>SMA50</span><span>{formatNumber(candle.sma50)}</span>
-        <span>SMA150</span><span>{formatNumber(candle.sma150)}</span>
-        <span>SMA200</span><span>{formatNumber(candle.sma200)}</span>
-        <span>RSI</span><span>{formatNumber(candle.rsi)}</span>
-        <span>Mansfield</span><span>{formatNumber(candle.mansfield)}</span>
+      <div className="mb-1 text-[10px] font-semibold text-primary">{label}</div>
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0">
+        <span className="text-muted-foreground">O</span><span>{formatNumber(candle.open)}</span>
+        <span className="text-muted-foreground">H</span><span>{formatNumber(candle.high)}</span>
+        <span className="text-muted-foreground">L</span><span>{formatNumber(candle.low)}</span>
+        <span className="text-muted-foreground">C</span><span className={candle.close >= candle.open ? 'text-signal-buy' : 'text-signal-sell'}>{formatNumber(candle.close)}</span>
+        <span className="text-muted-foreground">Vol</span><span>{Math.round(Number(candle.volume) || 0).toLocaleString()}</span>
+      </div>
+      <div className="mt-1 border-t border-border pt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0">
+        <span style={{ color: SMA_COLORS.sma20 }}>S20</span><span>{formatNumber(candle.sma20)}</span>
+        <span style={{ color: SMA_COLORS.sma50 }}>S50</span><span>{formatNumber(candle.sma50)}</span>
+        <span style={{ color: SMA_COLORS.sma150 }}>S150</span><span>{formatNumber(candle.sma150)}</span>
+        <span style={{ color: SMA_COLORS.sma200 }}>S200</span><span>{formatNumber(candle.sma200)}</span>
+        <span className="text-muted-foreground">RSI</span><span>{formatNumber(candle.rsi)}</span>
+        <span className="text-muted-foreground">MRS</span><span>{formatNumber(candle.mansfield)}</span>
       </div>
     </TooltipCard>
   );
@@ -269,8 +341,8 @@ function VolumeTooltip({ active, payload, label }: any) {
   if (!row) return null;
   return (
     <TooltipCard>
-      <div className="mb-1 text-[11px] font-semibold">{label}</div>
-      <div className="font-mono text-[11px]">Volume: {Math.round(Number(row.volume) || 0).toLocaleString()}</div>
+      <div className="text-[10px] font-semibold text-primary">{label}</div>
+      <div className="text-[10px]">Vol: {Math.round(Number(row.volume) || 0).toLocaleString()}</div>
     </TooltipCard>
   );
 }
@@ -281,8 +353,8 @@ function IndicatorTooltip({ active, payload, label, title, valueKey }: any) {
   if (!row) return null;
   return (
     <TooltipCard>
-      <div className="mb-1 text-[11px] font-semibold">{label}</div>
-      <div className="font-mono text-[11px]">{title}: {formatNumber(row[valueKey])}</div>
+      <div className="text-[10px] font-semibold text-primary">{label}</div>
+      <div className="text-[10px]">{title}: {formatNumber(row[valueKey])}</div>
     </TooltipCard>
   );
 }
@@ -295,7 +367,7 @@ function CandlestickLayer(props: any) {
   const { formattedGraphicalItems, xAxisMap, yAxisMap, offset } = props;
   const payload = formattedGraphicalItems?.[0]?.props?.data ?? [];
   const xAxis = xAxisMap?.[0];
-  const yAxis = yAxisMap?.[0];
+  const yAxis = yAxisMap?.price ?? yAxisMap?.[0];
   const xScale = xAxis?.scale;
   const yScale = yAxis?.scale;
 
@@ -304,7 +376,7 @@ function CandlestickLayer(props: any) {
   }
 
   const bandWidth = typeof xScale.bandwidth === 'function' ? xScale.bandwidth() : 0;
-  const candleWidth = Math.max(3, Math.min(12, bandWidth > 0 ? bandWidth * 0.7 : 6));
+  const candleWidth = Math.max(2, Math.min(10, bandWidth > 0 ? bandWidth * 0.65 : 5));
   const clipId = 'stock-candles-clip';
 
   return (
@@ -320,23 +392,17 @@ function CandlestickLayer(props: any) {
           const high = Number(bar.high);
           const low = Number(bar.low);
           const close = Number(bar.close);
-          if (![open, high, low, close].every(Number.isFinite)) {
-            return null;
-          }
+          if (![open, high, low, close].every(Number.isFinite)) return null;
 
           const baseX = xScale(bar.date);
-          if (!Number.isFinite(baseX)) {
-            return null;
-          }
+          if (!Number.isFinite(baseX)) return null;
 
           const centerX = baseX + (bandWidth > 0 ? bandWidth / 2 : 0);
           const openY = yScale(open);
           const highY = yScale(high);
           const lowY = yScale(low);
           const closeY = yScale(close);
-          if (![openY, highY, lowY, closeY].every(Number.isFinite)) {
-            return null;
-          }
+          if (![openY, highY, lowY, closeY].every(Number.isFinite)) return null;
 
           const isBull = close >= open;
           const color = isBull ? '#22c55e' : '#ef4444';
@@ -346,8 +412,8 @@ function CandlestickLayer(props: any) {
 
           return (
             <g key={`candle-${bar.date}`}>
-              <line x1={centerX} x2={centerX} y1={highY} y2={lowY} stroke={color} strokeWidth={1.2} />
-              <rect x={bodyX} y={bodyTop} width={candleWidth} height={bodyHeight} fill={color} opacity={0.9} />
+              <line x1={centerX} x2={centerX} y1={highY} y2={lowY} stroke={color} strokeWidth={0.8} />
+              <rect x={bodyX} y={bodyTop} width={candleWidth} height={bodyHeight} fill={color} opacity={0.85} />
             </g>
           );
         })}

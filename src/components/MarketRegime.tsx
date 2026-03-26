@@ -13,8 +13,8 @@ const regimeConfig = {
     colorClass: 'text-signal-buy',
     bgClass: 'bg-signal-buy/8',
     borderClass: 'border-signal-buy/25',
-    guidance: 'Aggressive long setups favored. WSP breakout entries are high-probability in this environment.',
-    context: 'Both S&P 500 and Nasdaq 100 trading above rising 50-day moving averages with 50MA > 200MA.',
+    guidance: 'Aggressive long setups favored. WSP breakout entries are high-probability.',
+    context: 'Both benchmarks trading above rising 50MA with 50MA > 200MA.',
   },
   bearish: {
     label: 'BEARISH',
@@ -22,8 +22,8 @@ const regimeConfig = {
     colorClass: 'text-signal-sell',
     bgClass: 'bg-signal-sell/8',
     borderClass: 'border-signal-sell/25',
-    guidance: 'Protect capital. Avoid aggressive breakout exposure. Reduce position sizing.',
-    context: 'Both S&P 500 and Nasdaq 100 below key moving averages — indicating broad market weakness.',
+    guidance: 'Protect capital. Avoid breakout exposure. Reduce sizing.',
+    context: 'Both benchmarks below key moving averages — broad weakness.',
   },
   neutral: {
     label: 'NEUTRAL',
@@ -31,8 +31,8 @@ const regimeConfig = {
     colorClass: 'text-signal-caution',
     bgClass: 'bg-signal-caution/8',
     borderClass: 'border-signal-caution/25',
-    guidance: 'Selective approach required. Prioritize only the highest-quality setups with strong volume confirmation.',
-    context: 'Mixed signals — one major index showing strength while the other signals weakness.',
+    guidance: 'Selective. Only highest-quality setups with strong volume.',
+    context: 'Mixed signals — one index strong, other weak.',
   },
 };
 
@@ -41,36 +41,33 @@ export function MarketRegime({ market }: MarketRegimeProps) {
   const TrendIcon = config.icon;
 
   return (
-    <section className={`rounded-xl border ${config.borderClass} ${config.bgClass} overflow-hidden`}>
-      {/* Regime header */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-3">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-lg border ${config.borderClass} bg-background/60`}>
-            <TrendIcon className={`h-5 w-5 ${config.colorClass}`} />
+    <section className={`rounded border ${config.borderClass} ${config.bgClass} overflow-hidden`}>
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center gap-2.5">
+          <div className={`flex h-8 w-8 items-center justify-center rounded border ${config.borderClass} bg-background/60`}>
+            <TrendIcon className={`h-4 w-4 ${config.colorClass}`} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">Market Regime</h2>
-              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${config.colorClass} ${config.borderClass} bg-background/40`}>
+              <h2 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">MARKET REGIME</h2>
+              <span className={`rounded-full border px-2 py-0.5 text-[9px] font-mono font-bold ${config.colorClass} ${config.borderClass} bg-background/40`}>
                 {config.label}
               </span>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">{config.context}</p>
+            <p className="text-[9px] text-muted-foreground font-mono mt-0.5 max-w-md">{config.context}</p>
           </div>
         </div>
       </div>
 
-      {/* Benchmark cards */}
-      <div className="grid grid-cols-1 gap-3 px-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 px-4 sm:grid-cols-2">
         <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-        <BenchmarkCard label="Nasdaq 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+        <BenchmarkCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
       </div>
 
-      {/* Strategy guidance */}
-      <div className="flex items-start gap-2 px-5 py-4 mt-2">
-        <Shield className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${config.colorClass}`} />
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">WSP strategy context:</span> {config.guidance}
+      <div className="flex items-start gap-2 px-4 py-3 mt-1">
+        <Shield className={`mt-0.5 h-3 w-3 flex-shrink-0 ${config.colorClass}`} />
+        <p className="text-[9px] text-muted-foreground font-mono leading-relaxed">
+          <span className="font-semibold text-foreground">WSP:</span> {config.guidance}
         </p>
       </div>
     </section>
@@ -82,16 +79,16 @@ function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol
   return (
     <Link
       to={`/stock/${symbol}`}
-      className="group flex items-center justify-between rounded-lg border border-border/60 bg-card/80 px-4 py-3 transition-all hover:border-primary/30 hover:bg-card"
+      className="group flex items-center justify-between rounded border border-border/60 bg-card/80 px-3 py-2.5 transition-all hover:border-primary/30"
     >
       <div>
-        <div className="text-[11px] text-muted-foreground">{label} <span className="font-mono opacity-60">({symbol})</span></div>
-        <div className="font-mono text-lg font-semibold text-foreground mt-0.5">
+        <div className="text-[8px] font-mono text-muted-foreground tracking-wider">{label} <span className="opacity-60">({symbol})</span></div>
+        <div className="font-mono text-base font-bold text-foreground mt-0.5">
           {price === null ? '—' : `$${price.toFixed(2)}`}
         </div>
       </div>
-      <div className={`flex items-center gap-1 font-mono text-base font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
-        {positive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+      <div className={`flex items-center gap-0.5 font-mono text-sm font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
+        {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
         {positive ? '+' : ''}{change.toFixed(2)}%
       </div>
     </Link>
