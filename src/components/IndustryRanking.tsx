@@ -60,7 +60,7 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState,
             {isActive && (
               <div className="border-t border-border px-2.5 pb-2.5 pt-1.5 space-y-1.5">
                 <div className="grid gap-1">
-                  {industry.stocks.slice(0, 6).map((stock) => (
+                  {industry.stocks.map((stock) => (
                     <Link
                       key={stock.symbol}
                       to={`/stock/${stock.symbol}`}
@@ -69,6 +69,7 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState,
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-foreground">{stock.symbol}</span>
                         <span className="text-[9px] text-muted-foreground truncate max-w-[100px]">{stock.name}</span>
+                        <span className={`rounded px-1 py-0.5 text-[7px] font-semibold ${stock.supportsFullWsp ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20' : 'bg-amber-500/15 text-amber-300 border border-amber-500/20'}`}>{stock.supportsFullWsp ? 'Full WSP' : 'Limited'}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className={`text-[9px] ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
@@ -81,9 +82,6 @@ export function IndustryRanking({ stocks, activeSector, activeIndustry, uiState,
                     </Link>
                   ))}
                 </div>
-                {industry.stocks.length > 6 && (
-                  <p className="text-[9px] text-muted-foreground font-mono text-center">+{industry.stocks.length - 6} more</p>
-                )}
                 <PremiumScanCTA industryName={industry.industry} />
               </div>
             )}

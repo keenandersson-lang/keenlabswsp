@@ -282,6 +282,14 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         sectorAligned,
         marketFavorable,
         'live',
+        {
+          metadata: {
+            exchange: meta.exchange,
+            assetClass: meta.assetClass,
+            supportsFullWsp: meta.supportsFullWsp,
+            wspSupport: meta.wspSupport,
+          },
+        },
       );
     });
 

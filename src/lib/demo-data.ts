@@ -90,10 +90,28 @@ const demoShapeBySymbol: Record<string, {
   PPLT: { price: 92.1, trend: 'down', volume: 200_000, avgVolume: 180_000, sectorBullish: false },
 };
 
+
+function shapeForMeta(meta: { symbol: string; supportsFullWsp?: boolean; wspSupport?: 'full' | 'limited' }) {
+  const explicit = demoShapeBySymbol[meta.symbol];
+  if (explicit) return explicit;
+
+  const seed = [...meta.symbol].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const price = 35 + (seed % 900);
+  const trend: 'up' | 'down' | 'flat' | 'topping' = ['up', 'flat', 'topping', 'down'][seed % 4] as 'up' | 'down' | 'flat' | 'topping';
+  const baseVolume = (seed % 60 + 2) * 400_000;
+  return {
+    price,
+    trend,
+    volume: baseVolume,
+    avgVolume: Math.round(baseVolume * 0.85),
+    sectorBullish: (seed % 5) !== 0,
+  };
+}
+
 const benchmarkBars = generateBars(520, 'up', 200, 50_000_000, 45_000_000);
 
 export const demoStocks: EvaluatedStock[] = TRACKED_SYMBOLS.map((meta) => {
-  const shape = demoShapeBySymbol[meta.symbol];
+  const shape = shapeForMeta(meta);
   const bars = generateBars(shape.price, shape.trend, 200, shape.volume, shape.avgVolume);
   return evaluateStock(
     meta.symbol,
@@ -105,6 +123,14 @@ export const demoStocks: EvaluatedStock[] = TRACKED_SYMBOLS.map((meta) => {
     shape.sectorBullish,
     true,
     'fallback',
+    {
+      metadata: {
+        exchange: meta.exchange,
+        assetClass: meta.assetClass,
+        supportsFullWsp: meta.supportsFullWsp,
+        wspSupport: meta.wspSupport,
+      },
+    },
   );
 });
 

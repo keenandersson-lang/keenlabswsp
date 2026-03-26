@@ -7,6 +7,10 @@ export interface StockDetailPayload {
   name: string;
   sector: string;
   industry: string;
+  exchange?: string;
+  assetClass?: 'equity' | 'metals' | 'commodity';
+  supportsFullWsp?: boolean;
+  wspSupport?: 'full' | 'limited';
   barsDaily: Bar[];
   barsWeekly: Bar[];
   benchmarkDaily: Bar[];

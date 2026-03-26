@@ -144,7 +144,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
             <span>•</span>
             <span>Trend mode: {discoveryMeta.trendClassificationMode}</span>
             <span>•</span>
-            <span>Scope: tracked universe</span>
+            <span>Scope: centralized market universe</span>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -249,6 +249,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                           </Link>
                         </div>
                         <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{stock.name}</p>
+                        <p className="text-[9px] text-muted-foreground">{stock.exchange ?? 'N/A'} · {stock.supportsFullWsp ? 'Full WSP' : 'Limited'}</p>
                       </div>
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs font-medium">{formatCurrency(stock.price)}</td>
