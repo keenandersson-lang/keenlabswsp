@@ -69,10 +69,10 @@ export class AlpacaProvider {
     });
 
     const payload = await this.request<AlpacaLatestQuotesResponse>(`/stocks/quotes/latest?${query.toString()}`);
-    const mapped = Object.fromEntries(dedupedSymbols.map((symbol) => [symbol, {
+    const mapped: LatestQuoteMap = Object.fromEntries(dedupedSymbols.map((symbol) => [symbol, {
       symbol,
-      price: null,
-      asOf: null,
+      price: null as number | null,
+      asOf: null as string | null,
       stale: true,
     }]));
 
