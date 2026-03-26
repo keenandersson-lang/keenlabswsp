@@ -352,10 +352,10 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           sectorAligned, marketFavorable, 'live',
           {
             metadata: {
-              exchange: meta.exchange,
-              assetClass: meta.assetClass,
-              supportsFullWsp: meta.supportsFullWsp,
-              wspSupport: meta.wspSupport,
+              exchange: meta.exchange ?? '',
+              assetClass: (meta.assetClass as 'equity' | 'commodity' | 'metals') ?? 'equity',
+              supportsFullWsp: meta.supportsFullWsp ?? true,
+              wspSupport: (meta.wspSupport as 'full' | 'limited') ?? 'full',
             },
           },
         );
