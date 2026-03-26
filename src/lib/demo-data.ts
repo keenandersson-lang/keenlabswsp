@@ -80,6 +80,14 @@ const demoShapeBySymbol: Record<string, {
   CRM: { price: 324.5, trend: 'flat', volume: 7_100_000, avgVolume: 6_300_000, sectorBullish: true },
   COST: { price: 894.2, trend: 'up', volume: 2_400_000, avgVolume: 1_900_000, sectorBullish: true },
   HD: { price: 401.6, trend: 'topping', volume: 4_200_000, avgVolume: 3_900_000, sectorBullish: true },
+  // Metals & Mining
+  GLD: { price: 215.0, trend: 'up', volume: 8_000_000, avgVolume: 7_500_000, sectorBullish: true },
+  SLV: { price: 23.5, trend: 'up', volume: 12_000_000, avgVolume: 10_000_000, sectorBullish: true },
+  COPX: { price: 42.3, trend: 'flat', volume: 1_200_000, avgVolume: 1_000_000, sectorBullish: false },
+  GDX: { price: 34.8, trend: 'up', volume: 18_000_000, avgVolume: 15_000_000, sectorBullish: true },
+  NEM: { price: 45.2, trend: 'up', volume: 6_500_000, avgVolume: 5_800_000, sectorBullish: true },
+  FCX: { price: 48.7, trend: 'flat', volume: 9_000_000, avgVolume: 8_500_000, sectorBullish: false },
+  PPLT: { price: 92.1, trend: 'down', volume: 200_000, avgVolume: 180_000, sectorBullish: false },
 };
 
 const benchmarkBars = generateBars(520, 'up', 200, 50_000_000, 45_000_000);
