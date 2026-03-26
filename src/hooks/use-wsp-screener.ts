@@ -25,7 +25,7 @@ interface EdgeFunctionResponse {
   ok: boolean;
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
   data: {
-    trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string }>;
+    trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string; exchange?: string; assetClass?: string; supportsFullWsp?: boolean; wspSupport?: string }>;
     stockBars: Record<string, Bar[]>;
     benchmarkBars: Bar[];
     benchmarkSymbol: string;
