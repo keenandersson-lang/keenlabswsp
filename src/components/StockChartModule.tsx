@@ -1,5 +1,5 @@
 import { memo, type ReactNode, useMemo, useState } from 'react';
-import { BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, Brush, Cell } from 'recharts';
+import { BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, Brush, Cell, Customized } from 'recharts';
 import type { Bar as PriceBar, EvaluatedStock } from '@/lib/wsp-types';
 import type { ChartTimeframe } from '@/lib/chart-types';
 import { barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
@@ -147,7 +147,8 @@ export const StockChartModule = memo(function StockChartModule({
             <YAxis yAxisId="price" domain={[(value: number) => Math.max(0, value * 0.985), (value: number) => value * 1.015]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} width={72} />
             <Tooltip content={<PriceTooltip />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
 
-            <Bar yAxisId="price" dataKey="close" shape={<CandlestickShape />} isAnimationActive={false} />
+            <Bar yAxisId="price" dataKey="close" fill="transparent" stroke="transparent" isAnimationActive={false} legendType="none" />
+            <Customized component={(customProps) => <CandlestickLayer {...customProps} />} />
 
             <Line yAxisId="price" type="monotone" dataKey="sma20" dot={false} stroke="#22d3ee" strokeWidth={1.4} isAnimationActive={false} />
             <Line yAxisId="price" type="monotone" dataKey="sma50" dot={false} stroke="#10b981" strokeWidth={1.5} isAnimationActive={false} />
@@ -290,23 +291,67 @@ function formatNumber(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
 
-function CandlestickShape(props: any) {
-  const { x, width, payload, yAxis } = props;
-  if (!payload || !yAxis?.scale) return null;
-  const scale = yAxis.scale;
-  const openY = scale(payload.open);
-  const closeY = scale(payload.close);
-  const highY = scale(payload.high);
-  const lowY = scale(payload.low);
-  const bodyTop = Math.min(openY, closeY);
-  const bodyHeight = Math.max(1, Math.abs(openY - closeY));
-  const color = payload.close >= payload.open ? '#22c55e' : '#ef4444';
-  const centerX = x + (width / 2);
+function CandlestickLayer(props: any) {
+  const { formattedGraphicalItems, xAxisMap, yAxisMap, offset } = props;
+  const payload = formattedGraphicalItems?.[0]?.props?.data ?? [];
+  const xAxis = xAxisMap?.[0];
+  const yAxis = yAxisMap?.[0];
+  const xScale = xAxis?.scale;
+  const yScale = yAxis?.scale;
+
+  if (!Array.isArray(payload) || payload.length === 0 || typeof xScale !== 'function' || typeof yScale !== 'function') {
+    return null;
+  }
+
+  const bandWidth = typeof xScale.bandwidth === 'function' ? xScale.bandwidth() : 0;
+  const candleWidth = Math.max(3, Math.min(12, bandWidth > 0 ? bandWidth * 0.7 : 6));
+  const clipId = 'stock-candles-clip';
 
   return (
     <g>
-      <line x1={centerX} y1={highY} x2={centerX} y2={lowY} stroke={color} strokeWidth={1} />
-      <rect x={x + 1} y={bodyTop} width={Math.max(1, width - 2)} height={bodyHeight} fill={color} opacity={0.85} />
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={offset?.left ?? 0} y={offset?.top ?? 0} width={offset?.width ?? 0} height={offset?.height ?? 0} />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        {payload.map((bar: any) => {
+          const open = Number(bar.open);
+          const high = Number(bar.high);
+          const low = Number(bar.low);
+          const close = Number(bar.close);
+          if (![open, high, low, close].every(Number.isFinite)) {
+            return null;
+          }
+
+          const baseX = xScale(bar.date);
+          if (!Number.isFinite(baseX)) {
+            return null;
+          }
+
+          const centerX = baseX + (bandWidth > 0 ? bandWidth / 2 : 0);
+          const openY = yScale(open);
+          const highY = yScale(high);
+          const lowY = yScale(low);
+          const closeY = yScale(close);
+          if (![openY, highY, lowY, closeY].every(Number.isFinite)) {
+            return null;
+          }
+
+          const isBull = close >= open;
+          const color = isBull ? '#22c55e' : '#ef4444';
+          const bodyTop = Math.min(openY, closeY);
+          const bodyHeight = Math.max(1, Math.abs(openY - closeY));
+          const bodyX = centerX - candleWidth / 2;
+
+          return (
+            <g key={`candle-${bar.date}`}>
+              <line x1={centerX} x2={centerX} y1={highY} y2={lowY} stroke={color} strokeWidth={1.2} />
+              <rect x={bodyX} y={bodyTop} width={candleWidth} height={bodyHeight} fill={color} opacity={0.9} />
+            </g>
+          );
+        })}
+      </g>
     </g>
   );
 }
