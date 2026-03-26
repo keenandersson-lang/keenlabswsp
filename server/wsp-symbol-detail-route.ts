@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
-import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
+import { TRACKED_SYMBOL_LOOKUP } from '../src/lib/tracked-symbols';
 import { normalizeBarsChronologically } from '../src/lib/wsp-indicators';
 import { aggregateBarsWeekly } from '../src/lib/charting';
 import type { StockDetailApiResponse } from '../src/lib/chart-types';
@@ -19,10 +19,10 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
     return sendJson(res, 400, { ok: false, data: null, error: { code: 'MISSING_SYMBOL', message: 'Query param "symbol" is required.' } } satisfies StockDetailApiResponse);
   }
 
-  const meta = TRACKED_SYMBOLS.find((item) => item.symbol === symbol);
+  const meta = TRACKED_SYMBOL_LOOKUP[symbol];
   const benchmarkMeta = BENCHMARK_LOOKUP[symbol];
   if (!meta && !benchmarkMeta) {
-    return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in TRACKED_SYMBOLS.` } } satisfies StockDetailApiResponse);
+    return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in market universe.` } } satisfies StockDetailApiResponse);
   }
 
   const providerSelection = createMarketDataProvider();
@@ -47,6 +47,10 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
         name: meta?.name ?? benchmarkMeta.name,
         sector: meta?.sector ?? 'Benchmarks',
         industry: meta?.industry ?? 'Market Index ETF',
+        exchange: meta?.exchange,
+        assetClass: meta?.assetClass,
+        supportsFullWsp: meta?.supportsFullWsp,
+        wspSupport: meta?.wspSupport,
         barsDaily,
         barsWeekly: aggregateBarsWeekly(barsDaily),
         benchmarkDaily,

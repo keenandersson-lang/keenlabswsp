@@ -3,44 +3,18 @@
  * All tunable parameters for the Wall Street Protocol screener.
  */
 
+import { SECTOR_ETF_MAP } from './market-universe';
+import { TRACKED_SYMBOLS } from './tracked-symbols';
+
 export const WSP_CONFIG = {
-  symbols: [
-    'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'TSLA', 'GOOGL',
-    'JPM', 'XOM', 'LLY', 'UNH', 'CAT', 'BA', 'AVGO', 'V',
-    'AMD', 'NFLX', 'CRM', 'COST', 'HD',
-    // Metals & Mining
-    'GLD', 'SLV', 'COPX', 'GDX', 'NEM', 'FCX', 'PPLT',
-  ],
+  symbols: TRACKED_SYMBOLS.map((item) => item.symbol),
 
   benchmark: 'SPY',
   marketRegimeSymbols: ['SPY', 'QQQ'],
 
-  sectorMap: {
-    Technology: ['XLK'],
-    Healthcare: ['XLV'],
-    Financials: ['XLF'],
-    Energy: ['XLE'],
-    'Consumer Discretionary': ['XLY'],
-    Industrials: ['XLI'],
-    'Communication Services': ['XLC'],
-    'Consumer Staples': ['XLP'],
-    Materials: ['XLB'],
-    'Real Estate': ['XLRE'],
-    Utilities: ['XLU'],
-    'Metals & Mining': ['GDX'],
-  } as Record<string, string[]>,
+  sectorMap: SECTOR_ETF_MAP,
 
-  symbolSectorMap: {
-    NVDA: 'Technology', AAPL: 'Technology', MSFT: 'Technology', AVGO: 'Technology', AMD: 'Technology', CRM: 'Technology',
-    AMZN: 'Consumer Discretionary', TSLA: 'Consumer Discretionary', HD: 'Consumer Discretionary', COST: 'Consumer Discretionary',
-    META: 'Communication Services', GOOGL: 'Communication Services', NFLX: 'Communication Services',
-    JPM: 'Financials', V: 'Financials',
-    XOM: 'Energy',
-    LLY: 'Healthcare', UNH: 'Healthcare',
-    CAT: 'Industrials', BA: 'Industrials',
-    GLD: 'Metals & Mining', SLV: 'Metals & Mining', COPX: 'Metals & Mining', GDX: 'Metals & Mining',
-    NEM: 'Metals & Mining', FCX: 'Metals & Mining', PPLT: 'Metals & Mining',
-  } as Record<string, string>,
+  symbolSectorMap: Object.fromEntries(TRACKED_SYMBOLS.map((item) => [item.symbol, item.sector])) as Record<string, string>,
 
   refreshInterval: 5 * 60 * 1000,
 

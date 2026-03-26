@@ -350,6 +350,14 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           meta.symbol, meta.name, meta.sector, meta.industry,
           data.stockBars[meta.symbol], benchmarkBars,
           sectorAligned, marketFavorable, 'live',
+          {
+            metadata: {
+              exchange: meta.exchange,
+              assetClass: meta.assetClass,
+              supportsFullWsp: meta.supportsFullWsp,
+              wspSupport: meta.wspSupport,
+            },
+          },
         );
       });
 

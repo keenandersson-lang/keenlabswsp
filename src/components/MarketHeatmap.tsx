@@ -1,18 +1,32 @@
 import { useMemo } from 'react';
 import type { EvaluatedStock, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
-import { buildSectorHeatmap, type SectorHeatCell } from '@/lib/discovery';
-import { TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
+import { buildSectorHeatmap } from '@/lib/discovery';
+import { AlertTriangle } from 'lucide-react';
+import { heatmapCellClass } from '@/lib/heatmap-scale';
 
 interface MarketHeatmapProps {
   stocks: EvaluatedStock[];
   sectorStatuses: SectorStatus[];
   uiState: ScreenerUiState;
   activeSector: string | null;
+  activeIndustry: string | null;
   onSectorSelect: (sector: string) => void;
+  onIndustrySelect: (industry: string) => void;
+  onStockSelect: (symbol: string) => void;
   degradedMessage?: string;
 }
 
-export function MarketHeatmap({ stocks, sectorStatuses, uiState, activeSector, onSectorSelect, degradedMessage }: MarketHeatmapProps) {
+export function MarketHeatmap({
+  stocks,
+  sectorStatuses,
+  uiState,
+  activeSector,
+  activeIndustry,
+  onSectorSelect,
+  onIndustrySelect,
+  onStockSelect,
+  degradedMessage,
+}: MarketHeatmapProps) {
   const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses, uiState), [stocks, sectorStatuses, uiState]);
 
   if (sectors.length === 0) {
@@ -25,10 +39,10 @@ export function MarketHeatmap({ stocks, sectorStatuses, uiState, activeSector, o
   }
 
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">SECTOR HEATMAP</h3>
-        <span className="text-[9px] font-mono text-muted-foreground">Click to drill down</span>
+    <section className="space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">MARKET HEATMAP · SECTOR → INDUSTRY → STOCK</h3>
+        <HeatmapLegend />
       </div>
 
       {degradedMessage && (
@@ -38,37 +52,65 @@ export function MarketHeatmap({ stocks, sectorStatuses, uiState, activeSector, o
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         {sectors.map((sector) => {
-          const isActive = activeSector === sector.sector;
+          const sectorActive = activeSector === sector.sector;
+          const byIndustry = new Map<string, EvaluatedStock[]>();
+          for (const stock of sector.stocks) {
+            const bucket = byIndustry.get(stock.industry) ?? [];
+            bucket.push(stock);
+            byIndustry.set(stock.industry, bucket);
+          }
+
           return (
-            <button
+            <article
               key={sector.sector}
-              onClick={() => onSectorSelect(sector.sector)}
-              className={`group relative rounded border p-3 text-left transition-all ${toneClass(sector)} ${isActive ? 'ring-1 ring-primary/50 ring-offset-1 ring-offset-background' : 'hover:border-primary/30'}`}
+              className={`rounded border p-2 ${heatmapCellClass(sector.avgChange)} ${sectorActive ? 'ring-1 ring-primary/50 ring-offset-1 ring-offset-background' : ''}`}
             >
-              <div className="flex items-start justify-between gap-1 mb-1.5">
-                <div className="text-[10px] font-mono font-bold text-foreground leading-tight">{sector.sector}</div>
-                <TrendIcon state={sector.trendState} />
+              <button className="mb-1 flex w-full items-center justify-between" onClick={() => onSectorSelect(sector.sector)}>
+                <span className="text-[10px] font-mono font-bold text-foreground">{sector.sector}</span>
+                <span className={`font-mono text-[10px] font-semibold ${sector.avgChange >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+                  {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
+                </span>
+              </button>
+
+              <div className="space-y-1">
+                {[...byIndustry.entries()].map(([industry, industryStocks]) => {
+                  const industryChange = industryStocks.reduce((sum, stock) => sum + stock.changePercent, 0) / industryStocks.length;
+                  const industryActive = sectorActive && activeIndustry === industry;
+                  const shownStocks = [...industryStocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 8);
+
+                  return (
+                    <div key={industry} className={`rounded border ${heatmapCellClass(industryChange)} p-1.5`}>
+                      <button className="mb-1 flex w-full items-center justify-between" onClick={() => { onSectorSelect(sector.sector); onIndustrySelect(industry); }}>
+                        <span className="text-[9px] font-mono text-foreground">{industry}</span>
+                        <span className="text-[8px] font-mono text-muted-foreground">{industryStocks.length} stk</span>
+                      </button>
+
+                      <div className="grid grid-cols-4 gap-1">
+                        {shownStocks.map((stock) => (
+                          <button
+                            key={stock.symbol}
+                            onClick={() => {
+                              onSectorSelect(sector.sector);
+                              onIndustrySelect(industry);
+                              onStockSelect(stock.symbol);
+                            }}
+                            className={`rounded border px-1 py-1 text-left ${heatmapCellClass(stock.changePercent)} ${industryActive ? 'hover:border-primary/40' : ''}`}
+                            title={`${stock.symbol} ${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}% · ${stock.supportsFullWsp ? 'Full WSP' : 'Limited WSP'}`}
+                          >
+                            <div className="text-[9px] font-mono font-bold text-foreground">{stock.symbol}</div>
+                            <div className={`text-[8px] font-mono ${stock.changePercent >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+                              {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="text-[8px] font-mono text-muted-foreground mb-2">
-                {sector.industries.length} ind · {sector.stocks.length} stk
-              </div>
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-[7px] font-mono uppercase tracking-widest text-muted-foreground">
-                    {sector.valueMode === 'proxy_return' ? 'PROXY' : 'STR'}
-                  </div>
-                  <div className={`font-mono text-sm font-bold ${sector.displayValue >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                    {sector.valueMode === 'proxy_return' ? `${formatSigned(sector.displayValue)}%` : `S${sector.displayValue.toFixed(1)}`}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[7px] font-mono uppercase tracking-widest text-muted-foreground">SCORE</div>
-                  <div className="font-mono text-xs font-semibold text-foreground">{sector.strengthScore.toFixed(1)}</div>
-                </div>
-              </div>
-            </button>
+            </article>
           );
         })}
       </div>
@@ -76,18 +118,15 @@ export function MarketHeatmap({ stocks, sectorStatuses, uiState, activeSector, o
   );
 }
 
-function TrendIcon({ state }: { state: 'bullish' | 'neutral' | 'bearish' }) {
-  if (state === 'bullish') return <TrendingUp className="h-3 w-3 text-signal-buy" />;
-  if (state === 'bearish') return <TrendingDown className="h-3 w-3 text-signal-sell" />;
-  return <Minus className="h-3 w-3 text-signal-caution" />;
-}
-
-function toneClass(sector: SectorHeatCell): string {
-  if (sector.trendState === 'bullish') return 'border-signal-buy/20 bg-signal-buy/5';
-  if (sector.trendState === 'bearish') return 'border-signal-sell/20 bg-signal-sell/5';
-  return 'border-signal-caution/15 bg-signal-caution/5';
-}
-
-function formatSigned(value: number): string {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+function HeatmapLegend() {
+  const bands = [-3, -2, -1, 0, 1, 2, 3];
+  return (
+    <div className="flex items-center gap-1 text-[8px] font-mono text-muted-foreground">
+      {bands.map((band) => (
+        <span key={band} className={`rounded border px-1 py-0.5 ${heatmapCellClass(band)}`}>
+          {band > 0 ? `+${band}%` : `${band}%`}
+        </span>
+      ))}
+    </div>
+  );
 }

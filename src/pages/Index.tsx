@@ -41,6 +41,12 @@ const Index = () => {
   const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
   const metalsStocks = useMemo(() => stocks.filter(s => s.sector === 'Metals & Mining'), [stocks]);
 
+  const scannerStocks = useMemo(() => stocks.filter((stock) => {
+    if (activeSector && stock.sector !== activeSector) return false;
+    if (activeIndustry && stock.industry !== activeIndustry) return false;
+    return true;
+  }), [stocks, activeSector, activeIndustry]);
+
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
     sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
@@ -153,6 +159,9 @@ const Index = () => {
               sectorStatuses={sectorStatuses}
               uiState={providerStatus.uiState}
               activeSector={activeSector}
+              activeIndustry={activeIndustry}
+              onIndustrySelect={setActiveIndustry}
+              onStockSelect={(symbol) => navigate(`/stock/${symbol}`)}
               degradedMessage={
                 providerStatus.uiState === 'FALLBACK'
                   ? 'Fallback snapshot: sector values are tracked-universe strength only.'
@@ -213,12 +222,13 @@ const Index = () => {
                 <h3 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h3>
                 <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
                   WSP 3-layer engine · {equityStocks.length} equities · {metalsStocks.length} metals
+                  {activeSector && <> · Scope: {activeSector}{activeIndustry ? ` / ${activeIndustry}` : ''}</>}
                   {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> · {providerStatus.uiState}</span>}
                 </p>
               </div>
             </div>
-            <PatternSummary stocks={stocks} />
-            <StockTable stocks={stocks} discoveryMeta={discoveryMeta} />
+            <PatternSummary stocks={scannerStocks} />
+            <StockTable stocks={scannerStocks} discoveryMeta={discoveryMeta} />
           </div>
         )}
 

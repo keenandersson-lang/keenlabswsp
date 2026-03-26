@@ -23,6 +23,12 @@ interface EvaluateStockOptions {
     volume?: number;
     lastUpdated?: string;
   };
+  metadata?: {
+    exchange?: string;
+    assetClass?: 'equity' | 'metals' | 'commodity';
+    supportsFullWsp?: boolean;
+    wspSupport?: 'full' | 'limited';
+  };
 }
 
 export function computeEntryGate(
@@ -120,6 +126,10 @@ function buildEvaluatedStock({
   marketFavorable,
   dataSource,
   lastUpdated,
+  exchange,
+  assetClass,
+  supportsFullWsp,
+  wspSupport,
 }: {
   symbol: string;
   name: string;
@@ -134,6 +144,10 @@ function buildEvaluatedStock({
   marketFavorable: boolean;
   dataSource: 'live' | 'fallback';
   lastUpdated: string;
+  exchange?: string;
+  assetClass?: 'equity' | 'metals' | 'commodity';
+  supportsFullWsp?: boolean;
+  wspSupport?: 'full' | 'limited';
 }): EvaluatedStock {
   const gate = computeEntryGate(price, pattern, indicators, sectorAligned, marketFavorable);
   const finalRecommendation = mapRecommendation(pattern, gate);
@@ -145,6 +159,10 @@ function buildEvaluatedStock({
     name,
     sector,
     industry,
+    exchange,
+    assetClass,
+    supportsFullWsp,
+    wspSupport,
     price: Math.round(price * 100) / 100,
     changePercent: Math.round(changePercent * 100) / 100,
     volume,
@@ -205,5 +223,9 @@ export function evaluateStock(
     marketFavorable,
     dataSource,
     lastUpdated: override?.lastUpdated ?? new Date().toISOString(),
+    exchange: options?.metadata?.exchange,
+    assetClass: options?.metadata?.assetClass,
+    supportsFullWsp: options?.metadata?.supportsFullWsp,
+    wspSupport: options?.metadata?.wspSupport,
   });
 }

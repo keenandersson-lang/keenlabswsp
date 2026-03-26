@@ -253,6 +253,10 @@ export interface EvaluatedStock {
   name: string;
   sector: string;
   industry: string;
+  exchange?: string;
+  assetClass?: 'equity' | 'metals' | 'commodity';
+  supportsFullWsp?: boolean;
+  wspSupport?: 'full' | 'limited';
   price: number;
   changePercent: number;
   volume: number;
