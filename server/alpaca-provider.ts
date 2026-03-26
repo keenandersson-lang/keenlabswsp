@@ -3,7 +3,7 @@ import type { Bar } from '../src/lib/wsp-types';
 import type { ProviderFetchResult } from './finnhub-provider';
 
 const ALPACA_BASE_URL = 'https://data.alpaca.markets/v2';
-const HISTORY_CALENDAR_DAYS = 550;
+const HISTORY_CALENDAR_DAYS = 900;
 
 interface AlpacaBar {
   t: string;

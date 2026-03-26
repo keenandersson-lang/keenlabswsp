@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, type ReactNode, useMemo, useState } from 'react';
 import { BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, Brush, Cell } from 'recharts';
 import type { Bar as PriceBar, EvaluatedStock } from '@/lib/wsp-types';
 import type { ChartTimeframe } from '@/lib/chart-types';
@@ -75,6 +75,8 @@ export const StockChartModule = memo(function StockChartModule({
     });
   }, [zoomedBars, visibleBars, benchmarkBars]);
 
+  const hasMansfieldData = chartData.some((entry) => typeof entry.mansfield === 'number' && Number.isFinite(entry.mansfield));
+
   const breakoutIndex = stock.indicators.barsSinceBreakout !== null
     ? Math.max(0, chartData.length - 1 - stock.indicators.barsSinceBreakout)
     : null;
@@ -142,8 +144,8 @@ export const StockChartModule = memo(function StockChartModule({
           <ComposedChart data={chartData} syncId="stock-detail-sync" margin={{ left: 4, right: 8, top: 8, bottom: 24 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} minTickGap={36} />
-            <YAxis yAxisId="price" domain={['dataMin - 2', 'dataMax + 2']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} width={72} />
-            <Tooltip contentStyle={{ background: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--foreground))' }} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
+            <YAxis yAxisId="price" domain={[(value: number) => Math.max(0, value * 0.985), (value: number) => value * 1.015]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} width={72} />
+            <Tooltip content={<PriceTooltip />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
 
             <Bar yAxisId="price" dataKey="close" shape={<CandlestickShape />} isAnimationActive={false} />
 
@@ -154,6 +156,7 @@ export const StockChartModule = memo(function StockChartModule({
 
             {stock.audit.resistanceLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.resistanceLevel} stroke="#eab308" strokeDasharray="4 4" label={{ value: 'Resistance', fill: '#eab308', fontSize: 10 }} />}
             {stock.audit.breakoutLevel !== null && <ReferenceLine yAxisId="price" y={stock.audit.breakoutLevel} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: 'Breakout', fill: '#60a5fa', fontSize: 10 }} />}
+            {stock.audit.sma50 !== null && <ReferenceLine yAxisId="price" y={stock.audit.sma50} stroke="#10b981" strokeDasharray="5 3" label={{ value: 'Support (SMA50)', fill: '#34d399', fontSize: 10 }} />}
             {stock.audit.resistanceUpperBound !== null && stock.audit.resistanceLevel !== null && (
               <ReferenceArea yAxisId="price" y1={stock.audit.resistanceLevel} y2={stock.audit.resistanceUpperBound} fill="#eab308" fillOpacity={0.08} />
             )}
@@ -177,7 +180,7 @@ export const StockChartModule = memo(function StockChartModule({
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="date" hide />
               <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} width={54} />
-              <Tooltip contentStyle={{ background: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
+              <Tooltip content={<VolumeTooltip />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
               <Bar dataKey="volume" isAnimationActive={false}>
                 {chartData.map((entry) => <Cell key={`vol-${entry.date}`} fill={entry.isBull ? 'rgba(34,197,94,0.55)' : 'rgba(239,68,68,0.55)'} />)}
               </Bar>
@@ -186,20 +189,34 @@ export const StockChartModule = memo(function StockChartModule({
         </div>
 
         <div className="grid gap-3">
-          <IndicatorPanel title="RSI (14)" dataKey="rsi" data={chartData} thresholds={[70, 30]} />
-          <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} />
+          <IndicatorPanel title="RSI (14)" dataKey="rsi" data={chartData} thresholds={[70, 30]} emptyState="RSI needs at least 14 daily bars." />
+          <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} emptyState={hasMansfieldData ? null : 'Mansfield RS unavailable: benchmark alignment or lookback data is insufficient.'} />
         </div>
       </div>
     </div>
   );
 });
 
-function IndicatorPanel({ title, data, dataKey, thresholds }: {
+function IndicatorPanel({ title, data, dataKey, thresholds, emptyState }: {
   title: string;
   data: Array<Record<string, unknown>>;
   dataKey: string;
   thresholds: number[];
+  emptyState?: string | null;
 }) {
+  const hasValues = data.some((row) => typeof row[dataKey] === 'number' && Number.isFinite(row[dataKey] as number));
+
+  if (!hasValues) {
+    return (
+      <div className="h-[120px] rounded-md border border-border bg-background p-2">
+        <div className="mb-1 text-[11px] font-medium text-muted-foreground">{title}</div>
+        <div className="flex h-[85%] items-center justify-center text-center text-[11px] text-muted-foreground">
+          {emptyState ?? `${title} is unavailable for the selected range.`}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-[120px] rounded-md border border-border bg-background p-2">
       <div className="mb-1 text-[11px] font-medium text-muted-foreground">{title}</div>
@@ -208,13 +225,69 @@ function IndicatorPanel({ title, data, dataKey, thresholds }: {
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="date" hide />
           <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} width={42} />
-          <Tooltip contentStyle={{ background: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
+          <Tooltip content={<IndicatorTooltip title={title} valueKey={dataKey} />} cursor={{ stroke: 'hsl(var(--primary))', strokeDasharray: '4 4' }} />
           {thresholds.map((line) => <ReferenceLine key={`${title}-${line}`} y={line} stroke="rgba(148,163,184,0.6)" strokeDasharray="4 4" />)}
           <Line dataKey={dataKey} type="monotone" dot={false} stroke="#60a5fa" strokeWidth={1.5} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
+}
+
+function TooltipCard({ children }: { children: ReactNode }) {
+  return <div className="rounded-md border border-border bg-card/95 p-2 text-xs text-foreground shadow-lg backdrop-blur">{children}</div>;
+}
+
+function PriceTooltip({ active, payload, label }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const candle = payload[0]?.payload;
+  if (!candle) return null;
+
+  return (
+    <TooltipCard>
+      <div className="mb-1 text-[11px] font-semibold">{label}</div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px]">
+        <span>Open</span><span>{formatNumber(candle.open)}</span>
+        <span>High</span><span>{formatNumber(candle.high)}</span>
+        <span>Low</span><span>{formatNumber(candle.low)}</span>
+        <span>Close</span><span>{formatNumber(candle.close)}</span>
+        <span>SMA20</span><span>{formatNumber(candle.sma20)}</span>
+        <span>SMA50</span><span>{formatNumber(candle.sma50)}</span>
+        <span>SMA150</span><span>{formatNumber(candle.sma150)}</span>
+        <span>SMA200</span><span>{formatNumber(candle.sma200)}</span>
+        <span>RSI</span><span>{formatNumber(candle.rsi)}</span>
+        <span>Mansfield</span><span>{formatNumber(candle.mansfield)}</span>
+      </div>
+    </TooltipCard>
+  );
+}
+
+function VolumeTooltip({ active, payload, label }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <TooltipCard>
+      <div className="mb-1 text-[11px] font-semibold">{label}</div>
+      <div className="font-mono text-[11px]">Volume: {Math.round(Number(row.volume) || 0).toLocaleString()}</div>
+    </TooltipCard>
+  );
+}
+
+function IndicatorTooltip({ active, payload, label, title, valueKey }: any) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <TooltipCard>
+      <div className="mb-1 text-[11px] font-semibold">{label}</div>
+      <div className="font-mono text-[11px]">{title}: {formatNumber(row[valueKey])}</div>
+    </TooltipCard>
+  );
+}
+
+function formatNumber(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
 
 function CandlestickShape(props: any) {

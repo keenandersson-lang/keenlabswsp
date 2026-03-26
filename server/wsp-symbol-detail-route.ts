@@ -9,7 +9,7 @@ import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 import { BENCHMARK_LOOKUP } from '../src/lib/benchmarks';
 import { createMarketDataProvider } from './market-data-provider';
 
-const MAX_HISTORY_BARS = 540;
+const MAX_HISTORY_BARS = 756;
 
 export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: ServerResponse) {
   const requestUrl = new URL(req.url ?? '/', 'http://localhost');
