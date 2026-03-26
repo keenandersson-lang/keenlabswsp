@@ -1,5 +1,5 @@
 // WSP Screener Edge Function — Alpaca-backed with provider-aware caching
-// Uses Alpaca /v2/stocks endpoints for quotes and historical bars
+// Supports equities + metals/commodities
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,13 +8,14 @@ const corsHeaders = {
 
 const ALPACA_DATA_URL = 'https://data.alpaca.markets/v2';
 const HISTORY_CALENDAR_DAYS = 550;
-const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-26.3-alpaca';
+const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-26.4-metals';
 
 interface SymbolMeta {
   symbol: string;
   name: string;
   sector: string;
   industry: string;
+  assetClass?: string;
 }
 
 interface Bar {
@@ -27,7 +28,6 @@ interface Bar {
 }
 
 // ── Provider-aware cache ──
-// Cache keys include provider name so switching providers invalidates old data
 const barCache = new Map<string, { bars: Bar[]; fetchedAt: number; provider: string }>();
 const quoteCache = new Map<string, { price: number; change: number; changePercent: number; high: number; low: number; open: number; prevClose: number; timestamp: number; fetchedAt: number; provider: string }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -49,8 +49,6 @@ function getCachedQuote(symbol: string) {
   if (Date.now() - cached.fetchedAt > QUOTE_CACHE_TTL_MS) { quoteCache.delete(symbol); return null; }
   return cached;
 }
-
-// ── Alpaca fetch helpers ──
 
 async function alpacaFetch(path: string, keyId: string, secret: string): Promise<Response> {
   return fetch(`${ALPACA_DATA_URL}${path}`, {
@@ -74,7 +72,6 @@ async function fetchAlpacaSnapshots(
   const result: Record<string, any> = {};
   if (symbols.length === 0) return result;
 
-  // Check cache first
   const uncached: string[] = [];
   for (const sym of symbols) {
     const cached = getCachedQuote(sym);
@@ -143,7 +140,6 @@ async function fetchAlpacaBars(
 ): Promise<Record<string, { bars: Bar[]; stale: boolean; error?: string }>> {
   const results: Record<string, { bars: Bar[]; stale: boolean; error?: string }> = {};
 
-  // Check cache
   const uncached: string[] = [];
   for (const sym of symbols) {
     const cached = getCachedBars(sym);
@@ -156,7 +152,6 @@ async function fetchAlpacaBars(
 
   if (uncached.length === 0) return results;
 
-  // Batch fetch (Alpaca supports multi-symbol bars)
   const BATCH = 10;
   for (let i = 0; i < uncached.length; i += BATCH) {
     const batch = uncached.slice(i, i + BATCH);
@@ -223,26 +218,35 @@ function isDateStale(dateStr?: string): boolean {
 }
 
 const TRACKED_SYMBOLS: SymbolMeta[] = [
-  { symbol: 'NVDA', name: 'NVIDIA Corp', sector: 'Technology', industry: 'Semiconductors' },
-  { symbol: 'AAPL', name: 'Apple Inc', sector: 'Technology', industry: 'Consumer Electronics' },
-  { symbol: 'MSFT', name: 'Microsoft Corp', sector: 'Technology', industry: 'Software' },
-  { symbol: 'AMZN', name: 'Amazon.com Inc', sector: 'Consumer Discretionary', industry: 'E-Commerce' },
-  { symbol: 'META', name: 'Meta Platforms', sector: 'Communication Services', industry: 'Social Media' },
-  { symbol: 'TSLA', name: 'Tesla Inc', sector: 'Consumer Discretionary', industry: 'Auto Manufacturers' },
-  { symbol: 'GOOGL', name: 'Alphabet Inc', sector: 'Communication Services', industry: 'Internet Services' },
-  { symbol: 'JPM', name: 'JPMorgan Chase', sector: 'Financials', industry: 'Banks' },
-  { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy', industry: 'Oil & Gas' },
-  { symbol: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', industry: 'Pharmaceuticals' },
-  { symbol: 'UNH', name: 'UnitedHealth Group', sector: 'Healthcare', industry: 'Health Insurance' },
-  { symbol: 'CAT', name: 'Caterpillar Inc', sector: 'Industrials', industry: 'Construction Equipment' },
-  { symbol: 'BA', name: 'Boeing Co', sector: 'Industrials', industry: 'Aerospace & Defense' },
-  { symbol: 'AVGO', name: 'Broadcom Inc', sector: 'Technology', industry: 'Semiconductors' },
-  { symbol: 'V', name: 'Visa Inc', sector: 'Financials', industry: 'Payment Processing' },
-  { symbol: 'AMD', name: 'Advanced Micro Devices', sector: 'Technology', industry: 'Semiconductors' },
-  { symbol: 'NFLX', name: 'Netflix Inc', sector: 'Communication Services', industry: 'Streaming' },
-  { symbol: 'CRM', name: 'Salesforce Inc', sector: 'Technology', industry: 'Software' },
-  { symbol: 'COST', name: 'Costco Wholesale', sector: 'Consumer Discretionary', industry: 'Retail' },
-  { symbol: 'HD', name: 'Home Depot Inc', sector: 'Consumer Discretionary', industry: 'Home Improvement' },
+  // Equities
+  { symbol: 'NVDA', name: 'NVIDIA Corp', sector: 'Technology', industry: 'Semiconductors', assetClass: 'equity' },
+  { symbol: 'AAPL', name: 'Apple Inc', sector: 'Technology', industry: 'Consumer Electronics', assetClass: 'equity' },
+  { symbol: 'MSFT', name: 'Microsoft Corp', sector: 'Technology', industry: 'Software', assetClass: 'equity' },
+  { symbol: 'AMZN', name: 'Amazon.com Inc', sector: 'Consumer Discretionary', industry: 'E-Commerce', assetClass: 'equity' },
+  { symbol: 'META', name: 'Meta Platforms', sector: 'Communication Services', industry: 'Social Media', assetClass: 'equity' },
+  { symbol: 'TSLA', name: 'Tesla Inc', sector: 'Consumer Discretionary', industry: 'Auto Manufacturers', assetClass: 'equity' },
+  { symbol: 'GOOGL', name: 'Alphabet Inc', sector: 'Communication Services', industry: 'Internet Services', assetClass: 'equity' },
+  { symbol: 'JPM', name: 'JPMorgan Chase', sector: 'Financials', industry: 'Banks', assetClass: 'equity' },
+  { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy', industry: 'Oil & Gas', assetClass: 'equity' },
+  { symbol: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', industry: 'Pharmaceuticals', assetClass: 'equity' },
+  { symbol: 'UNH', name: 'UnitedHealth Group', sector: 'Healthcare', industry: 'Health Insurance', assetClass: 'equity' },
+  { symbol: 'CAT', name: 'Caterpillar Inc', sector: 'Industrials', industry: 'Construction Equipment', assetClass: 'equity' },
+  { symbol: 'BA', name: 'Boeing Co', sector: 'Industrials', industry: 'Aerospace & Defense', assetClass: 'equity' },
+  { symbol: 'AVGO', name: 'Broadcom Inc', sector: 'Technology', industry: 'Semiconductors', assetClass: 'equity' },
+  { symbol: 'V', name: 'Visa Inc', sector: 'Financials', industry: 'Payment Processing', assetClass: 'equity' },
+  { symbol: 'AMD', name: 'Advanced Micro Devices', sector: 'Technology', industry: 'Semiconductors', assetClass: 'equity' },
+  { symbol: 'NFLX', name: 'Netflix Inc', sector: 'Communication Services', industry: 'Streaming', assetClass: 'equity' },
+  { symbol: 'CRM', name: 'Salesforce Inc', sector: 'Technology', industry: 'Software', assetClass: 'equity' },
+  { symbol: 'COST', name: 'Costco Wholesale', sector: 'Consumer Discretionary', industry: 'Retail', assetClass: 'equity' },
+  { symbol: 'HD', name: 'Home Depot Inc', sector: 'Consumer Discretionary', industry: 'Home Improvement', assetClass: 'equity' },
+  // Metals & Mining
+  { symbol: 'GLD', name: 'SPDR Gold Trust', sector: 'Metals & Mining', industry: 'Gold', assetClass: 'metals' },
+  { symbol: 'SLV', name: 'iShares Silver Trust', sector: 'Metals & Mining', industry: 'Silver', assetClass: 'metals' },
+  { symbol: 'COPX', name: 'Global X Copper Miners', sector: 'Metals & Mining', industry: 'Copper', assetClass: 'metals' },
+  { symbol: 'GDX', name: 'VanEck Gold Miners ETF', sector: 'Metals & Mining', industry: 'Gold Miners', assetClass: 'metals' },
+  { symbol: 'NEM', name: 'Newmont Corp', sector: 'Metals & Mining', industry: 'Gold Miners', assetClass: 'metals' },
+  { symbol: 'FCX', name: 'Freeport-McMoRan', sector: 'Metals & Mining', industry: 'Copper', assetClass: 'metals' },
+  { symbol: 'PPLT', name: 'abrdn Platinum ETF', sector: 'Metals & Mining', industry: 'Platinum', assetClass: 'metals' },
 ];
 
 const BENCHMARK = 'SPY';
@@ -259,6 +263,7 @@ const SECTOR_ETFS: Record<string, string[]> = {
   Materials: ['XLB'],
   'Real Estate': ['XLRE'],
   Utilities: ['XLU'],
+  'Metals & Mining': ['GDX'],
 };
 
 Deno.serve(async (req: Request) => {
@@ -283,7 +288,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // All symbols we need quotes for
     const allEtfs = [...new Set(Object.values(SECTOR_ETFS).flat())];
     const allQuoteSymbols = [...new Set([
       ...MARKET_REGIME_SYMBOLS,
@@ -291,15 +295,12 @@ Deno.serve(async (req: Request) => {
       ...TRACKED_SYMBOLS.map(s => s.symbol),
     ])];
 
-    // Step 1: Fetch snapshots (quotes) for all symbols — single batch call
     const snapshots = await fetchAlpacaSnapshots(allQuoteSymbols, keyId, secret);
 
-    // Validate API key
     const spySnap = snapshots['SPY'];
     const qqqSnap = snapshots['QQQ'];
 
     if (spySnap === null && qqqSnap === null) {
-      // Both null = likely auth failure
       return jsonResponse(200, {
         ok: false, mode: 'FALLBACK', data: null,
         error: { code: 'API_KEY_INVALID', message: 'Market data provider authentication failed.' },
@@ -314,7 +315,6 @@ Deno.serve(async (req: Request) => {
 
     const benchmarkSuccessCount = MARKET_REGIME_SYMBOLS.filter(s => snapshots[s] !== null).length;
 
-    // Step 2: Fetch historical bars for all symbols
     const allBarSymbols = [...new Set([
       ...MARKET_REGIME_SYMBOLS,
       ...allEtfs,
@@ -323,7 +323,6 @@ Deno.serve(async (req: Request) => {
 
     const barResults = await fetchAlpacaBars(allBarSymbols, keyId, secret);
 
-    // Build response data
     const marketBars: Record<string, Bar[]> = {};
     const sectorEtfBars: Record<string, Bar[]> = {};
     const stockBarData: Record<string, Bar[]> = {};
@@ -354,7 +353,6 @@ Deno.serve(async (req: Request) => {
     const anyStale = [...Object.values(barResults)].some(r => r.stale);
     const mode = hasCandleAccess ? (anyStale ? 'STALE' : 'LIVE') : 'STALE';
 
-    // Build quotes map for client
     const quotesMap: Record<string, any> = {};
     for (const [sym, snap] of Object.entries(snapshots)) {
       if (snap) quotesMap[sym] = snap;
@@ -395,7 +393,7 @@ Deno.serve(async (req: Request) => {
         benchmarkSuccessCount,
         benchmarkFailureCount: MARKET_REGIME_SYMBOLS.length - benchmarkSuccessCount,
         finalModeReason: hasCandleAccess
-          ? (anyStale ? `Alpaca bars available but some stale. Benchmarks: ${benchmarkSuccessCount}/2.` : `Full live Alpaca data. Benchmarks: ${benchmarkSuccessCount}/2.`)
+          ? (anyStale ? `Alpaca bars available but some stale. ${TRACKED_SYMBOLS.length} symbols (incl. metals). Benchmarks: ${benchmarkSuccessCount}/2.` : `Full live Alpaca data. ${TRACKED_SYMBOLS.length} symbols (incl. metals). Benchmarks: ${benchmarkSuccessCount}/2.`)
           : `Alpaca quotes live but insufficient bar history. ${Object.keys(quotesMap).length} quotes available.`,
         fallbackCause: mode === 'LIVE' ? 'none' : 'necessary',
         cacheInvalidated: true,
