@@ -57,7 +57,7 @@ export function barsForTimeframe(
   weeklyBars: Bar[],
 ): { bars: Bar[]; cadence: 'daily' | 'weekly' } {
   const range = DAY_RANGES[timeframe];
-  const useWeekly = timeframe === '1Y' || timeframe === '2Y';
+  const useWeekly = false;
   const source = useWeekly ? weeklyBars : dailyBars;
   const barCount = useWeekly ? Math.ceil(range / 5) : range;
 
