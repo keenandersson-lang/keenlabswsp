@@ -28,6 +28,7 @@ interface EdgeFunctionResponse {
     provider: string;
     isLive: boolean;
     apiKeyPresent: boolean;
+    apiKeyValid?: boolean;
     symbolsFetched?: number;
     symbolsFailed?: number;
     totalSymbols?: number;
