@@ -25,7 +25,7 @@ interface EdgeFunctionResponse {
   ok: boolean;
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
   data: {
-    trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string }>;
+    trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string; exchange?: string; assetClass?: string; supportsFullWsp?: boolean; wspSupport?: string }>;
     stockBars: Record<string, Bar[]>;
     benchmarkBars: Bar[];
     benchmarkSymbol: string;
@@ -352,10 +352,10 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           sectorAligned, marketFavorable, 'live',
           {
             metadata: {
-              exchange: meta.exchange,
-              assetClass: meta.assetClass,
-              supportsFullWsp: meta.supportsFullWsp,
-              wspSupport: meta.wspSupport,
+              exchange: meta.exchange ?? '',
+              assetClass: (meta.assetClass as 'equity' | 'commodity' | 'metals') ?? 'equity',
+              supportsFullWsp: meta.supportsFullWsp ?? true,
+              wspSupport: (meta.wspSupport as 'full' | 'limited') ?? 'full',
             },
           },
         );
