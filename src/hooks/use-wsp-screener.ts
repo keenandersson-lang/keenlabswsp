@@ -276,21 +276,25 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   // LIVE / STALE: compute indicators client-side from raw bars
   const { data } = edgeResp;
   const benchmarkBars = data.benchmarkBars;
+  const quotes = edgeResp.quotes ?? {};
 
   const marketFromPayload = edgeResp.market;
   const hasRenderablePayloadBenchmarks = marketFromPayload &&
     marketFromPayload.sp500Price !== null &&
     marketFromPayload.nasdaqPrice !== null;
 
-  // Build market overview (prefer backend-computed market if present/renderable)
+  // Build market overview — use quotes for prices when available (free tier compatible)
   const spyBars = data.marketBars['SPY'] ?? [];
   const qqqBars = data.marketBars['QQQ'] ?? [];
-  const spyPrice = spyBars[spyBars.length - 1]?.close ?? null;
-  const qqqPrice = qqqBars[qqqBars.length - 1]?.close ?? null;
-  const sp500Change = computeDailyChange(spyBars);
-  const nasdaqChange = computeDailyChange(qqqBars);
-  const spyBullish = isSeriesBullish(spyBars);
-  const qqqBullish = isSeriesBullish(qqqBars);
+  const spyQuote = quotes['SPY'];
+  const qqqQuote = quotes['QQQ'];
+  const spyPrice = spyQuote?.price ?? spyBars[spyBars.length - 1]?.close ?? null;
+  const qqqPrice = qqqQuote?.price ?? qqqBars[qqqBars.length - 1]?.close ?? null;
+  const sp500Change = spyQuote?.changePercent ?? computeDailyChange(spyBars);
+  const nasdaqChange = qqqQuote?.changePercent ?? computeDailyChange(qqqBars);
+  const hasCandleAccess = edgeResp.providerStatus.hasCandleAccess ?? (spyBars.length > 10);
+  const spyBullish = hasCandleAccess ? isSeriesBullish(spyBars) : (spyQuote ? spyQuote.price > spyQuote.prevClose : false);
+  const qqqBullish = hasCandleAccess ? isSeriesBullish(qqqBars) : (qqqQuote ? qqqQuote.price > qqqQuote.prevClose : false);
   const marketTrend = spyBullish && qqqBullish ? 'bullish' as const
     : (!spyBullish && !qqqBullish ? 'bearish' as const : 'neutral' as const);
   const marketFavorable = (hasRenderablePayloadBenchmarks ? marketFromPayload.marketTrend : marketTrend) === 'bullish';
