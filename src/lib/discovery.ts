@@ -134,7 +134,7 @@ export function buildIndustryHeatmap(
         breakoutCount,
         bullishRatio,
         strengthScore: Number(strengthScore.toFixed(2)),
-        valueMode: 'tracked_strength',
+        valueMode: 'tracked_strength' as RankValueMode,
         displayValue: Number(strengthScore.toFixed(2)),
         confidence: confidenceFromSample(items.length, uiState),
         valueLabel: 'Tracked strength score',
