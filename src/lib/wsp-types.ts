@@ -374,7 +374,7 @@ export interface ProviderStatus {
     routeVersion: string;
     buildMarker: string;
     finalModeReason: string;
-    fallbackCause: 'necessary' | 'misconfiguration' | 'unknown';
+    fallbackCause: 'necessary' | 'misconfiguration' | 'unknown' | 'none';
   };
 }
 
