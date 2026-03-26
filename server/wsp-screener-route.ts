@@ -6,14 +6,14 @@ import { demoMarket, demoStocks } from '../src/lib/demo-data';
 import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
 import type { Bar, MarketOverview, ProviderReadiness, ScreenerApiResponse, ScreenerUiState, SectorStatus } from '../src/lib/wsp-types';
-import { FinnhubProvider } from './finnhub-provider';
+import { createMarketDataProvider } from './market-data-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 import { buildDiscoverySnapshot } from '../src/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '../src/lib/benchmarks';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
-const ROUTE_VERSION = 'wsp-screener-route@2026-03-24.1';
+const ROUTE_VERSION = 'wsp-screener-route@2026-03-26.1';
 
 let cachedLiveSnapshot: ScreenerApiResponse | null = null;
 let inFlightRefresh: Promise<ScreenerApiResponse> | null = null;
@@ -156,23 +156,27 @@ async function getScreenerSnapshot({ forceRefresh, pollingIntervalMs }: { forceR
 
 async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResponse> {
   let stage: PipelineStage = 'init';
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) {
+  const providerSelection = createMarketDataProvider();
+  if (!providerSelection.envVarPresent) {
     stage = 'env_check';
     return createFallbackResponse(
       'Provider authentication failed. Check server configuration.',
       pollingIntervalMs,
       stage,
-      'Missing FINNHUB_API_KEY env var.',
+      providerSelection.providerName === 'alpaca'
+        ? 'Missing ALPACA_API_KEY_ID or ALPACA_API_SECRET_KEY env var.'
+        : 'Missing FINNHUB_API_KEY env var.',
       false,
       0,
       2,
       0,
       TRACKED_SYMBOLS.length,
+      providerSelection.providerName,
+      false,
     );
   }
 
-  const provider = new FinnhubProvider(apiKey);
+  const provider = providerSelection.provider;
   stage = 'benchmark_fetch';
 
   try {
@@ -223,6 +227,8 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         Math.max(2, benchmarkFailures),
         0,
         TRACKED_SYMBOLS.length,
+        provider.providerName,
+        providerSelection.envVarPresent,
       );
     }
 
@@ -253,7 +259,14 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
     const sectorStatuses = buildSectorStatuses(sectorBars);
     const sectorStatusMap = Object.fromEntries(sectorStatuses.map((item) => [item.sector, item])) as Record<string, SectorStatus>;
     stage = 'snapshot_build';
-    const marketOverview = buildMarketOverview(marketSeries, pollingIntervalMs);
+    const quoteUniverse = [...new Set([
+      SP500_BENCHMARK.symbol,
+      NASDAQ_BENCHMARK.symbol,
+      ...TRACKED_SYMBOLS.map((item) => item.symbol),
+      ...sectorEtfSymbols,
+    ])];
+    const latestQuotes = await provider.fetchLatestQuotes(quoteUniverse);
+    const marketOverview = buildMarketOverview(marketSeries, pollingIntervalMs, latestQuotes);
     const benchmarkQuality = assessBenchmarkQuality(marketOverview);
     const marketFavorable = marketOverview.marketTrend === 'bullish';
 
@@ -275,7 +288,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
     if (evaluatedStocks.length === 0) {
       stage = 'fallback_build';
       return createFallbackResponse(
-        'Finnhub returned no successful stock histories.',
+        `${provider.providerName} returned no successful stock histories.`,
         pollingIntervalMs,
         stage,
         'All tracked stock symbol fetches failed after benchmark success.',
@@ -284,14 +297,18 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         benchmarkFailures,
         0,
         TRACKED_SYMBOLS.length,
+        provider.providerName,
+        true,
       );
     }
 
+    const quoteStale = quoteUniverse.some((symbol) => latestQuotes[symbol]?.stale);
     const anyStale = Object.values(marketSeries).some((series) => series.stale) ||
       resolvedStockResults.some(({ result }) => result.stale) ||
       resolvedSectorResults.some(({ result }) => result.stale) ||
       failedSymbols.length > 0 ||
-      missingMarketSymbols.length > 0;
+      missingMarketSymbols.length > 0 ||
+      quoteStale;
 
     const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
     const { discovery, discoveryMeta } = buildDiscoverySnapshot(evaluatedStocks, uiState);
@@ -313,11 +330,13 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         benchmarkFailures + benchmarkQuality.missingSymbols.length,
         evaluatedStocks.length,
         failedSymbols.length,
+        provider.providerName,
+        true,
       );
     }
     const lastFetch = new Date().toISOString();
     const readiness = createReadiness({
-      envVarPresent: true,
+      envVarPresent: providerSelection.envVarPresent,
       routeReachable: true,
       symbolsFetchedSuccessfully: evaluatedStocks.length,
       symbolsFailed: failedSymbols.length,
@@ -338,7 +357,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       discoveryMeta,
       sectorStatuses,
       providerStatus: {
-        provider: 'finnhub',
+        provider: provider.providerName,
         isLive: uiState === 'LIVE',
         uiState,
         lastFetch,
@@ -346,7 +365,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         successCount: evaluatedStocks.length,
         errorMessage: failedSymbols.length > 0
           ? 'Market data temporarily unavailable.'
-          : (anyStale ? 'One or more Finnhub series are stale.' : null),
+          : (anyStale ? `One or more ${provider.providerName} datasets are stale or limited on the free feed.` : null),
         isFallback: false,
         fallbackActive: false,
         symbolCount: TRACKED_SYMBOLS.length,
@@ -358,7 +377,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           stage: 'completed',
           finalModeReason: uiState === 'LIVE'
             ? 'All critical benchmark and stock datasets fetched successfully.'
-            : 'Using stale/partial live dataset because one or more provider fetches failed or were stale.',
+            : `Using stale/partial live dataset because one or more ${provider.providerName} fetches failed, were stale, or had free-feed limitations.`,
           providerAuth: 'success',
           benchmarkSuccessCount: benchmarkSuccesses.length,
           benchmarkFailureCount: benchmarkFailures,
@@ -376,7 +395,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           staleSnapshotQualityReason: uiState === 'STALE' ? snapshotQuality.reason : undefined,
         },
         runtimeDiagnostics: {
-          envKeyPresent: true,
+          envKeyPresent: providerSelection.envVarPresent,
           edgeFunctionReachable: true,
           fetchTarget: '/api/wsp-screener',
           authOutcome: 'not_required',
@@ -385,14 +404,14 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
           finalModeReason: uiState === 'LIVE'
             ? 'All critical benchmark and stock datasets fetched successfully.'
-            : 'Using stale/partial live dataset because one or more provider fetches failed or were stale.',
+            : `Using stale/partial live dataset because one or more ${provider.providerName} fetches failed, were stale, or had free-feed limitations.`,
           fallbackCause: anyStale ? 'necessary' : 'unknown',
         },
       },
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
   } catch (error) {
-    const message = sanitizeClientErrorMessage(error instanceof Error ? error.message : 'Failed to refresh Finnhub data');
+    const message = sanitizeClientErrorMessage(error instanceof Error ? error.message : `Failed to refresh ${provider.providerName} data`);
 
     if (cachedLiveSnapshot) {
       const cachedBenchmarkQuality = assessBenchmarkQuality(cachedLiveSnapshot.market);
@@ -412,6 +431,8 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           2,
           cachedLiveSnapshot.providerStatus.successCount,
           cachedLiveSnapshot.providerStatus.failedSymbols.length,
+          provider.providerName,
+          providerSelection.envVarPresent,
         );
       }
 
@@ -425,7 +446,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           benchmarkFetchStatus: cachedLiveSnapshot.providerStatus.benchmarkFetchStatus,
           refreshIntervalMs: pollingIntervalMs,
           readiness: createReadiness({
-            envVarPresent: true,
+            envVarPresent: providerSelection.envVarPresent,
             routeReachable: true,
             symbolsFetchedSuccessfully: cachedLiveSnapshot.providerStatus.successCount,
             symbolsFailed: cachedLiveSnapshot.providerStatus.failedSymbols.length,
@@ -433,7 +454,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           debugPipeline: {
             stage,
             finalModeReason: 'Serving cached stale snapshot after live refresh failed.',
-            providerAuth: 'success',
+            providerAuth: providerSelection.envVarPresent ? 'success' : 'failed',
             benchmarkSuccessCount: cachedLiveSnapshot.providerStatus.benchmarkFetchStatus === 'failed' ? 0 : 1,
             benchmarkFailureCount: cachedLiveSnapshot.providerStatus.benchmarkFetchStatus === 'failed' ? 1 : 0,
             stockSuccessCount: cachedLiveSnapshot.providerStatus.successCount,
@@ -450,7 +471,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
             staleSnapshotQualityReason: cachedSnapshotQuality.reason,
           },
           runtimeDiagnostics: {
-            envKeyPresent: true,
+            envKeyPresent: providerSelection.envVarPresent,
             edgeFunctionReachable: true,
             fetchTarget: '/api/wsp-screener',
             authOutcome: 'not_required',
@@ -474,6 +495,8 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
       2,
       0,
       TRACKED_SYMBOLS.length,
+      provider.providerName,
+      providerSelection.envVarPresent,
     );
   }
 }
@@ -500,17 +523,24 @@ function createReadiness({
   };
 }
 
-function buildMarketOverview(marketSeries: Record<string, { bars: Bar[]; stale: boolean }>, pollingIntervalMs: number): MarketOverview {
+function buildMarketOverview(
+  marketSeries: Record<string, { bars: Bar[]; stale: boolean }>,
+  pollingIntervalMs: number,
+  latestQuotes: Record<string, { price: number | null; stale: boolean }>,
+): MarketOverview {
   const spyBars = marketSeries[SP500_BENCHMARK.symbol]?.bars ?? [];
   const qqqBars = marketSeries[NASDAQ_BENCHMARK.symbol]?.bars ?? [];
-  const spyLatestPrice = spyBars[spyBars.length - 1]?.close ?? null;
-  const qqqLatestPrice = qqqBars[qqqBars.length - 1]?.close ?? null;
+  const spyLatestPrice = latestQuotes[SP500_BENCHMARK.symbol]?.price ?? spyBars[spyBars.length - 1]?.close ?? null;
+  const qqqLatestPrice = latestQuotes[NASDAQ_BENCHMARK.symbol]?.price ?? qqqBars[qqqBars.length - 1]?.close ?? null;
   const sp500Change = computeDailyChange(spyBars);
   const nasdaqChange = computeDailyChange(qqqBars);
   const spyBullish = isSeriesBullish(spyBars);
   const qqqBullish = isSeriesBullish(qqqBars);
   const marketTrend = spyBullish && qqqBullish ? 'bullish' : (!spyBullish && !qqqBullish ? 'bearish' : 'neutral');
-  const anyStale = marketSeries[SP500_BENCHMARK.symbol]?.stale || marketSeries[NASDAQ_BENCHMARK.symbol]?.stale;
+  const anyStale = marketSeries[SP500_BENCHMARK.symbol]?.stale ||
+    marketSeries[NASDAQ_BENCHMARK.symbol]?.stale ||
+    latestQuotes[SP500_BENCHMARK.symbol]?.stale ||
+    latestQuotes[NASDAQ_BENCHMARK.symbol]?.stale;
   const benchmarkState = anyStale ? 'stale' : 'live';
 
   return {
@@ -574,9 +604,13 @@ function createFallbackResponse(
   benchmarkFailureCount = 2,
   stockSuccessCount = 0,
   stockFailureCount = TRACKED_SYMBOLS.length,
+  providerName: 'alpaca' | 'finnhub' | 'demo' = 'demo',
+  envVarPresent = Boolean(process.env.FINNHUB_API_KEY),
 ): ScreenerApiResponse {
   const safeReason = sanitizeClientErrorMessage(reason, 'Live provider unavailable. Demo mode active.');
   const lastFetch = new Date().toISOString();
+  const providerLabel = providerName === 'demo' ? 'provider' : providerName;
+  const modeReason = finalModeReason.includes('provider') ? finalModeReason : `${providerLabel}: ${finalModeReason}`;
   const fallbackSectorStatuses = Object.keys(WSP_CONFIG.sectorMap).map((sector) => {
     const sectorStocks = demoStocks.filter((stock) => stock.sector === sector);
     const bullishCount = sectorStocks.filter((stock) => stock.gate.sectorAligned).length;
@@ -621,15 +655,15 @@ function createFallbackResponse(
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
       readiness: createReadiness({
-        envVarPresent: Boolean(process.env.FINNHUB_API_KEY),
+        envVarPresent,
         routeReachable: true,
         symbolsFetchedSuccessfully: stockSuccessCount,
         symbolsFailed: stockFailureCount,
       }),
       debugPipeline: {
         stage,
-        finalModeReason,
-        providerAuth: Boolean(process.env.FINNHUB_API_KEY) ? 'success' : 'failed',
+        finalModeReason: modeReason,
+        providerAuth: envVarPresent ? 'success' : 'failed',
         benchmarkSuccessCount,
         benchmarkFailureCount,
         stockSuccessCount,
@@ -644,15 +678,15 @@ function createFallbackResponse(
         discoveryDataPresent: true,
       },
       runtimeDiagnostics: {
-        envKeyPresent: Boolean(process.env.FINNHUB_API_KEY),
+        envKeyPresent: envVarPresent,
         edgeFunctionReachable: true,
         fetchTarget: '/api/wsp-screener',
         authOutcome: 'not_required',
         benchmarkFetch: benchmarkSuccessCount > 0 ? 'stale' : 'failed',
         routeVersion: ROUTE_VERSION,
         buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
-        finalModeReason,
-        fallbackCause: classifyFallbackCause(finalModeReason, Boolean(process.env.FINNHUB_API_KEY), true),
+        finalModeReason: modeReason,
+        fallbackCause: classifyFallbackCause(modeReason, envVarPresent, true),
       },
     },
     debugSummary: buildScreenerDebugSummary(demoStocks),
@@ -660,6 +694,7 @@ function createFallbackResponse(
 }
 
 function createErrorResponse(reason: string, pollingIntervalMs: number, routeReachable: boolean, stage: PipelineStage = 'snapshot_build'): ScreenerApiResponse {
+  const providerSelection = createMarketDataProvider();
   const safeReason = sanitizeClientErrorMessage(reason);
   return {
     market: {
@@ -673,7 +708,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
     ...buildDiscoverySnapshot([], 'ERROR'),
     sectorStatuses: [],
     providerStatus: {
-      provider: 'finnhub',
+      provider: providerSelection.providerName,
       isLive: false,
       uiState: 'ERROR',
       lastFetch: null,
@@ -687,7 +722,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
       benchmarkFetchStatus: 'failed',
       refreshIntervalMs: pollingIntervalMs,
       readiness: createReadiness({
-        envVarPresent: Boolean(process.env.FINNHUB_API_KEY),
+        envVarPresent: providerSelection.envVarPresent,
         routeReachable,
         symbolsFetchedSuccessfully: 0,
         symbolsFailed: TRACKED_SYMBOLS.length,
@@ -695,7 +730,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
       debugPipeline: {
         stage,
         finalModeReason: 'No renderable live, stale, or fallback snapshot exists.',
-        providerAuth: Boolean(process.env.FINNHUB_API_KEY) ? 'success' : 'failed',
+        providerAuth: providerSelection.envVarPresent ? 'success' : 'failed',
         benchmarkSuccessCount: 0,
         benchmarkFailureCount: 2,
         stockSuccessCount: 0,
@@ -704,7 +739,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
         fallbackBuild: 'failed',
       },
       runtimeDiagnostics: {
-        envKeyPresent: Boolean(process.env.FINNHUB_API_KEY),
+        envKeyPresent: providerSelection.envVarPresent,
         edgeFunctionReachable: routeReachable,
         fetchTarget: '/api/wsp-screener',
         authOutcome: 'not_required',
@@ -712,7 +747,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
         routeVersion: ROUTE_VERSION,
         buildMarker: process.env.VITE_APP_BUILD_MARKER ?? 'server-runtime',
         finalModeReason: 'No renderable live, stale, or fallback snapshot exists.',
-        fallbackCause: classifyFallbackCause('No renderable live, stale, or fallback snapshot exists.', Boolean(process.env.FINNHUB_API_KEY), routeReachable),
+        fallbackCause: classifyFallbackCause('No renderable live, stale, or fallback snapshot exists.', providerSelection.envVarPresent, routeReachable),
       },
     },
     debugSummary: buildScreenerDebugSummary([]),

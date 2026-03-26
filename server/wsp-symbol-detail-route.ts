@@ -3,11 +3,11 @@ import { URL } from 'node:url';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
 import { TRACKED_SYMBOLS } from '../src/lib/tracked-symbols';
 import { normalizeBarsChronologically } from '../src/lib/wsp-indicators';
-import { FinnhubProvider } from './finnhub-provider';
 import { aggregateBarsWeekly } from '../src/lib/charting';
 import type { StockDetailApiResponse } from '../src/lib/chart-types';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 import { BENCHMARK_LOOKUP } from '../src/lib/benchmarks';
+import { createMarketDataProvider } from './market-data-provider';
 
 const MAX_HISTORY_BARS = 540;
 
@@ -25,13 +25,13 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
     return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in TRACKED_SYMBOLS.` } } satisfies StockDetailApiResponse);
   }
 
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) {
+  const providerSelection = createMarketDataProvider();
+  if (!providerSelection.envVarPresent) {
     return sendJson(res, 503, { ok: false, data: null, error: { code: 'MISSING_API_KEY', message: 'Provider authentication failed. Check server configuration.' } } satisfies StockDetailApiResponse);
   }
 
   try {
-    const provider = new FinnhubProvider(apiKey);
+    const provider = providerSelection.provider;
     const [stockDailyResult, benchmarkDailyResult] = await Promise.all([
       provider.fetchDailyHistory(symbol),
       provider.fetchDailyHistory(WSP_CONFIG.benchmark),

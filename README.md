@@ -77,7 +77,11 @@ Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/c
 Create a `.env` file in the project root and set:
 
 ```sh
-FINNHUB_API_KEY=your_finnhub_api_key_here
+MARKET_DATA_PROVIDER=alpaca
+ALPACA_API_KEY_ID=your_alpaca_key_id_here
+ALPACA_API_SECRET_KEY=your_alpaca_secret_here
+# Optional fallback path:
+# FINNHUB_API_KEY=your_finnhub_api_key_here
 ```
 
-The WSP screener now fetches live daily history server-side from Finnhub via `/api/wsp-screener`, and only falls back to demo data when Finnhub is unavailable or misconfigured.
+The WSP screener now fetches live quotes + daily history server-side via `/api/wsp-screener` using Alpaca Basic (`feed=iex`) by default. You can switch providers with `MARKET_DATA_PROVIDER=finnhub` if you explicitly want Finnhub.

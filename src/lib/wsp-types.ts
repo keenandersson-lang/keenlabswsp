@@ -323,7 +323,7 @@ export interface SectorStatus {
 }
 
 export interface ProviderStatus {
-  provider: 'finnhub' | 'demo';
+  provider: 'alpaca' | 'finnhub' | 'demo';
   isLive: boolean;
   uiState: ScreenerUiState;
   lastFetch: string | null;
