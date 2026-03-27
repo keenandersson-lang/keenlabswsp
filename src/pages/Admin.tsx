@@ -284,20 +284,43 @@ export default function Admin() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={runBackfill}>Starta backfill</AlertDialogAction>
+                  <AlertDialogAction onClick={() => runBackfill(0)}>Starta backfill</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
 
+          {/* Resume from offset */}
+          {!running && resumeOffset > 0 && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs font-mono text-muted-foreground">Resume från offset:</span>
+              <input
+                type="number"
+                value={resumeOffset}
+                onChange={(e) => setResumeOffset(Number(e.target.value))}
+                className="w-24 bg-muted border border-border rounded px-2 py-1 text-xs font-mono text-foreground"
+              />
+              <Button onClick={() => runBackfill(resumeOffset)} variant="outline" size="sm" className="font-mono text-xs">
+                Fortsätt backfill
+              </Button>
+            </div>
+          )}
+
           {running && (
-            <div className="flex items-center gap-2 text-xs text-primary font-mono">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>
-                {running === 'backfill'
-                  ? `Backfill: offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.failed} misslyckade`
-                  : 'Bearbetar...'}
-              </span>
+            <div className="space-y-1 mt-2">
+              <div className="flex items-center gap-2 text-xs text-primary font-mono">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                <span>
+                  {running === 'backfill'
+                    ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
+                    : 'Bearbetar...'}
+                </span>
+              </div>
+              {running === 'backfill' && Object.keys(backfillProgress.failureCounts).some(k => (backfillProgress.failureCounts[k] ?? 0) > 0) && (
+                <div className="text-[10px] font-mono text-muted-foreground ml-5">
+                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(' · ')}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
