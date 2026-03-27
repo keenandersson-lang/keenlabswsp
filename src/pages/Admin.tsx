@@ -17,6 +17,10 @@ import { toast } from 'sonner';
 import { SCANNER_ELIGIBLE_SYMBOLS, TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 
 type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | 'scan' | null;
+type EnrichDebugSnapshot = {
+  receivedAt: string;
+  payload: any;
+};
 
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
@@ -357,6 +361,7 @@ export default function Admin() {
     selected: 0, requested: 0, missingSymbols: [] as string[],
     promotions: [] as string[], tier: '' as string, tierTotal: 0,
   });
+  const [latestEnrichResponse, setLatestEnrichResponse] = useState<EnrichDebugSnapshot | null>(null);
 
   const runEnrich = async (tier: string) => {
     setRunning('enrich');
@@ -382,6 +387,10 @@ export default function Admin() {
     while (hasMore) {
       try {
         const data = await invokeFunction('enrich-symbols', { batchSize, offset, tier });
+        setLatestEnrichResponse({
+          receivedAt: new Date().toISOString(),
+          payload: data ?? null,
+        });
         if (!data || data.error) {
           toast.error(`Enrichment stoppat: ${data?.error || 'No response'}`);
           break;
@@ -972,6 +981,7 @@ export default function Admin() {
           ) : (
             <p className="text-xs text-muted-foreground font-mono">Inga symbols i review queue.</p>
           )}
+
         </CardContent>
       </Card>
 
@@ -1097,6 +1107,35 @@ Broad backfill
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {latestEnrichResponse && (
+            <div className="mt-3 rounded border border-border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">
+                  Senaste enrich-symbols svar (persistent debug)
+                </p>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {new Date(latestEnrichResponse.receivedAt).toLocaleString('sv-SE')}
+                </span>
+              </div>
+              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3 text-[11px] font-mono">
+                <div>resolvedTier: <span className="text-foreground">{String(latestEnrichResponse.payload?.runtimeDiagnostics?.resolvedTier ?? latestEnrichResponse.payload?.tier ?? 'undefined')}</span></div>
+                <div>requestedSymbolCount: <span className="text-foreground">{String(latestEnrichResponse.payload?.runtimeDiagnostics?.requestedSymbolCount ?? latestEnrichResponse.payload?.requested ?? 'undefined')}</span></div>
+                <div>matchedDbRows: <span className="text-foreground">{String(latestEnrichResponse.payload?.runtimeDiagnostics?.matchedDbRows ?? latestEnrichResponse.payload?.matchedSymbols ?? 'undefined')}</span></div>
+                <div>pendingCandidates: <span className="text-foreground">{String(latestEnrichResponse.payload?.pendingCandidates ?? latestEnrichResponse.payload?.skipSummary?.pendingCandidates ?? 'undefined')}</span></div>
+                <div>enriched: <span className="text-foreground">{String(latestEnrichResponse.payload?.enriched ?? 'undefined')}</span></div>
+                <div>promoted: <span className="text-foreground">{String(latestEnrichResponse.payload?.promoted ?? 'undefined')}</span></div>
+                <div>missingSymbols count: <span className="text-foreground">{String(latestEnrichResponse.payload?.missingSymbols?.length ?? latestEnrichResponse.payload?.runtimeDiagnostics?.missingSymbols ?? 'undefined')}</span></div>
+                <div>skipSummary: <span className="text-foreground break-all">{latestEnrichResponse.payload?.skipSummary !== undefined ? JSON.stringify(latestEnrichResponse.payload.skipSummary) : 'undefined'}</span></div>
+                <div>nextOffset: <span className="text-foreground">{String(latestEnrichResponse.payload?.nextOffset ?? 'undefined')}</span></div>
+                <div>hasMore: <span className="text-foreground">{String(latestEnrichResponse.payload?.hasMore ?? 'undefined')}</span></div>
+                <div className="sm:col-span-2 lg:col-span-3">runtimeDiagnostics: <span className="text-foreground break-all">{latestEnrichResponse.payload?.runtimeDiagnostics !== undefined ? JSON.stringify(latestEnrichResponse.payload.runtimeDiagnostics) : 'undefined'}</span></div>
+              </div>
+              <pre className="max-h-64 overflow-auto rounded bg-background p-2 text-[10px] text-foreground font-mono border border-border/60">
+{JSON.stringify(latestEnrichResponse.payload, null, 2)}
+              </pre>
             </div>
           )}
         </CardContent>
