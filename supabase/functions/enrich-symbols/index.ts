@@ -47,6 +47,11 @@ const TIER2_KNOWN_SECTOR = [
 const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
 const METALS = new Set(['GLD','SLV','COPX','GDX','PPLT'])
 const SUPPORTED_ENRICH_TIERS = new Set(['all', 'tier1', 'tier2', 'tier1+2'] as const)
+const TIER1_SYMBOL_SOURCE = {
+  module: import.meta.url,
+  exportName: 'TIER1_CURATED',
+  importStyle: 'local_const_same_module',
+}
 
 function normalizeText(value: string | null | undefined): string | null {
   if (!value) return null
@@ -124,6 +129,10 @@ Deno.serve(async (req: Request) => {
     }
 
     let symbolFilter: string[] | null = null
+    const tier1CuratedExists = typeof TIER1_CURATED !== 'undefined' && Array.isArray(TIER1_CURATED)
+    let requestedSymbolsForRuntimeDiagnostics: string[] = []
+    let matchedDbRowsCount = 0
+    let missingSymbolsCount = 0
     if (tier === 'tier1') symbolFilter = TIER1_CURATED
     else if (tier === 'tier2') symbolFilter = TIER2_KNOWN_SECTOR
     else if (tier === 'tier1+2') symbolFilter = [...TIER1_CURATED, ...TIER2_KNOWN_SECTOR]
@@ -135,6 +144,7 @@ Deno.serve(async (req: Request) => {
 
     if (symbolFilter) {
       const batch = symbolFilter.slice(offset, offset + batchSize)
+      requestedSymbolsForRuntimeDiagnostics = [...batch]
       const nextOffset = offset + batchSize
       const hasMore = nextOffset < symbolFilter.length
       if (batch.length === 0) {
@@ -150,6 +160,13 @@ Deno.serve(async (req: Request) => {
           requested: 0,
           missingSymbols: [],
           tierTotal: symbolFilter.length,
+          runtimeDiagnostics: buildTierRuntimeDiagnostics({
+            tier,
+            requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
+            tier1CuratedExists,
+            matchedDbRowsCount,
+            missingSymbolsCount,
+          }),
         })
       }
 
@@ -165,6 +182,8 @@ Deno.serve(async (req: Request) => {
         const bySymbol = new Map(rows.map((row: any) => [String(row.symbol).toUpperCase(), row]))
         const matchedSymbols = batch.filter((sym) => bySymbol.has(sym))
         const missingSymbols = batch.filter((sym) => !bySymbol.has(sym))
+        matchedDbRowsCount = matchedSymbols.length
+        missingSymbolsCount = missingSymbols.length
 
         const alreadyEnrichedSymbols: string[] = []
         const pendingCandidates: any[] = []
@@ -211,6 +230,13 @@ Deno.serve(async (req: Request) => {
             tierTotal: symbolFilter.length,
             promotions: [],
             errors: [],
+            runtimeDiagnostics: buildTierRuntimeDiagnostics({
+              tier,
+              requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
+              tier1CuratedExists,
+              matchedDbRowsCount,
+              missingSymbolsCount,
+            }),
           })
         }
 
@@ -234,7 +260,21 @@ Deno.serve(async (req: Request) => {
       const emptyMessage = symbolFilter
         ? `No pending symbols to enrich (${tier}) after scope resolution.`
         : `No more symbols to enrich (${tier}).`
-      return jsonRes({ ok: true, done: true, message: emptyMessage, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
+      return jsonRes({
+        ok: true,
+        done: true,
+        message: emptyMessage,
+        offset,
+        enriched: 0,
+        tierTotal: symbolFilter?.length ?? null,
+        runtimeDiagnostics: buildTierRuntimeDiagnostics({
+          tier,
+          requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
+          tier1CuratedExists,
+          matchedDbRowsCount,
+          missingSymbolsCount,
+        }),
+      })
     }
 
     const { data: logRow } = await supabase
@@ -367,6 +407,13 @@ Deno.serve(async (req: Request) => {
       nextOffset,
       hasMore,
       errors: errors.slice(0, 10),
+      runtimeDiagnostics: buildTierRuntimeDiagnostics({
+        tier,
+        requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
+        tier1CuratedExists,
+        matchedDbRowsCount,
+        missingSymbolsCount,
+      }),
     })
   } catch (err) {
     console.error('Unhandled enrich-symbols failure:', err)
@@ -511,4 +558,31 @@ function jsonRes(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+function buildTierRuntimeDiagnostics({
+  tier,
+  requestedSymbols,
+  tier1CuratedExists,
+  matchedDbRowsCount,
+  missingSymbolsCount,
+}: {
+  tier: string
+  requestedSymbols: string[]
+  tier1CuratedExists: boolean
+  matchedDbRowsCount: number
+  missingSymbolsCount: number
+}) {
+  if (tier !== 'tier1') return null
+
+  return {
+    resolvedTier: tier,
+    requestedSymbolCount: requestedSymbols.length,
+    first10RequestedSymbols: requestedSymbols.slice(0, 10),
+    tier1CuratedExists,
+    tier1CuratedLength: tier1CuratedExists ? TIER1_CURATED.length : null,
+    tier1SymbolSource: TIER1_SYMBOL_SOURCE,
+    matchedDbRows: matchedDbRowsCount,
+    missingSymbols: missingSymbolsCount,
+  }
 }
