@@ -291,7 +291,7 @@ function IndicatorPanel({ title, data, dataKey, thresholds, emptyState }: {
     <div className="h-[110px] rounded border border-border bg-background p-1.5">
       <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">{title}</div>
       <ResponsiveContainer width="100%" height="85%">
-        <ComposedChart data={data} syncId="stock-detail-sync">
+        <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
           <XAxis dataKey="date" hide />
           <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 8, fontFamily: 'JetBrains Mono, monospace' }} width={38} axisLine={false} tickLine={false} />
