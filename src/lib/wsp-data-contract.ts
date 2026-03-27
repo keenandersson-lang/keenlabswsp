@@ -399,6 +399,9 @@ export function classifySymbol(row: {
   sector: string | null;
   industry: string | null;
   is_active: boolean | null;
+  instrument_type?: string | null;
+  is_etf?: boolean | null;
+  is_adr?: boolean | null;
 }): {
   symbolClass: WspSymbolClass;
   eligibleForBackfill: boolean;

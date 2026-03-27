@@ -264,33 +264,54 @@ export type Database = {
         Row: {
           asset_class: string | null
           created_at: string | null
+          enriched_at: string | null
           exchange: string | null
           industry: string | null
+          instrument_type: string | null
           is_active: boolean | null
+          is_adr: boolean | null
+          is_etf: boolean | null
           name: string | null
+          primary_exchange: string | null
           sector: string | null
+          sic_code: string | null
+          sic_description: string | null
           symbol: string
           updated_at: string | null
         }
         Insert: {
           asset_class?: string | null
           created_at?: string | null
+          enriched_at?: string | null
           exchange?: string | null
           industry?: string | null
+          instrument_type?: string | null
           is_active?: boolean | null
+          is_adr?: boolean | null
+          is_etf?: boolean | null
           name?: string | null
+          primary_exchange?: string | null
           sector?: string | null
+          sic_code?: string | null
+          sic_description?: string | null
           symbol: string
           updated_at?: string | null
         }
         Update: {
           asset_class?: string | null
           created_at?: string | null
+          enriched_at?: string | null
           exchange?: string | null
           industry?: string | null
+          instrument_type?: string | null
           is_active?: boolean | null
+          is_adr?: boolean | null
+          is_etf?: boolean | null
           name?: string | null
+          primary_exchange?: string | null
           sector?: string | null
+          sic_code?: string | null
+          sic_description?: string | null
           symbol?: string
           updated_at?: string | null
         }
