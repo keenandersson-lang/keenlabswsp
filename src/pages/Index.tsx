@@ -68,7 +68,7 @@ const Index = () => {
   }
 
   return (
-    <div className="space-y-5 px-4 py-4 max-w-7xl mx-auto pb-20 md:pb-4">
+    <div className="space-y-3 px-2 py-2 sm:px-4 sm:py-4 sm:space-y-4 max-w-7xl mx-auto pb-20 md:pb-4">
       {/* Zone 1 — Market Overview */}
       <MarketHeader
         market={market}
@@ -86,8 +86,8 @@ const Index = () => {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">Marknadsöversikt · WSP Top Setups</p>
+          <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">V1 Universe · {equityStocks.length} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
         </div>
         <CreditsBadge />
       </div>
@@ -108,10 +108,11 @@ const Index = () => {
 
       {/* Zone 3 — Top 10 WSP Setups */}
       <div className="rounded-lg border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
           <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            <h3 className="text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS IDAG</h3>
+            <TrendingUp className="h-3.5 w-3.5 text-primary" />
+            <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS</h3>
+            <span className="text-[8px] font-mono text-muted-foreground">({topSetups.length})</span>
           </div>
           <Link
             to="/screener"
