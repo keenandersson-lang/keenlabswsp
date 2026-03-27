@@ -133,6 +133,13 @@ Deno.serve(async (req: Request) => {
     let requestedSymbolsForRuntimeDiagnostics: string[] = []
     let matchedDbRowsCount = 0
     let missingSymbolsCount = 0
+    let matchedSymbolsForRuntimeDiagnostics: string[] = []
+    let missingSymbolsForRuntimeDiagnostics: string[] = []
+    let skippedEmptyProxyBatchAndContinued = false
+    let scanCursor = offset
+    let selectedBatchOffset = offset
+    let selectedBatchHasMore = false
+    let selectedBatchScanCount = 0
     if (tier === 'tier1') symbolFilter = TIER1_CURATED
     else if (tier === 'tier2') symbolFilter = TIER2_KNOWN_SECTOR
     else if (tier === 'tier1+2') symbolFilter = [...TIER1_CURATED, ...TIER2_KNOWN_SECTOR]
@@ -143,45 +150,60 @@ Deno.serve(async (req: Request) => {
     const shouldRecomputeDerived = forceRefresh || tier === 'tier1' || tier === 'tier1+2'
 
     if (symbolFilter) {
-      const batch = symbolFilter.slice(offset, offset + batchSize)
-      requestedSymbolsForRuntimeDiagnostics = [...batch]
-      const nextOffset = offset + batchSize
-      const hasMore = nextOffset < symbolFilter.length
-      if (batch.length === 0) {
-        return jsonRes({
-          ok: true,
-          done: true,
-          message: `No more symbols in ${tier}.`,
-          offset,
-          nextOffset,
-          hasMore: false,
-          enriched: 0,
-          selected: 0,
-          requested: 0,
-          missingSymbols: [],
-          tierTotal: symbolFilter.length,
-          runtimeDiagnostics: buildTierRuntimeDiagnostics({
-            tier,
-            requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
-            tier1CuratedExists,
-            matchedDbRowsCount,
-            missingSymbolsCount,
-          }),
-        })
-      }
+      while (scanCursor <= symbolFilter.length) {
+        const batch = symbolFilter.slice(scanCursor, scanCursor + batchSize)
+        const nextOffset = scanCursor + batch.length
+        const hasMore = nextOffset < symbolFilter.length
 
-      const result = await supabase
-        .from('symbols')
-        .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
-        .in('symbol', batch)
-      symbols = result.data
-      fetchErr = result.error
+        if (batch.length === 0) {
+          return jsonRes({
+            ok: true,
+            done: true,
+            message: `No more symbols in ${tier}.`,
+            offset: scanCursor,
+            nextOffset,
+            hasMore: false,
+            enriched: 0,
+            selected: 0,
+            requested: 0,
+            requestedBatchSymbols: [],
+            matchedRows: [],
+            missingSymbols: [],
+            tierTotal: symbolFilter.length,
+            runtimeDiagnostics: buildTierRuntimeDiagnostics({
+              tier,
+              requestedSymbols: [],
+              tier1CuratedExists,
+              matchedDbRowsCount: 0,
+              missingSymbolsCount: 0,
+              matchedSymbols: [],
+              missingSymbols: [],
+              nextOffset,
+              hasMore: false,
+              skippedEmptyProxyBatchAndContinued,
+              selectedBatchScanCount,
+            }),
+          })
+        }
 
-      if (!fetchErr) {
+        selectedBatchScanCount += 1
+        requestedSymbolsForRuntimeDiagnostics = [...batch]
+
+        const result = await supabase
+          .from('symbols')
+          .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
+          .in('symbol', batch)
+        symbols = result.data
+        fetchErr = result.error
+
+        if (fetchErr) break
+
         const rows = symbols ?? []
         const bySymbol = new Map(rows.map((row: any) => [String(row.symbol).toUpperCase(), row]))
         const matchedSymbols = batch.filter((sym) => bySymbol.has(sym))
         const missingSymbols = batch.filter((sym) => !bySymbol.has(sym))
+        matchedSymbolsForRuntimeDiagnostics = matchedSymbols
+        missingSymbolsForRuntimeDiagnostics = missingSymbols
         matchedDbRowsCount = matchedSymbols.length
         missingSymbolsCount = missingSymbols.length
 
@@ -196,37 +218,47 @@ Deno.serve(async (req: Request) => {
           pendingCandidates.push(row)
         }
 
-        if (pendingCandidates.length === 0) {
+        if (pendingCandidates.length > 0) {
+          selectedBatchOffset = scanCursor
+          selectedBatchHasMore = hasMore
+          symbols = pendingCandidates
+          break
+        }
+
+        const shouldContinue = hasMore
+        const allMissingProxyBatch = missingSymbols.length === batch.length && batch.every((sym) => BENCHMARKS.has(sym) || METALS.has(sym))
+        if (shouldContinue && allMissingProxyBatch) {
+          skippedEmptyProxyBatchAndContinued = true
+        }
+        if (!shouldContinue) {
           const skipSummary = {
             missingFromSymbolsTable: missingSymbols.length,
             alreadyEnriched: alreadyEnrichedSymbols.length,
             pendingCandidates: 0,
             matchedInSymbolsTable: matchedSymbols.length,
           }
-          const skipReasonParts: string[] = []
-          if (skipSummary.missingFromSymbolsTable > 0) skipReasonParts.push(`${skipSummary.missingFromSymbolsTable} missing from symbols table`)
-          if (skipSummary.alreadyEnriched > 0) skipReasonParts.push(`${skipSummary.alreadyEnriched} already enriched`)
-          if (skipReasonParts.length === 0) skipReasonParts.push('0 matched pending after scope resolution')
-
           return jsonRes({
             ok: true,
             tier,
-            done: !hasMore,
-            message: `No pending symbols to enrich in ${tier} batch: ${skipReasonParts.join(', ')}.`,
-            offset,
+            done: true,
+            message: `No pending symbols to enrich in ${tier} after scanning scoped batches.`,
+            offset: scanCursor,
             nextOffset,
-            hasMore,
+            hasMore: false,
             enriched: 0,
             skipped: matchedSymbols.length,
             failed: 0,
             promoted: 0,
             selected: 0,
             requested: batch.length,
+            requestedBatchSymbols: batch,
+            matchedRows: matchedSymbols,
             matchedSymbols: matchedSymbols.length,
             pendingCandidates: 0,
             skipSummary,
             missingSymbols,
             alreadyEnrichedSymbols: alreadyEnrichedSymbols.slice(0, 50),
+            skippedEmptyProxyBatchAndContinued,
             tierTotal: symbolFilter.length,
             promotions: [],
             errors: [],
@@ -236,11 +268,17 @@ Deno.serve(async (req: Request) => {
               tier1CuratedExists,
               matchedDbRowsCount,
               missingSymbolsCount,
+              matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
+              missingSymbols: missingSymbolsForRuntimeDiagnostics,
+              nextOffset,
+              hasMore: false,
+              skippedEmptyProxyBatchAndContinued,
+              selectedBatchScanCount,
             }),
           })
         }
 
-        symbols = pendingCandidates
+        scanCursor = nextOffset
       }
     } else {
       let query = supabase
@@ -264,15 +302,27 @@ Deno.serve(async (req: Request) => {
         ok: true,
         done: true,
         message: emptyMessage,
-        offset,
+        offset: symbolFilter ? selectedBatchOffset : offset,
+        nextOffset: symbolFilter ? selectedBatchOffset : offset,
+        hasMore: false,
         enriched: 0,
         tierTotal: symbolFilter?.length ?? null,
+        requestedBatchSymbols: requestedSymbolsForRuntimeDiagnostics,
+        matchedRows: matchedSymbolsForRuntimeDiagnostics,
+        missingSymbols: missingSymbolsForRuntimeDiagnostics,
+        skippedEmptyProxyBatchAndContinued,
         runtimeDiagnostics: buildTierRuntimeDiagnostics({
           tier,
           requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
           tier1CuratedExists,
           matchedDbRowsCount,
           missingSymbolsCount,
+          matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
+          missingSymbols: missingSymbolsForRuntimeDiagnostics,
+          nextOffset: symbolFilter ? selectedBatchOffset : offset,
+          hasMore: false,
+          skippedEmptyProxyBatchAndContinued,
+          selectedBatchScanCount,
         }),
       })
     }
@@ -368,7 +418,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const nextOffset = offset + processed
+    const nextOffset = symbolFilter ? selectedBatchOffset + processed : offset + processed
     const hasMoreBySelection = symbolFilter ? nextOffset < symbolFilter.length : symbols.length === batchSize
     const hasMore = timedOut ? true : hasMoreBySelection
 
@@ -403,9 +453,13 @@ Deno.serve(async (req: Request) => {
       promotions: promotions.slice(0, 20),
       selected: symbols.length,
       requested: symbolFilter ? Math.min(batchSize, Math.max(0, symbolFilter.length - offset)) : symbols.length,
-      offset,
+      offset: symbolFilter ? selectedBatchOffset : offset,
       nextOffset,
       hasMore,
+      requestedBatchSymbols: requestedSymbolsForRuntimeDiagnostics,
+      matchedRows: matchedSymbolsForRuntimeDiagnostics,
+      missingSymbols: missingSymbolsForRuntimeDiagnostics,
+      skippedEmptyProxyBatchAndContinued,
       errors: errors.slice(0, 10),
       runtimeDiagnostics: buildTierRuntimeDiagnostics({
         tier,
@@ -413,6 +467,12 @@ Deno.serve(async (req: Request) => {
         tier1CuratedExists,
         matchedDbRowsCount,
         missingSymbolsCount,
+        matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
+        missingSymbols: missingSymbolsForRuntimeDiagnostics,
+        nextOffset,
+        hasMore: symbolFilter ? selectedBatchHasMore : hasMore,
+        skippedEmptyProxyBatchAndContinued,
+        selectedBatchScanCount,
       }),
     })
   } catch (err) {
@@ -566,12 +626,24 @@ function buildTierRuntimeDiagnostics({
   tier1CuratedExists,
   matchedDbRowsCount,
   missingSymbolsCount,
+  matchedSymbols,
+  missingSymbols,
+  nextOffset,
+  hasMore,
+  skippedEmptyProxyBatchAndContinued,
+  selectedBatchScanCount,
 }: {
   tier: string
   requestedSymbols: string[]
   tier1CuratedExists: boolean
   matchedDbRowsCount: number
   missingSymbolsCount: number
+  matchedSymbols: string[]
+  missingSymbols: string[]
+  nextOffset: number
+  hasMore: boolean
+  skippedEmptyProxyBatchAndContinued: boolean
+  selectedBatchScanCount: number
 }) {
   if (tier !== 'tier1') return null
 
@@ -584,5 +656,11 @@ function buildTierRuntimeDiagnostics({
     tier1SymbolSource: TIER1_SYMBOL_SOURCE,
     matchedDbRows: matchedDbRowsCount,
     missingSymbols: missingSymbolsCount,
+    matchedSymbolList: matchedSymbols,
+    missingSymbolList: missingSymbols,
+    nextOffset,
+    hasMore,
+    skippedEmptyProxyBatchAndContinued,
+    scannedBatchCount: selectedBatchScanCount,
   }
 }
