@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
-  const { yearsBack = 5, symbols: specificSymbols, batchSize = 5, offset = 0 } = body
+  const { yearsBack = 5, symbols: specificSymbols, batchSize = 20, offset = 0 } = body
 
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
@@ -210,7 +210,7 @@ Deno.serve(async (req: Request) => {
       fetched++
 
       // Rate limiting: 5 req/min on free tier
-      await sleep(13000)
+      await sleep(2000)
     } catch (err) {
       const { category, reason } = classifyBackfillError(err)
       recordFailure(symbol, category, reason)
@@ -367,7 +367,7 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
           }))
         }
 
-        bars.push({ date, open, high, low, close, volume })
+        bars.push({ date, open, high, low, close, volume: Math.round(volume) })
       }
     }
     url = data.next_url ? `${data.next_url}&apiKey=${POLYGON_KEY}` : null
