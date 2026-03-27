@@ -267,6 +267,13 @@ export type Database = {
       symbols: {
         Row: {
           asset_class: string | null
+          canonical_industry: string | null
+          canonical_sector: string | null
+          classification_confidence: number | null
+          classification_confidence_level: string | null
+          classification_reason: string | null
+          classification_source: string | null
+          classification_status: string | null
           company_name: string | null
           created_at: string | null
           eligible_for_backfill: boolean | null
@@ -280,8 +287,16 @@ export type Database = {
           is_active: boolean | null
           is_adr: boolean | null
           is_etf: boolean | null
+          manual_override_industry: string | null
+          manual_override_sector: string | null
+          manual_review_notes: string | null
+          manual_reviewed_at: string | null
+          manually_reviewed: boolean | null
           name: string | null
           primary_exchange: string | null
+          raw_industry: string | null
+          raw_sector: string | null
+          review_needed: boolean | null
           source_provider: string | null
           sector: string | null
           sic_code: string | null
@@ -292,6 +307,13 @@ export type Database = {
         }
         Insert: {
           asset_class?: string | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence?: number | null
+          classification_confidence_level?: string | null
+          classification_reason?: string | null
+          classification_source?: string | null
+          classification_status?: string | null
           company_name?: string | null
           created_at?: string | null
           eligible_for_backfill?: boolean | null
@@ -305,8 +327,16 @@ export type Database = {
           is_active?: boolean | null
           is_adr?: boolean | null
           is_etf?: boolean | null
+          manual_override_industry?: string | null
+          manual_override_sector?: string | null
+          manual_review_notes?: string | null
+          manual_reviewed_at?: string | null
+          manually_reviewed?: boolean | null
           name?: string | null
           primary_exchange?: string | null
+          raw_industry?: string | null
+          raw_sector?: string | null
+          review_needed?: boolean | null
           source_provider?: string | null
           sector?: string | null
           sic_code?: string | null
@@ -317,6 +347,13 @@ export type Database = {
         }
         Update: {
           asset_class?: string | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence?: number | null
+          classification_confidence_level?: string | null
+          classification_reason?: string | null
+          classification_source?: string | null
+          classification_status?: string | null
           company_name?: string | null
           created_at?: string | null
           eligible_for_backfill?: boolean | null
@@ -330,8 +367,16 @@ export type Database = {
           is_active?: boolean | null
           is_adr?: boolean | null
           is_etf?: boolean | null
+          manual_override_industry?: string | null
+          manual_override_sector?: string | null
+          manual_review_notes?: string | null
+          manual_reviewed_at?: string | null
+          manually_reviewed?: boolean | null
           name?: string | null
           primary_exchange?: string | null
+          raw_industry?: string | null
+          raw_sector?: string | null
+          review_needed?: boolean | null
           source_provider?: string | null
           sector?: string | null
           sic_code?: string | null
@@ -434,7 +479,31 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      symbol_classification_review_queue: {
+        Row: {
+          canonical_industry: string | null
+          canonical_sector: string | null
+          classification_confidence: number | null
+          classification_confidence_level: string | null
+          classification_source: string | null
+          classification_status: string | null
+          company_name: string | null
+          exchange: string | null
+          flagged_reason: string | null
+          instrument_type: string | null
+          manual_override_industry: string | null
+          manual_override_sector: string | null
+          manual_review_notes: string | null
+          manual_reviewed_at: string | null
+          manually_reviewed: boolean | null
+          raw_industry: string | null
+          raw_sector: string | null
+          review_needed: boolean | null
+          support_level: string | null
+          symbol: string | null
+          eligible_for_full_wsp: boolean | null
+        }
+      }
     }
     Functions: {
       consume_credit: {

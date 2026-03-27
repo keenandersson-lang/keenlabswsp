@@ -38,12 +38,13 @@ const TIER1_SYMBOLS = [
 export default function Admin() {
   const [running, setRunning] = useState<RunningType>(null);
   const [syncKey, setSyncKey] = useState('');
+  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, { sector: string; industry: string; notes: string }>>({});
   const queryClient = useQueryClient();
 
   const { data: stats } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [priceRes, symbolRes, logRes, earliestRes, latestRes, enrichedRes, eligibleBackfillRes, eligibleFullWspRes, excludedRes] = await Promise.all([
+      const [priceRes, symbolRes, logRes, earliestRes, latestRes, enrichedRes, eligibleBackfillRes, eligibleFullWspRes, excludedRes, canonicalizedRes, ambiguousRes, unresolvedRes, proxyMappedRes, manuallyReviewedRes, blockedByClassRes] = await Promise.all([
         supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
         supabase
@@ -65,6 +66,12 @@ export default function Admin() {
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_backfill', true),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_full_wsp', true),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('support_level', 'excluded'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'canonicalized'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'ambiguous'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'unresolved'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'proxy_mapped'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'manually_reviewed'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_full_wsp', false).in('classification_status', ['ambiguous', 'unresolved', 'proxy_mapped']),
       ]);
       return {
         priceCount: priceRes.count ?? 0,
@@ -76,9 +83,29 @@ export default function Admin() {
         eligibleBackfillCount: eligibleBackfillRes.count ?? 0,
         eligibleFullWspCount: eligibleFullWspRes.count ?? 0,
         excludedCount: excludedRes.count ?? 0,
+        canonicalizedCount: canonicalizedRes.count ?? 0,
+        ambiguousCount: ambiguousRes.count ?? 0,
+        unresolvedCount: unresolvedRes.count ?? 0,
+        proxyMappedCount: proxyMappedRes.count ?? 0,
+        manuallyReviewedCount: manuallyReviewedRes.count ?? 0,
+        blockedByClassificationCount: blockedByClassRes.count ?? 0,
       };
     },
     refetchInterval: 15000,
+  });
+
+  const { data: reviewQueue } = useQuery({
+    queryKey: ['classification-review-queue'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('symbol_classification_review_queue')
+        .select('*')
+        .order('classification_confidence', { ascending: true })
+        .limit(100);
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 30000,
   });
 
   // Tier 1 readiness query
@@ -321,6 +348,41 @@ export default function Admin() {
     setRunning(null);
   };
 
+  const applyManualOverride = async (symbol: string) => {
+    const draft = overrideDrafts[symbol];
+    if (!draft?.sector || !draft?.industry) {
+      toast.error('Ange både canonical sector och canonical industry');
+      return;
+    }
+    const { error } = await supabase
+      .from('symbols')
+      .update({
+        manual_override_sector: draft.sector.trim(),
+        manual_override_industry: draft.industry.trim(),
+        manual_review_notes: draft.notes?.trim() || null,
+        manually_reviewed: true,
+        manual_reviewed_at: new Date().toISOString(),
+        canonical_sector: draft.sector.trim(),
+        canonical_industry: draft.industry.trim(),
+        sector: draft.sector.trim(),
+        industry: draft.industry.trim(),
+        classification_status: 'manually_reviewed',
+        classification_source: 'manual_override',
+        classification_confidence: 1,
+        classification_confidence_level: 'high',
+        classification_reason: null,
+        review_needed: false,
+      })
+      .eq('symbol', symbol);
+    if (error) {
+      toast.error(`Kunde inte spara override: ${error.message}`);
+      return;
+    }
+    toast.success(`Manual override sparad för ${symbol}`);
+    queryClient.invalidateQueries({ queryKey: ['classification-review-queue'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'success') return <CheckCircle2 className="h-4 w-4 text-primary" />;
     if (status === 'partial') return <AlertTriangle className="h-4 w-4 text-signal-caution" />;
@@ -427,6 +489,92 @@ export default function Admin() {
             <StatBox label="Eligible Full WSP" value={stats?.eligibleFullWspCount?.toLocaleString() ?? '—'} />
             <StatBox label="Excluded" value={stats?.excludedCount?.toLocaleString() ?? '—'} />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-primary">
+            SECTOR/INDUSTRY QUALITY LAYER
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatBox label="Canonicalized" value={stats?.canonicalizedCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Ambiguous" value={stats?.ambiguousCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Unresolved" value={stats?.unresolvedCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Proxy mapped" value={stats?.proxyMappedCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Manually reviewed" value={stats?.manuallyReviewedCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Blocked full WSP" value={stats?.blockedByClassificationCount?.toLocaleString() ?? '—'} highlight />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground">
+            OPERATOR REVIEW QUEUE (Classification)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {reviewQueue && reviewQueue.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left py-2 pr-3">Symbol</th>
+                    <th className="text-left py-2 pr-3">Raw</th>
+                    <th className="text-left py-2 pr-3">Canonical</th>
+                    <th className="text-left py-2 pr-3">Conf.</th>
+                    <th className="text-left py-2 pr-3">Reason</th>
+                    <th className="text-left py-2">Manual override</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewQueue.slice(0, 30).map((row: any) => (
+                    <tr key={row.symbol} className="border-b border-border/50 align-top">
+                      <td className="py-2 pr-3 text-foreground">
+                        <div>{row.symbol}</div>
+                        <div className="text-[10px] text-muted-foreground">{row.company_name}</div>
+                        <div className="text-[10px] text-muted-foreground">{row.exchange} · {row.instrument_type}</div>
+                      </td>
+                      <td className="py-2 pr-3 text-muted-foreground">{row.raw_sector || '—'} / {row.raw_industry || '—'}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{row.canonical_sector || '—'} / {row.canonical_industry || '—'}</td>
+                      <td className="py-2 pr-3 text-foreground">
+                        {row.classification_confidence_level || 'low'} ({row.classification_confidence ?? 0})
+                      </td>
+                      <td className="py-2 pr-3 text-signal-caution">{row.flagged_reason}</td>
+                      <td className="py-2 space-y-1 min-w-[260px]">
+                        <input
+                          placeholder="Canonical sector"
+                          className="w-full bg-muted border border-border rounded px-2 py-1"
+                          value={overrideDrafts[row.symbol]?.sector ?? ''}
+                          onChange={(e) => setOverrideDrafts(prev => ({ ...prev, [row.symbol]: { ...prev[row.symbol], sector: e.target.value, industry: prev[row.symbol]?.industry ?? '', notes: prev[row.symbol]?.notes ?? '' } }))}
+                        />
+                        <input
+                          placeholder="Canonical industry"
+                          className="w-full bg-muted border border-border rounded px-2 py-1"
+                          value={overrideDrafts[row.symbol]?.industry ?? ''}
+                          onChange={(e) => setOverrideDrafts(prev => ({ ...prev, [row.symbol]: { ...prev[row.symbol], sector: prev[row.symbol]?.sector ?? '', industry: e.target.value, notes: prev[row.symbol]?.notes ?? '' } }))}
+                        />
+                        <input
+                          placeholder="Review notes (optional)"
+                          className="w-full bg-muted border border-border rounded px-2 py-1"
+                          value={overrideDrafts[row.symbol]?.notes ?? ''}
+                          onChange={(e) => setOverrideDrafts(prev => ({ ...prev, [row.symbol]: { ...prev[row.symbol], sector: prev[row.symbol]?.sector ?? '', industry: prev[row.symbol]?.industry ?? '', notes: e.target.value } }))}
+                        />
+                        <Button size="sm" variant="outline" className="font-mono text-[10px]" onClick={() => applyManualOverride(row.symbol)}>
+                          Save override
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground font-mono">Inga symbols i review queue.</p>
+          )}
         </CardContent>
       </Card>
 
