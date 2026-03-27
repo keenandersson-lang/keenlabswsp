@@ -119,6 +119,8 @@ export default function Admin() {
         proxyCountsRes,
         pendingRes,
         auditRes,
+        operatorSummaryRes,
+        blockedAlignmentRes,
       ] = await Promise.all([
         supabase.from('industry_registry_active_version').select('*').limit(1),
         supabase.from('industry_registry_versions').select('*').order('version', { ascending: false }).limit(10),
@@ -126,6 +128,13 @@ export default function Admin() {
         supabase.from('industry_registry_proxy_type_counts').select('*'),
         supabase.from('industry_registry_pending_queue').select('*').order('updated_at', { ascending: false }).limit(50),
         supabase.from('industry_registry_recent_audit').select('*').limit(50),
+        supabase.from('industry_registry_active_operator_summary').select('*').limit(1),
+        supabase
+          .from('symbol_industry_alignment_active')
+          .select('symbol, canonical_sector, canonical_industry, alignment_status, alignment_reason, support_level, classification_status, classification_confidence_level')
+          .eq('alignment_status', 'blocked_low_quality_classification')
+          .order('symbol', { ascending: true })
+          .limit(40),
       ]);
 
       const activeVersion = activeVersionRes.data?.[0]?.version ?? null;
@@ -138,6 +147,8 @@ export default function Admin() {
         proxyTypeCounts,
         pending: pendingRes.data ?? [],
         audit: auditRes.data ?? [],
+        operatorSummary: operatorSummaryRes.data?.[0] ?? null,
+        blockedAlignment: blockedAlignmentRes.data ?? [],
       };
     },
     refetchInterval: 30000,
@@ -631,6 +642,24 @@ export default function Admin() {
             <StatBox label="Pending queue" value={String(industryRegistryData?.pending?.length ?? 0)} />
           </div>
 
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <StatBox label="Membership industries" value={String(industryRegistryData?.operatorSummary?.industries_with_memberships ?? 0)} />
+            <StatBox label="Included members" value={String(industryRegistryData?.operatorSummary?.included_memberships ?? 0)} />
+            <StatBox label="Watchlist members" value={String(industryRegistryData?.operatorSummary?.watchlist_memberships ?? 0)} />
+            <StatBox label="Excluded members" value={String(industryRegistryData?.operatorSummary?.excluded_memberships ?? 0)} />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <StatBox label="Aligned direct" value={String(industryRegistryData?.operatorSummary?.aligned_direct_proxy_symbols ?? 0)} />
+            <StatBox label="Aligned basket" value={String(industryRegistryData?.operatorSummary?.aligned_internal_basket_symbols ?? 0)} />
+            <StatBox label="Unresolved align" value={String(industryRegistryData?.operatorSummary?.unresolved_alignment_symbols ?? 0)} />
+            <StatBox
+              label="Blocked low quality"
+              value={String(industryRegistryData?.operatorSummary?.blocked_low_quality_symbols ?? 0)}
+              highlight
+            />
+          </div>
+
           <div className="space-y-2">
             <label className="text-xs font-mono text-muted-foreground">Reason / change ticket</label>
             <input
@@ -714,6 +743,39 @@ export default function Admin() {
                       <td className="py-1">{row.inclusion_reason || row.exclusion_reason || '—'}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded border border-border p-2">
+            <p className="text-[10px] font-mono text-muted-foreground mb-2">Industry alignment blocked by quality (active registry)</p>
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-[10px] font-mono">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left py-1 pr-2">Symbol</th>
+                    <th className="text-left py-1 pr-2">Sector / Industry</th>
+                    <th className="text-left py-1 pr-2">Class gate</th>
+                    <th className="text-left py-1 pr-2">Support</th>
+                    <th className="text-left py-1">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(industryRegistryData?.blockedAlignment ?? []).slice(0, 60).map((row: any) => (
+                    <tr key={`${row.symbol}-${row.canonical_industry}`} className="border-b border-border/30">
+                      <td className="py-1 pr-2 text-foreground">{row.symbol}</td>
+                      <td className="py-1 pr-2">{row.canonical_sector} / {row.canonical_industry}</td>
+                      <td className="py-1 pr-2">{row.classification_status} · {row.classification_confidence_level}</td>
+                      <td className="py-1 pr-2">{row.support_level}</td>
+                      <td className="py-1">{row.alignment_reason}</td>
+                    </tr>
+                  ))}
+                  {(industryRegistryData?.blockedAlignment ?? []).length === 0 && (
+                    <tr>
+                      <td className="py-2 text-muted-foreground" colSpan={5}>No blocked symbols in active alignment view.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
