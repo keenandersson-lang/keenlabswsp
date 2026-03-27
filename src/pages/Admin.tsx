@@ -439,21 +439,44 @@ export default function Admin() {
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
+                <Button disabled={running !== null} className="font-mono text-xs bg-primary text-primary-foreground">
                   <Download className="h-4 w-4 mr-2" />
-                  {running === 'backfill' ? 'Backfill pågår...' : 'Starta backfill'}
+                  {running === 'backfill' ? 'Backfill pågår...' : '⚡ Backfill Tier 1'}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Starta historisk backfill?</AlertDialogTitle>
+                  <AlertDialogTitle>Backfill Tier 1 symboler?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Laddar 5 år historisk data för alla symboler via Polygon.io.
+                    Laddar 5 år historisk data för {TIER1_SYMBOLS.length} Tier 1 symboler via Polygon.io.
+                    Benchmarks processas först, sedan equities, sedan metals.
+                    Anpassat tempo (13s/symbol) för att undvika rate limits.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => runBackfill(0)}>Starta backfill</AlertDialogAction>
+                  <AlertDialogAction onClick={() => runBackfill(0, true)}>Starta Tier 1 backfill</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
+                  <Download className="h-4 w-4 mr-2" />
+                  Full backfill
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Starta full historisk backfill?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Laddar 5 år historisk data för ALLA aktiva symboler. Tar lång tid.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => runBackfill(0, false)}>Starta full backfill</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
