@@ -323,6 +323,66 @@ export type Database = {
         }
         Relationships: []
       }
+      wsp_indicators: {
+        Row: {
+          above_ma150: boolean | null
+          above_ma50: boolean | null
+          avg_volume_5d: number | null
+          calc_date: string
+          close: number
+          created_at: string | null
+          ma150: number | null
+          ma50: number | null
+          ma50_slope: string | null
+          mansfield_rs: number | null
+          pct_change_1d: number | null
+          pct_from_52w_high: number | null
+          symbol: string
+          volume: number | null
+          volume_ratio: number | null
+          wsp_pattern: string | null
+          wsp_score: number | null
+        }
+        Insert: {
+          above_ma150?: boolean | null
+          above_ma50?: boolean | null
+          avg_volume_5d?: number | null
+          calc_date: string
+          close: number
+          created_at?: string | null
+          ma150?: number | null
+          ma50?: number | null
+          ma50_slope?: string | null
+          mansfield_rs?: number | null
+          pct_change_1d?: number | null
+          pct_from_52w_high?: number | null
+          symbol: string
+          volume?: number | null
+          volume_ratio?: number | null
+          wsp_pattern?: string | null
+          wsp_score?: number | null
+        }
+        Update: {
+          above_ma150?: boolean | null
+          above_ma50?: boolean | null
+          avg_volume_5d?: number | null
+          calc_date?: string
+          close?: number
+          created_at?: string | null
+          ma150?: number | null
+          ma50?: number | null
+          ma50_slope?: string | null
+          mansfield_rs?: number | null
+          pct_change_1d?: number | null
+          pct_from_52w_high?: number | null
+          symbol?: string
+          volume?: number | null
+          volume_ratio?: number | null
+          wsp_pattern?: string | null
+          wsp_score?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

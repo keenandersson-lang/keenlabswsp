@@ -10,6 +10,7 @@ import Sectors from "./pages/Sectors";
 import Watchlist from "./pages/Watchlist";
 import StockDetail from "./pages/StockDetail";
 import NotFound from "./pages/NotFound";
+import Admin from "./pages/Admin";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/sectors" element={<Sectors />} />
             <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/stock/:symbol" element={<StockDetail />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
