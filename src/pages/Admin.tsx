@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server,
+  XCircle, AlertTriangle, Clock, Server, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
-type RunningType = 'daily' | 'backfill' | 'seed' | null;
+type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | null;
 
 export default function Admin() {
   const [running, setRunning] = useState<RunningType>(null);

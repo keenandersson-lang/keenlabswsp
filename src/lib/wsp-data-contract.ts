@@ -431,15 +431,32 @@ export function classifySymbol(row: {
     return { symbolClass: 'metals_limited', eligibleForBackfill: true, eligibleForFullWsp: false, exclusionReason: null };
   }
 
-  // 5. Check full WSP eligibility
+  // 4a. Excluded instrument types (warrants, rights, units, preferred, etc.)
+  const instrType = row.instrument_type ?? null;
+  if (instrType && (V1_EXCLUDED_INSTRUMENT_TYPES as readonly string[]).includes(instrType)) {
+    return { symbolClass: 'excluded', eligibleForBackfill: false, eligibleForFullWsp: false, exclusionReason: 'unsupported_instrument_type' };
+  }
+
+  // 4b. ETFs → limited (not full WSP)
+  if (row.is_etf) {
+    return { symbolClass: 'limited_equity', eligibleForBackfill: true, eligibleForFullWsp: false, exclusionReason: 'etf_not_eligible_for_full_wsp' };
+  }
+
+  // 4c. ADRs → limited (excluded from full WSP in V1)
+  if (row.is_adr) {
+    return { symbolClass: 'limited_equity', eligibleForBackfill: true, eligibleForFullWsp: false, exclusionReason: 'adr_excluded_v1' };
+  }
+
+  // 5. Check full WSP eligibility using enriched metadata
   const eligibility = evaluateFullWspEligibility({
     symbol,
     isActive,
     exchange: row.exchange,
     sector: row.sector,
     industry: row.industry,
-    instrumentType: null,  // not available from DB seed — assume CS for curated
-    isEtf: false,          // not available from DB seed — assume non-ETF for curated
+    instrumentType: instrType,
+    isEtf: row.is_etf ?? false,
+    isAdr: row.is_adr ?? false,
   });
 
   if (eligibility.eligible) {
