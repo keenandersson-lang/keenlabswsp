@@ -97,43 +97,74 @@ export default function Admin() {
     setRunning(null);
   };
 
-  const [backfillProgress, setBackfillProgress] = useState({ offset: 0, total: 0, fetched: 0, failed: 0, running: false });
+  const [backfillProgress, setBackfillProgress] = useState({
+    offset: 0, total: 0, fetched: 0, failed: 0, running: false,
+    rowsWritten: 0, lastError: '', failureCounts: {} as Record<string, number>,
+    stopped: false, stopReason: '',
+  });
+  const [resumeOffset, setResumeOffset] = useState(0);
+  const [backfillStopped, setBackfillStopped] = useState(false);
 
-  const runBackfill = async () => {
+  const runBackfill = async (startOffset = 0) => {
     setRunning('backfill');
-    const batchSize = 3; // 3 symbols per invocation to stay within edge function timeout
-    let offset = 0;
+    setBackfillStopped(false);
+    const batchSize = 20;
+    let offset = startOffset;
     let totalFetched = 0;
     let totalFailed = 0;
     let hasMore = true;
+    let totalRowsWritten = 0;
+    let allFailureCounts: Record<string, number> = {};
 
-    toast.info('Backfill startat — körs i automatiska batchar.');
-    setBackfillProgress({ offset: 0, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true });
+    toast.info(`Backfill startat från offset ${startOffset}`);
+    setBackfillProgress({ offset: startOffset, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
 
     while (hasMore) {
       try {
         const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
-        if (!data || data.error) {
-          toast.error(`Backfill stoppat vid offset ${offset}: ${data?.error || 'okänt fel'}`);
+        if (!data) {
+          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response from edge function' }));
+          break;
+        }
+        if (data.error) {
+          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: data.error }));
+          toast.error(`Backfill stoppat vid offset ${offset}: ${data.error}`);
           break;
         }
         totalFetched += data.fetched ?? 0;
         totalFailed += data.failed ?? 0;
+        totalRowsWritten += data.rowsWritten ?? data.fetched ?? 0;
+        // Merge failure counts
+        if (data.failureCounts) {
+          for (const [k, v] of Object.entries(data.failureCounts)) {
+            allFailureCounts[k] = (allFailureCounts[k] ?? 0) + (v as number);
+          }
+        }
         hasMore = data.hasMore === true;
         offset = data.nextOffset ?? offset + batchSize;
-        setBackfillProgress({ offset, total: stats?.symbolCount ?? 0, fetched: totalFetched, failed: totalFailed, running: hasMore });
+        setResumeOffset(offset);
+        setBackfillProgress({
+          offset, total: stats?.symbolCount ?? 0,
+          fetched: totalFetched, failed: totalFailed, running: hasMore,
+          rowsWritten: totalRowsWritten, lastError: '',
+          failureCounts: allFailureCounts, stopped: false, stopReason: '',
+        });
 
-        if (offset % 30 === 0) {
+        if (offset % 100 === 0) {
           queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
         }
       } catch (err) {
+        const errMsg = String(err);
+        setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: `Network: ${errMsg}` }));
         toast.error(`Backfill nätverksfel vid offset ${offset}`);
         break;
       }
     }
 
+    if (hasMore === false) {
+      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader skrivna, ${totalFailed} misslyckade.`);
+    }
     setBackfillProgress(prev => ({ ...prev, running: false }));
-    toast.success(`Backfill klart! ${totalFetched} symboler hämtade, ${totalFailed} misslyckade.`);
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     setRunning(null);
   };
@@ -253,20 +284,43 @@ export default function Admin() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={runBackfill}>Starta backfill</AlertDialogAction>
+                  <AlertDialogAction onClick={() => runBackfill(0)}>Starta backfill</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
 
+          {/* Resume from offset */}
+          {!running && resumeOffset > 0 && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs font-mono text-muted-foreground">Resume från offset:</span>
+              <input
+                type="number"
+                value={resumeOffset}
+                onChange={(e) => setResumeOffset(Number(e.target.value))}
+                className="w-24 bg-muted border border-border rounded px-2 py-1 text-xs font-mono text-foreground"
+              />
+              <Button onClick={() => runBackfill(resumeOffset)} variant="outline" size="sm" className="font-mono text-xs">
+                Fortsätt backfill
+              </Button>
+            </div>
+          )}
+
           {running && (
-            <div className="flex items-center gap-2 text-xs text-primary font-mono">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>
-                {running === 'backfill'
-                  ? `Backfill: offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.failed} misslyckade`
-                  : 'Bearbetar...'}
-              </span>
+            <div className="space-y-1 mt-2">
+              <div className="flex items-center gap-2 text-xs text-primary font-mono">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                <span>
+                  {running === 'backfill'
+                    ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
+                    : 'Bearbetar...'}
+                </span>
+              </div>
+              {running === 'backfill' && Object.keys(backfillProgress.failureCounts).some(k => (backfillProgress.failureCounts[k] ?? 0) > 0) && (
+                <div className="text-[10px] font-mono text-muted-foreground ml-5">
+                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(' · ')}
+                </div>
+              )}
             </div>
           )}
         </CardContent>

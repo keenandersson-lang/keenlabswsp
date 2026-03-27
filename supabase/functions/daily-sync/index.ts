@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
           high: r.h,
           low: r.l,
           close: r.c,
-          volume: r.v,
+          volume: Math.round(r.v),
           data_source: 'polygon',
           has_full_volume: true,
         })
