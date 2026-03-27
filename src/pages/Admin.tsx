@@ -63,16 +63,16 @@ export default function Admin() {
           .select('date')
           .order('date', { ascending: false })
           .limit(1),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).not('enriched_at', 'is', null),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_backfill', true),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_full_wsp', true),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('support_level', 'excluded'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'canonicalized'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'ambiguous'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'unresolved'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'proxy_mapped'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('classification_status', 'manually_reviewed'),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_full_wsp', false).in('classification_status', ['ambiguous', 'unresolved', 'proxy_mapped']),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('eligible_for_backfill', true),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('eligible_for_full_wsp', true),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('support_level', 'excluded'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('classification_status', 'canonicalized'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('classification_status', 'ambiguous'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('classification_status', 'unresolved'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('classification_status', 'proxy_mapped'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('classification_status', 'manually_reviewed'),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('eligible_for_full_wsp', false).in('classification_status', ['ambiguous', 'unresolved', 'proxy_mapped']),
       ]);
       return {
         priceCount: priceRes.count ?? 0,
