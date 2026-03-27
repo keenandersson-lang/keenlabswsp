@@ -228,7 +228,7 @@ export const StockChartModule = memo(function StockChartModule({
             {stock.audit.resistanceUpperBound !== null && stock.audit.resistanceLevel !== null && (
               <ReferenceArea yAxisId="price" y1={stock.audit.resistanceLevel} y2={stock.audit.resistanceUpperBound} fill="#eab308" fillOpacity={0.04} />
             )}
-            {breakoutDate && <ReferenceLine x={breakoutDate} stroke="#60a5fa" strokeDasharray="4 4" strokeWidth={0.6} label={{ value: '▲ BO', fill: '#93c5fd', fontSize: 8, position: 'insideTopLeft', fontFamily: 'JetBrains Mono' }} />}
+            {breakoutDate && <ReferenceLine yAxisId="price" x={breakoutDate} stroke="#60a5fa" strokeDasharray="4 4" strokeWidth={0.6} label={{ value: '▲ BO', fill: '#93c5fd', fontSize: 8, position: 'insideTopLeft', fontFamily: 'JetBrains Mono' }} />}
 
             <Brush dataKey="date" height={20} stroke="hsl(220 14% 18%)" fill="hsl(220 20% 7%)" tickFormatter={() => ''} onChange={(range) => {
               if (!range || range.startIndex == null || range.endIndex == null) {
