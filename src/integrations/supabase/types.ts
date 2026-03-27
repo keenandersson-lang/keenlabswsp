@@ -47,6 +47,84 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_prices: {
+        Row: {
+          close: number
+          created_at: string | null
+          data_source: string | null
+          date: string
+          has_full_volume: boolean | null
+          high: number
+          low: number
+          open: number
+          symbol: string
+          volume: number
+        }
+        Insert: {
+          close: number
+          created_at?: string | null
+          data_source?: string | null
+          date: string
+          has_full_volume?: boolean | null
+          high: number
+          low: number
+          open: number
+          symbol: string
+          volume: number
+        }
+        Update: {
+          close?: number
+          created_at?: string | null
+          data_source?: string | null
+          date?: string
+          has_full_volume?: boolean | null
+          high?: number
+          low?: number
+          open?: number
+          symbol?: string
+          volume?: number
+        }
+        Relationships: []
+      }
+      data_sync_log: {
+        Row: {
+          completed_at: string | null
+          data_source: string | null
+          error_message: string | null
+          id: string
+          metadata: Json | null
+          started_at: string | null
+          status: string
+          symbols_failed: number | null
+          symbols_processed: number | null
+          sync_type: string
+        }
+        Insert: {
+          completed_at?: string | null
+          data_source?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          started_at?: string | null
+          status?: string
+          symbols_failed?: number | null
+          symbols_processed?: number | null
+          sync_type: string
+        }
+        Update: {
+          completed_at?: string | null
+          data_source?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          started_at?: string | null
+          status?: string
+          symbols_failed?: number | null
+          symbols_processed?: number | null
+          sync_type?: string
+        }
+        Relationships: []
+      }
       email_send_log: {
         Row: {
           created_at: string
@@ -179,6 +257,42 @@ export type Database = {
           id?: string
           metadata?: Json | null
           reason?: string
+        }
+        Relationships: []
+      }
+      symbols: {
+        Row: {
+          asset_class: string | null
+          created_at: string | null
+          exchange: string | null
+          industry: string | null
+          is_active: boolean | null
+          name: string | null
+          sector: string | null
+          symbol: string
+          updated_at: string | null
+        }
+        Insert: {
+          asset_class?: string | null
+          created_at?: string | null
+          exchange?: string | null
+          industry?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          sector?: string | null
+          symbol: string
+          updated_at?: string | null
+        }
+        Update: {
+          asset_class?: string | null
+          created_at?: string | null
+          exchange?: string | null
+          industry?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          sector?: string | null
+          symbol?: string
+          updated_at?: string | null
         }
         Relationships: []
       }
