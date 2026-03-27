@@ -99,10 +99,10 @@ export default function Admin() {
 
   const [enrichProgress, setEnrichProgress] = useState({
     offset: 0, enriched: 0, promoted: 0, failed: 0, running: false,
-    promotions: [] as string[],
+    promotions: [] as string[], tier: '' as string, tierTotal: 0,
   });
 
-  const runEnrich = async () => {
+  const runEnrich = async (tier: string) => {
     setRunning('enrich');
     const batchSize = 20;
     let offset = 0;
@@ -111,13 +111,20 @@ export default function Admin() {
     let totalFailed = 0;
     let allPromotions: string[] = [];
     let hasMore = true;
+    let tierTotal = 0;
 
-    toast.info('Metadata enrichment startat');
-    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [] });
+    const tierLabels: Record<string, string> = {
+      tier1: 'Tier 1 (curated + benchmarks)',
+      tier2: 'Tier 2 (S&P 500 extended)',
+      'tier1+2': 'Tier 1+2',
+      all: 'Alla symboler',
+    };
+    toast.info(`Enrichment startat: ${tierLabels[tier] ?? tier}`);
+    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [], tier, tierTotal: 0 });
 
     while (hasMore) {
       try {
-        const data = await invokeFunction('enrich-symbols', { batchSize, offset });
+        const data = await invokeFunction('enrich-symbols', { batchSize, offset, tier });
         if (!data || data.error) {
           toast.error(`Enrichment stoppat: ${data?.error || 'No response'}`);
           break;
@@ -125,12 +132,14 @@ export default function Admin() {
         totalEnriched += data.enriched ?? 0;
         totalPromoted += data.promoted ?? 0;
         totalFailed += data.failed ?? 0;
+        if (data.tierTotal) tierTotal = data.tierTotal;
         if (data.promotions) allPromotions = [...allPromotions, ...data.promotions];
         hasMore = data.hasMore === true;
         offset = data.nextOffset ?? offset + batchSize;
         setEnrichProgress({
           offset, enriched: totalEnriched, promoted: totalPromoted,
           failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
+          tier, tierTotal,
         });
         if (offset % 100 === 0) queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
       } catch (err) {
