@@ -49,6 +49,14 @@ type FailureDetail = {
   retryable: boolean
 }
 
+type SelectionDiagnostics = {
+  requestedScope: string
+  resolvedScope: string
+  eligiblePoolCount: number
+  fallbackPoolCount: number
+  selectedFrom: 'eligible_for_backfill' | 'active_common_stock_fallback' | 'tier1' | 'specific_symbols'
+}
+
 const categoryMeta: Record<FailureCategory, { label: string; retryable: boolean; maxRetries: number; backoffMs: number }> = {
   rate_limited:           { label: 'Rate limited (429)',       retryable: true,  maxRetries: 3, backoffMs: 13000 },
   provider_5xx:           { label: 'Provider 5xx error',       retryable: true,  maxRetries: 2, backoffMs: 5000 },
@@ -87,6 +95,14 @@ Deno.serve(async (req: Request) => {
 
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
+  const expectedDays = yearsBack * 252
+  let selectionDiagnostics: SelectionDiagnostics = {
+    requestedScope: backfillScope,
+    resolvedScope: tier1Only ? 'tier1' : backfillScope,
+    eligiblePoolCount: 0,
+    fallbackPoolCount: 0,
+    selectedFrom: specificSymbols?.length ? 'specific_symbols' : (tier1Only ? 'tier1' : 'eligible_for_backfill'),
+  }
 
   // ── Determine symbols to process ──
   let symbolsToProcess: string[]
@@ -102,9 +118,12 @@ Deno.serve(async (req: Request) => {
     ;(existingCoverage ?? []).forEach((r: any) => {
       barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1
     })
-    const expectedDays = yearsBack * 252
-
     if (resolvedScope === 'tier1') {
+      selectionDiagnostics = {
+        ...selectionDiagnostics,
+        resolvedScope,
+        selectedFrom: 'tier1',
+      }
       symbolsToProcess = TIER1_SYMBOLS.filter(s => (barCounts[s] ?? 0) < expectedDays * 0.8)
       const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
       const METALS = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
@@ -114,28 +133,48 @@ Deno.serve(async (req: Request) => {
         return prioA - prioB || a.localeCompare(b)
       })
     } else {
-      let query = supabase
+      const { data: eligiblePool, error: eligiblePoolErr } = await supabase
         .from('symbols')
         .select('symbol, support_level, eligible_for_backfill, is_common_stock')
         .eq('is_active', true)
         .eq('eligible_for_backfill', true)
 
+      if (eligiblePoolErr) {
+        return jsonRes({ error: `Symbol fetch error: ${eligiblePoolErr.message}` })
+      }
+
+      selectionDiagnostics.eligiblePoolCount = (eligiblePool ?? []).length
+      let scopePool = eligiblePool ?? []
+
+      if (scopePool.length === 0) {
+        const { data: fallbackPool, error: fallbackErr } = await supabase
+          .from('symbols')
+          .select('symbol, support_level, eligible_for_backfill, is_common_stock')
+          .eq('is_active', true)
+          .eq('is_common_stock', true)
+
+        if (fallbackErr) {
+          return jsonRes({ error: `Symbol fallback fetch error: ${fallbackErr.message}` })
+        }
+        selectionDiagnostics = {
+          ...selectionDiagnostics,
+          selectedFrom: 'active_common_stock_fallback',
+          fallbackPoolCount: (fallbackPool ?? []).length,
+        }
+        scopePool = fallbackPool ?? []
+      }
+
       if (resolvedScope === 'tier2') {
-        query = query.eq('support_level', 'limited_equity')
+        scopePool = scopePool.filter((r: any) => r.support_level === 'limited_equity')
       } else if (resolvedScope === 'full_wsp_only') {
-        query = query.eq('support_level', 'full_wsp_equity')
+        scopePool = scopePool.filter((r: any) => r.support_level === 'full_wsp_equity')
       } else if (resolvedScope === 'stored_all_eligible') {
-        // keep base eligible_for_backfill filter
+        // keep scope pool as-is
       } else {
-        query = query.eq('is_common_stock', true)
+        scopePool = scopePool.filter((r: any) => r.is_common_stock === true)
       }
 
-      const { data, error: fetchErr } = await query.order('symbol')
-      if (fetchErr) {
-        return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
-      }
-
-      symbolsToProcess = (data ?? [])
+      symbolsToProcess = scopePool
         .map((r: any) => r.symbol)
         .filter((sym: string) => {
           const s = sym.toUpperCase()
@@ -148,7 +187,23 @@ Deno.serve(async (req: Request) => {
   }
 
   if (symbolsToProcess.length === 0) {
-    return jsonRes({ ok: true, message: 'No symbols need backfill at this offset.', offset, done: true, tier1Only })
+    return jsonRes({
+      ok: true,
+      message: 'No symbols need backfill at this offset.',
+      offset,
+      done: true,
+      tier1Only,
+      backfillScope,
+      selectionDiagnostics,
+      symbolsSelected: 0,
+      symbolsSkipped: 0,
+      rowsFetched: 0,
+      rowsAttempted: 0,
+      rowsWritten: 0,
+      skipReasons: {
+        no_symbols_selected_for_scope_or_coverage: 1,
+      },
+    })
   }
 
   // Log start
@@ -167,6 +222,7 @@ Deno.serve(async (req: Request) => {
         tier1_only: tier1Only,
         backfill_scope: backfillScope,
         sleep_between_ms: sleepBetweenMs,
+        selection_diagnostics: selectionDiagnostics,
       },
       started_at: new Date().toISOString(),
     })
@@ -178,6 +234,10 @@ Deno.serve(async (req: Request) => {
   let fetched = 0
   let failed = 0
   let skipped = 0
+  let rowsFetched = 0
+  let rowsAttempted = 0
+  let rowsWritten = 0
+  const skipReasons: Record<string, number> = {}
   const failureDetails: FailureDetail[] = []
   const failureCounts: Record<FailureCategory, number> = Object.fromEntries(
     Object.keys(categoryMeta).map(k => [k, 0])
@@ -190,6 +250,10 @@ Deno.serve(async (req: Request) => {
     failureCounts[category]++
     failureDetails.push({ symbol, category, reason, retryable: meta.retryable })
     console.error(`[BACKFILL_FAILURE] symbol=${symbol} category=${category} retryable=${meta.retryable} reason=${reason}`)
+  }
+
+  const recordSkip = (reason: string) => {
+    skipReasons[reason] = (skipReasons[reason] ?? 0) + 1
   }
 
   for (const symbol of symbolsToProcess) {
@@ -205,6 +269,7 @@ Deno.serve(async (req: Request) => {
       if (count && count > expectedDays * 0.8) {
         fetched++
         skipped++
+        recordSkip('already_has_coverage')
         console.log(`[BACKFILL_SKIP] symbol=${symbol} already has ${count} bars`)
         continue
       }
@@ -212,17 +277,23 @@ Deno.serve(async (req: Request) => {
       const bars = await fetchPolygonBarsWithRetry(symbol, startDate, endDate)
 
       if (bars.length === 0) {
+        recordSkip('empty_provider_response')
         recordFailure(symbol, 'empty_response', `No bars returned for ${symbol}`)
         continue
       }
+
+      rowsFetched += bars.length
 
       // Save in batches of 500
       const batches = chunkArray(bars, 500)
       let symbolFailed = false
       for (const batch of batches) {
-        const upsertOk = await upsertWithRetry(symbol, batch)
-        if (!upsertOk) {
+        rowsAttempted += batch.length
+        const upsertResult = await upsertWithRetry(symbol, batch)
+        rowsWritten += upsertResult.written
+        if (!upsertResult.ok) {
           symbolFailed = true
+          recordSkip('daily_prices_upsert_failed')
           recordFailure(symbol, 'database_upsert_failure', `Upsert failed after retries for ${symbol}`)
           break
         }
@@ -276,10 +347,15 @@ Deno.serve(async (req: Request) => {
         tier1_only: tier1Only,
         backfill_scope: backfillScope,
         failure_counts: failureCounts,
+        skip_reasons: skipReasons,
         top_failure_categories: topFailureCategories.slice(0, 5),
         retryable_failures: retryableFailures,
         permanent_failures: permanentFailures,
         skipped,
+        rows_fetched: rowsFetched,
+        rows_attempted: rowsAttempted,
+        rows_written: rowsWritten,
+        selection_diagnostics: selectionDiagnostics,
       },
     })
     .eq('id', logRow?.id)
@@ -293,7 +369,14 @@ Deno.serve(async (req: Request) => {
     skipped,
     successRate: symbolsToProcess.length ? Number(((fetched / symbolsToProcess.length) * 100).toFixed(2)) : 0,
     symbolsAttempted: symbolsToProcess.length,
+    symbolsSelected: symbolsToProcess.length,
+    symbolsSkipped: skipped,
     symbolsList: symbolsToProcess,
+    rowsFetched,
+    rowsAttempted,
+    rowsWritten,
+    skipReasons,
+    selectionDiagnostics,
     offset,
     nextOffset,
     hasMore: symbolsToProcess.length === batchSize,
@@ -411,10 +494,10 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
 }
 
 // ── Upsert with retry ──
-async function upsertWithRetry(symbol: string, batch: any[]): Promise<boolean> {
+async function upsertWithRetry(symbol: string, batch: any[]): Promise<{ ok: boolean; written: number }> {
   const meta = categoryMeta.database_upsert_failure
   for (let attempt = 0; attempt <= meta.maxRetries; attempt++) {
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('daily_prices')
       .upsert(
         batch.map((b: any) => ({
@@ -428,10 +511,10 @@ async function upsertWithRetry(symbol: string, batch: any[]): Promise<boolean> {
           data_source: 'polygon',
           has_full_volume: true,
         })),
-        { onConflict: 'symbol,date', ignoreDuplicates: false }
+        { onConflict: 'symbol,date', ignoreDuplicates: false, count: 'exact' }
       )
 
-    if (!error) return true
+    if (!error) return { ok: true, written: count ?? 0 }
 
     if (attempt < meta.maxRetries) {
       console.warn(`[BACKFILL_UPSERT_RETRY] symbol=${symbol} attempt=${attempt + 1}/${meta.maxRetries} error=${safeReason(error.message)}`)
@@ -440,7 +523,7 @@ async function upsertWithRetry(symbol: string, batch: any[]): Promise<boolean> {
       console.error(`[BACKFILL_UPSERT_FAIL] symbol=${symbol} error=${safeReason(error.message)}`)
     }
   }
-  return false
+  return { ok: false, written: 0 }
 }
 
 // ── Error classification ──
