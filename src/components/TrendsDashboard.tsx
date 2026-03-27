@@ -18,14 +18,14 @@ export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: Disco
 
   return (
     <section className="rounded border border-border bg-card overflow-hidden">
-      <div className="flex items-center justify-between px-3 pt-3 pb-1.5">
+      <div className="flex items-center justify-between px-2 pt-2 pb-1 sm:px-3 sm:pt-3 sm:pb-1.5">
         <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">TREND STREAMS</h3>
         <span className="text-[8px] font-mono text-muted-foreground">
           {discoveryMeta?.trendClassificationMode === 'degraded_snapshot' ? 'DEGRADED' : 'STRICT WSP'}
         </span>
       </div>
 
-      <div className="flex gap-1 px-3 pb-2">
+      <div className="flex gap-1 px-2 pb-1.5 sm:px-3 sm:pb-2 overflow-x-auto">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = active === tab.id;
@@ -44,17 +44,17 @@ export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: Disco
         })}
       </div>
 
-      <div className="px-3 pb-2">
-        <p className="text-[9px] font-mono text-muted-foreground">{activeTab.desc}</p>
+      <div className="px-2 pb-1.5 sm:px-3 sm:pb-2">
+        <p className="text-[8px] sm:text-[9px] font-mono text-muted-foreground">{activeTab.desc}</p>
       </div>
 
-      <div className="border-t border-border px-3 py-2.5">
+      <div className="border-t border-border px-2 py-2 sm:px-3 sm:py-2.5">
         {visible.length === 0 ? (
-          <p className="rounded border border-dashed border-border bg-background/50 p-4 text-center text-[10px] font-mono text-muted-foreground">
-            No candidates in {active} bucket.
+          <p className="rounded border border-dashed border-border bg-background/50 p-3 text-center text-[10px] font-mono text-muted-foreground">
+            Inga kandidater i {active}-kategorin just nu.
           </p>
         ) : (
-          <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-1 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             {visible.slice(0, 18).map((stock) => {
               const trust = deriveStockTrustContext(stock, discoveryMeta?.dataState ?? 'LIVE');
 
@@ -62,7 +62,7 @@ export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: Disco
                 <Link
                   key={`${active}-${stock.symbol}`}
                   to={`/stock/${stock.symbol}`}
-                  className="group rounded border border-border bg-background p-2.5 transition-all hover:border-primary/30"
+                  className="group rounded border border-border bg-background p-2 transition-all hover:border-primary/30"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
