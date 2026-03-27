@@ -348,32 +348,36 @@ export default function Admin() {
               </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  disabled={running !== null}
-                  variant="outline"
-                  className="font-mono text-xs"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  {running === 'enrich' ? 'Enrichment pågår...' : 'Berika metadata'}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Berika symbol-metadata?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Hämtar sektor, bransch och instrumenttyp från Polygon ticker details
-                    för alla ej berikade symboler. Rate-limited till 5 req/min.
-                    Tar ~30 min per 100 symboler.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={runEnrich}>Starta enrichment</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {/* Enrichment Tier Buttons */}
+            <div className="flex flex-wrap gap-2 border-l border-border pl-3">
+              <Button
+                onClick={() => runEnrich('tier1')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'tier1' ? 'Tier 1...' : 'Berika Tier 1 (80)'}
+              </Button>
+              <Button
+                onClick={() => runEnrich('tier2')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'tier2' ? 'Tier 2...' : 'Berika Tier 2 (50)'}
+              </Button>
+              <Button
+                onClick={() => runEnrich('all')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'all' ? 'Alla...' : 'Berika alla'}
+              </Button>
+            </div>
           </div>
 
           {/* Resume from offset */}
