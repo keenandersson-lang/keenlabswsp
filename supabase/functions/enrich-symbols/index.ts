@@ -119,8 +119,22 @@ Deno.serve(async (req: Request) => {
 
   if (symbolFilter) {
     const batch = symbolFilter.slice(offset, offset + batchSize)
+    const nextOffset = offset + batchSize
+    const hasMore = nextOffset < symbolFilter.length
     if (batch.length === 0) {
-      return jsonRes({ ok: true, done: true, message: `No more symbols in ${tier}.`, offset, enriched: 0, tierTotal: symbolFilter.length })
+      return jsonRes({
+        ok: true,
+        done: true,
+        message: `No more symbols in ${tier}.`,
+        offset,
+        nextOffset,
+        hasMore: false,
+        enriched: 0,
+        selected: 0,
+        requested: 0,
+        missingSymbols: [],
+        tierTotal: symbolFilter.length,
+      })
     }
     const result = await supabase
       .from('symbols')
@@ -130,6 +144,28 @@ Deno.serve(async (req: Request) => {
     fetchErr = result.error
     if (!shouldRecomputeDerived && symbols) {
       symbols = symbols.filter((s: any) => !s.enriched_at)
+    }
+
+    if (!fetchErr && (!symbols || symbols.length === 0)) {
+      return jsonRes({
+        ok: true,
+        tier,
+        done: !hasMore,
+        message: `No matching symbols found in symbols table for ${tier} batch.`,
+        offset,
+        nextOffset,
+        hasMore,
+        enriched: 0,
+        skipped: 0,
+        failed: 0,
+        promoted: 0,
+        selected: 0,
+        requested: batch.length,
+        missingSymbols: batch,
+        tierTotal: symbolFilter.length,
+        promotions: [],
+        errors: [],
+      })
     }
   } else {
     let query = supabase
@@ -243,6 +279,8 @@ Deno.serve(async (req: Request) => {
     failed,
     promoted,
     promotions: promotions.slice(0, 20),
+    selected: symbols.length,
+    requested: symbolFilter ? Math.min(batchSize, Math.max(0, symbolFilter.length - offset)) : symbols.length,
     offset,
     nextOffset,
     hasMore,
