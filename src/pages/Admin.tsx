@@ -253,9 +253,9 @@ export default function Admin() {
   });
   const [resumeOffset, setResumeOffset] = useState(0);
 
-  const runBackfill = async (startOffset = 0) => {
+  const runBackfill = async (startOffset = 0, tier1Only = false) => {
     setRunning('backfill');
-    const batchSize = 20;
+    const batchSize = tier1Only ? 10 : 20;
     let offset = startOffset;
     let totalFetched = 0;
     let totalFailed = 0;
@@ -263,19 +263,22 @@ export default function Admin() {
     let totalRowsWritten = 0;
     let allFailureCounts: Record<string, number> = {};
 
-    toast.info(`Backfill startat från offset ${startOffset}`);
-    setBackfillProgress({ offset: startOffset, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
+    const label = tier1Only ? 'Tier 1 backfill' : 'Backfill';
+    toast.info(`${label} startat från offset ${startOffset}`);
+    setBackfillProgress({ offset: startOffset, total: tier1Only ? TIER1_SYMBOLS.length : (stats?.symbolCount ?? 0), fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
 
     while (hasMore) {
       try {
-        const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
+        const data = await invokeFunction('historical-backfill', {
+          yearsBack: 5, batchSize, offset, tier1Only, sleepBetweenMs: 13000,
+        });
         if (!data) {
           setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response' }));
           break;
         }
         if (data.error) {
           setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: data.error }));
-          toast.error(`Backfill stoppat vid offset ${offset}: ${data.error}`);
+          toast.error(`${label} stoppat vid offset ${offset}: ${data.error}`);
           break;
         }
         totalFetched += data.fetched ?? 0;
@@ -290,20 +293,20 @@ export default function Admin() {
         offset = data.nextOffset ?? offset + batchSize;
         setResumeOffset(offset);
         setBackfillProgress({
-          offset, total: stats?.symbolCount ?? 0,
+          offset, total: tier1Only ? TIER1_SYMBOLS.length : (stats?.symbolCount ?? 0),
           fetched: totalFetched, failed: totalFailed, running: hasMore,
           rowsWritten: totalRowsWritten, lastError: '',
           failureCounts: allFailureCounts, stopped: false, stopReason: '',
         });
       } catch (err) {
         setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: String(err) }));
-        toast.error(`Backfill nätverksfel vid offset ${offset}`);
+        toast.error(`${label} nätverksfel vid offset ${offset}`);
         break;
       }
     }
 
     if (!hasMore) {
-      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader, ${totalFailed} misslyckade.`);
+      toast.success(`${label} klart! ${totalFetched} symboler, ${totalRowsWritten} rader, ${totalFailed} misslyckade.`);
     }
     setBackfillProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
@@ -436,21 +439,44 @@ export default function Admin() {
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
+                <Button disabled={running !== null} className="font-mono text-xs bg-primary text-primary-foreground">
                   <Download className="h-4 w-4 mr-2" />
-                  {running === 'backfill' ? 'Backfill pågår...' : 'Starta backfill'}
+                  {running === 'backfill' ? 'Backfill pågår...' : '⚡ Backfill Tier 1'}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Starta historisk backfill?</AlertDialogTitle>
+                  <AlertDialogTitle>Backfill Tier 1 symboler?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Laddar 5 år historisk data för alla symboler via Polygon.io.
+                    Laddar 5 år historisk data för {TIER1_SYMBOLS.length} Tier 1 symboler via Polygon.io.
+                    Benchmarks processas först, sedan equities, sedan metals.
+                    Anpassat tempo (13s/symbol) för att undvika rate limits.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => runBackfill(0)}>Starta backfill</AlertDialogAction>
+                  <AlertDialogAction onClick={() => runBackfill(0, true)}>Starta Tier 1 backfill</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
+                  <Download className="h-4 w-4 mr-2" />
+                  Full backfill
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Starta full historisk backfill?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Laddar 5 år historisk data för ALLA aktiva symboler. Tar lång tid.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => runBackfill(0, false)}>Starta full backfill</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -497,8 +523,16 @@ export default function Admin() {
                 </span>
               </div>
               {running === 'backfill' && Object.keys(backfillProgress.failureCounts).some(k => (backfillProgress.failureCounts[k] ?? 0) > 0) && (
-                <div className="text-[10px] font-mono text-muted-foreground ml-5">
-                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(' · ')}
+                <div className="text-[10px] font-mono text-muted-foreground ml-5 space-y-0.5">
+                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).sort((a,b) => (b[1] as number) - (a[1] as number)).map(([k,v]) => {
+                    const retryable = ['rate_limited','provider_5xx','provider_timeout','database_upsert_failure','unknown_provider_error'].includes(k);
+                    return (
+                      <div key={k}>
+                        <span className={retryable ? 'text-signal-caution' : 'text-signal-danger'}>{retryable ? '🔄' : '⛔'}</span>{' '}
+                        {k}: {String(v)}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
