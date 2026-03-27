@@ -6,59 +6,61 @@
 
 @layer base {
   :root {
-    --background: 220 20% 7%;
-    --foreground: 210 20% 92%;
+    /* WSP Design System — #0a0a0f base */
+    --background: 240 33% 4%;
+    --foreground: 240 20% 95%;
 
-    --card: 220 18% 10%;
-    --card-foreground: 210 20% 92%;
+    --card: 240 25% 7%;
+    --card-foreground: 240 20% 95%;
 
-    --popover: 220 18% 10%;
-    --popover-foreground: 210 20% 92%;
+    --popover: 240 25% 7%;
+    --popover-foreground: 240 20% 95%;
 
-    --primary: 160 80% 45%;
-    --primary-foreground: 220 20% 7%;
+    --primary: 166 100% 42%;
+    --primary-foreground: 240 33% 4%;
 
-    --secondary: 220 16% 16%;
-    --secondary-foreground: 210 20% 80%;
+    --secondary: 240 18% 15%;
+    --secondary-foreground: 240 10% 75%;
 
-    --muted: 220 14% 14%;
-    --muted-foreground: 215 15% 50%;
+    --muted: 240 15% 12%;
+    --muted-foreground: 220 10% 45%;
 
-    --accent: 205 90% 55%;
-    --accent-foreground: 220 20% 7%;
+    --accent: 166 100% 42%;
+    --accent-foreground: 240 33% 4%;
 
-    --destructive: 0 75% 55%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 240 20% 95%;
 
-    --border: 220 14% 18%;
-    --input: 220 14% 18%;
-    --ring: 160 80% 45%;
+    --border: 240 14% 16%;
+    --input: 240 14% 16%;
+    --ring: 166 100% 42%;
 
     --radius: 0.5rem;
 
-    /* Custom signal colors */
-    --signal-buy: 160 80% 45%;
-    --signal-sell: 0 75% 55%;
-    --signal-caution: 40 90% 55%;
-    --signal-neutral: 215 15% 50%;
-    --signal-climbing: 160 80% 45%;
-    --signal-base: 205 90% 55%;
-    --signal-tired: 40 90% 55%;
-    --signal-downhill: 0 75% 55%;
+    /* WSP signal colors */
+    --signal-buy: 166 100% 42%;
+    --signal-sell: 0 84% 60%;
+    --signal-caution: 38 92% 50%;
+    --signal-neutral: 220 10% 45%;
+    --signal-climbing: 166 100% 42%;
+    --signal-base: 210 90% 55%;
+    --signal-tired: 38 92% 50%;
+    --signal-downhill: 0 84% 60%;
 
     /* Glow effects */
-    --glow-green: 0 0 20px hsl(160 80% 45% / 0.3);
-    --glow-red: 0 0 20px hsl(0 75% 55% / 0.3);
-    --glow-blue: 0 0 20px hsl(205 90% 55% / 0.3);
+    --glow-green: 0 0 20px hsl(166 100% 42% / 0.3);
+    --glow-red: 0 0 20px hsl(0 84% 60% / 0.3);
+    --glow-blue: 0 0 20px hsl(210 90% 55% / 0.3);
 
-    --sidebar-background: 220 18% 10%;
-    --sidebar-foreground: 210 20% 92%;
-    --sidebar-primary: 160 80% 45%;
-    --sidebar-primary-foreground: 220 20% 7%;
-    --sidebar-accent: 220 16% 16%;
-    --sidebar-accent-foreground: 210 20% 80%;
-    --sidebar-border: 220 14% 18%;
-    --sidebar-ring: 160 80% 45%;
+    /* Sidebar */
+    --sidebar-background: 240 25% 6%;
+    --sidebar-foreground: 240 20% 95%;
+    --sidebar-primary: 166 100% 42%;
+    --sidebar-primary-foreground: 240 33% 4%;
+    --sidebar-accent: 240 18% 15%;
+    --sidebar-accent-foreground: 240 10% 75%;
+    --sidebar-border: 240 14% 16%;
+    --sidebar-ring: 166 100% 42%;
   }
 }
 
