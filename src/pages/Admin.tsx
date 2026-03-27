@@ -99,10 +99,10 @@ export default function Admin() {
 
   const [enrichProgress, setEnrichProgress] = useState({
     offset: 0, enriched: 0, promoted: 0, failed: 0, running: false,
-    promotions: [] as string[],
+    promotions: [] as string[], tier: '' as string, tierTotal: 0,
   });
 
-  const runEnrich = async () => {
+  const runEnrich = async (tier: string) => {
     setRunning('enrich');
     const batchSize = 20;
     let offset = 0;
@@ -111,13 +111,20 @@ export default function Admin() {
     let totalFailed = 0;
     let allPromotions: string[] = [];
     let hasMore = true;
+    let tierTotal = 0;
 
-    toast.info('Metadata enrichment startat');
-    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [] });
+    const tierLabels: Record<string, string> = {
+      tier1: 'Tier 1 (curated + benchmarks)',
+      tier2: 'Tier 2 (S&P 500 extended)',
+      'tier1+2': 'Tier 1+2',
+      all: 'Alla symboler',
+    };
+    toast.info(`Enrichment startat: ${tierLabels[tier] ?? tier}`);
+    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [], tier, tierTotal: 0 });
 
     while (hasMore) {
       try {
-        const data = await invokeFunction('enrich-symbols', { batchSize, offset });
+        const data = await invokeFunction('enrich-symbols', { batchSize, offset, tier });
         if (!data || data.error) {
           toast.error(`Enrichment stoppat: ${data?.error || 'No response'}`);
           break;
@@ -125,12 +132,14 @@ export default function Admin() {
         totalEnriched += data.enriched ?? 0;
         totalPromoted += data.promoted ?? 0;
         totalFailed += data.failed ?? 0;
+        if (data.tierTotal) tierTotal = data.tierTotal;
         if (data.promotions) allPromotions = [...allPromotions, ...data.promotions];
         hasMore = data.hasMore === true;
         offset = data.nextOffset ?? offset + batchSize;
         setEnrichProgress({
           offset, enriched: totalEnriched, promoted: totalPromoted,
           failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
+          tier, tierTotal,
         });
         if (offset % 100 === 0) queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
       } catch (err) {
@@ -339,32 +348,36 @@ export default function Admin() {
               </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  disabled={running !== null}
-                  variant="outline"
-                  className="font-mono text-xs"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  {running === 'enrich' ? 'Enrichment pågår...' : 'Berika metadata'}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Berika symbol-metadata?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Hämtar sektor, bransch och instrumenttyp från Polygon ticker details
-                    för alla ej berikade symboler. Rate-limited till 5 req/min.
-                    Tar ~30 min per 100 symboler.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={runEnrich}>Starta enrichment</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {/* Enrichment Tier Buttons */}
+            <div className="flex flex-wrap gap-2 border-l border-border pl-3">
+              <Button
+                onClick={() => runEnrich('tier1')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'tier1' ? 'Tier 1...' : 'Berika Tier 1 (80)'}
+              </Button>
+              <Button
+                onClick={() => runEnrich('tier2')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'tier2' ? 'Tier 2...' : 'Berika Tier 2 (50)'}
+              </Button>
+              <Button
+                onClick={() => runEnrich('all')}
+                disabled={running !== null}
+                variant="outline"
+                className="font-mono text-xs"
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {running === 'enrich' && enrichProgress.tier === 'all' ? 'Alla...' : 'Berika alla'}
+              </Button>
+            </div>
           </div>
 
           {/* Resume from offset */}
@@ -391,7 +404,7 @@ export default function Admin() {
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
                     : running === 'enrich'
-                    ? `Offset ${enrichProgress.offset} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted · ${enrichProgress.failed} misslyckade`
+                    ? `${enrichProgress.tier.toUpperCase()} · ${enrichProgress.offset}/${enrichProgress.tierTotal || '?'} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted · ${enrichProgress.failed} misslyckade`
                     : 'Bearbetar...'}
                 </span>
               </div>
