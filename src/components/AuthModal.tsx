@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { lovable } from '@/integrations/lovable/index';
 import { X, Mail, Lock, LogIn, UserPlus } from 'lucide-react';
 
 interface AuthModalProps {
