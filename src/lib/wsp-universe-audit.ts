@@ -73,6 +73,9 @@ export function auditDbSymbols(rows: Array<{
   sector: string | null;
   industry: string | null;
   is_active: boolean | null;
+  instrument_type?: string | null;
+  is_etf?: boolean | null;
+  is_adr?: boolean | null;
 }>): UniverseAuditReport {
   const byClass: Record<WspSymbolClass, number> = {
     full_wsp_equity: 0,
