@@ -80,7 +80,7 @@ async function fetchBarsFromCache(supabase: any, symbol: string, limit = 756): P
 async function fetchSymbolMeta(supabase: any, symbol: string) {
   const { data } = await supabase
     .from('symbols')
-    .select('name, sector, industry, exchange, asset_class, instrument_type, is_etf')
+    .select('name, company_name, sector, industry, exchange, asset_class, instrument_type, is_etf, support_level')
     .eq('symbol', symbol)
     .maybeSingle();
   return data;
@@ -111,6 +111,16 @@ Deno.serve(async (req: Request) => {
       fetchSymbolMeta(supabase, symbol),
     ]);
 
+    const allowedSupportLevels = new Set(['full_wsp_equity', 'limited_equity', 'sector_benchmark_proxy', 'metals_limited'])
+
+    if (symbolMeta?.support_level && !allowedSupportLevels.has(symbolMeta.support_level)) {
+      return json(403, {
+        ok: false,
+        data: null,
+        error: { code: 'SYMBOL_NOT_PROMOTED', message: `${symbol} is not promoted for visible WSP product flows.` },
+      });
+    }
+
     if (stockBars.length === 0) {
       return json(200, {
         ok: false,
@@ -133,7 +143,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       data: {
         symbol,
-        name: symbolMeta?.name ?? symbol,
+        name: symbolMeta?.company_name ?? symbolMeta?.name ?? symbol,
         sector: symbolMeta?.sector ?? (isBenchmark ? 'Benchmarks' : 'Unknown'),
         industry: symbolMeta?.industry ?? (isBenchmark ? 'Market Index ETF' : 'Unknown'),
         exchange: symbolMeta?.exchange ?? undefined,

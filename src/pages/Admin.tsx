@@ -43,7 +43,7 @@ export default function Admin() {
   const { data: stats } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [priceRes, symbolRes, logRes, earliestRes, latestRes] = await Promise.all([
+      const [priceRes, symbolRes, logRes, earliestRes, latestRes, enrichedRes, eligibleBackfillRes, eligibleFullWspRes, excludedRes] = await Promise.all([
         supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
         supabase
@@ -61,6 +61,10 @@ export default function Admin() {
           .select('date')
           .order('date', { ascending: false })
           .limit(1),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).not('enriched_at', 'is', null),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_backfill', true),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('eligible_for_full_wsp', true),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('support_level', 'excluded'),
       ]);
       return {
         priceCount: priceRes.count ?? 0,
@@ -68,6 +72,10 @@ export default function Admin() {
         syncLog: logRes.data ?? [],
         earliest: earliestRes.data?.[0]?.date ?? null,
         latest: latestRes.data?.[0]?.date ?? null,
+        enrichedCount: enrichedRes.count ?? 0,
+        eligibleBackfillCount: eligibleBackfillRes.count ?? 0,
+        eligibleFullWspCount: eligibleFullWspRes.count ?? 0,
+        excludedCount: excludedRes.count ?? 0,
       };
     },
     refetchInterval: 15000,
@@ -253,7 +261,7 @@ export default function Admin() {
   });
   const [resumeOffset, setResumeOffset] = useState(0);
 
-  const runBackfill = async (startOffset = 0, tier1Only = false) => {
+  const runBackfill = async (startOffset = 0, tier1Only = false, backfillScope = tier1Only ? 'tier1' : 'eligible_common_stock') => {
     setRunning('backfill');
     const batchSize = tier1Only ? 10 : 20;
     let offset = startOffset;
@@ -263,14 +271,14 @@ export default function Admin() {
     let totalRowsWritten = 0;
     let allFailureCounts: Record<string, number> = {};
 
-    const label = tier1Only ? 'Tier 1 backfill' : 'Backfill';
+    const label = tier1Only ? 'Tier 1 backfill' : `Backfill (${backfillScope})`;
     toast.info(`${label} startat från offset ${startOffset}`);
     setBackfillProgress({ offset: startOffset, total: tier1Only ? TIER1_SYMBOLS.length : (stats?.symbolCount ?? 0), fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
 
     while (hasMore) {
       try {
         const data = await invokeFunction('historical-backfill', {
-          yearsBack: 5, batchSize, offset, tier1Only, sleepBetweenMs: 13000,
+          yearsBack: 5, batchSize, offset, tier1Only, backfillScope, sleepBetweenMs: 13000,
         });
         if (!data) {
           setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response' }));
@@ -409,11 +417,15 @@ export default function Admin() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
             <StatBox label="Symboler" value={stats?.symbolCount?.toLocaleString() ?? '—'} />
             <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
             <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
             <StatBox label="Latest" value={stats?.latest ?? '—'} />
+            <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Eligible Backfill" value={stats?.eligibleBackfillCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Eligible Full WSP" value={stats?.eligibleFullWspCount?.toLocaleString() ?? '—'} />
+            <StatBox label="Excluded" value={stats?.excludedCount?.toLocaleString() ?? '—'} />
           </div>
         </CardContent>
       </Card>
@@ -464,19 +476,19 @@ export default function Admin() {
               <AlertDialogTrigger asChild>
                 <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
                   <Download className="h-4 w-4 mr-2" />
-                  Full backfill
+Broad backfill
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Starta full historisk backfill?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Laddar 5 år historisk data för ALLA aktiva symboler. Tar lång tid.
+                    Laddar 5 år historisk data för eligible_for_backfill-universet (ej alla lagrade symboler).
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => runBackfill(0, false)}>Starta full backfill</AlertDialogAction>
+                  <AlertDialogAction onClick={() => runBackfill(0, false, 'eligible_common_stock')}>Starta broad backfill</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -504,7 +516,7 @@ export default function Admin() {
                 onChange={(e) => setResumeOffset(Number(e.target.value))}
                 className="w-24 bg-muted border border-border rounded px-2 py-1 text-xs font-mono text-foreground"
               />
-              <Button onClick={() => runBackfill(resumeOffset)} variant="outline" size="sm" className="font-mono text-xs">
+              <Button onClick={() => runBackfill(resumeOffset, false, 'eligible_common_stock')} variant="outline" size="sm" className="font-mono text-xs">
                 Fortsätt backfill
               </Button>
             </div>
