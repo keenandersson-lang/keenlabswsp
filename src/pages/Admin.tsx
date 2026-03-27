@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server,
+  XCircle, AlertTriangle, Clock, Server, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
-type RunningType = 'daily' | 'backfill' | 'seed' | null;
+type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | null;
 
 export default function Admin() {
   const [running, setRunning] = useState<RunningType>(null);
@@ -93,6 +93,56 @@ export default function Admin() {
   const runDailySync = async () => {
     setRunning('daily');
     await invokeFunction('daily-sync');
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    setRunning(null);
+  };
+
+  const [enrichProgress, setEnrichProgress] = useState({
+    offset: 0, enriched: 0, promoted: 0, failed: 0, running: false,
+    promotions: [] as string[],
+  });
+
+  const runEnrich = async () => {
+    setRunning('enrich');
+    const batchSize = 20;
+    let offset = 0;
+    let totalEnriched = 0;
+    let totalPromoted = 0;
+    let totalFailed = 0;
+    let allPromotions: string[] = [];
+    let hasMore = true;
+
+    toast.info('Metadata enrichment startat');
+    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [] });
+
+    while (hasMore) {
+      try {
+        const data = await invokeFunction('enrich-symbols', { batchSize, offset });
+        if (!data || data.error) {
+          toast.error(`Enrichment stoppat: ${data?.error || 'No response'}`);
+          break;
+        }
+        totalEnriched += data.enriched ?? 0;
+        totalPromoted += data.promoted ?? 0;
+        totalFailed += data.failed ?? 0;
+        if (data.promotions) allPromotions = [...allPromotions, ...data.promotions];
+        hasMore = data.hasMore === true;
+        offset = data.nextOffset ?? offset + batchSize;
+        setEnrichProgress({
+          offset, enriched: totalEnriched, promoted: totalPromoted,
+          failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
+        });
+        if (offset % 100 === 0) queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      } catch (err) {
+        toast.error(`Enrichment nätverksfel vid offset ${offset}`);
+        break;
+      }
+    }
+
+    if (!hasMore) {
+      toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted till full WSP.`);
+    }
+    setEnrichProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     setRunning(null);
   };
@@ -288,6 +338,33 @@ export default function Admin() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  disabled={running !== null}
+                  variant="outline"
+                  className="font-mono text-xs"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {running === 'enrich' ? 'Enrichment pågår...' : 'Berika metadata'}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Berika symbol-metadata?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Hämtar sektor, bransch och instrumenttyp från Polygon ticker details
+                    för alla ej berikade symboler. Rate-limited till 5 req/min.
+                    Tar ~30 min per 100 symboler.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
+                  <AlertDialogAction onClick={runEnrich}>Starta enrichment</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           {/* Resume from offset */}
@@ -313,6 +390,8 @@ export default function Admin() {
                 <span>
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
+                    : running === 'enrich'
+                    ? `Offset ${enrichProgress.offset} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted · ${enrichProgress.failed} misslyckade`
                     : 'Bearbetar...'}
                 </span>
               </div>
