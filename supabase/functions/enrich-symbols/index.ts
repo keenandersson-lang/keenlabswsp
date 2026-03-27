@@ -95,28 +95,97 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
-  const { batchSize = 20, offset = 0, forceRefresh = false } = body
+  const { batchSize = 20, offset = 0, forceRefresh = false, tier = 'all' } = body
 
-  // Fetch symbols that need enrichment
-  let query = supabase
-    .from('symbols')
-    .select('symbol, name, exchange, sector, industry, is_active, instrument_type, is_etf, is_adr, enriched_at')
-    .eq('is_active', true)
-    .order('symbol')
-    .range(offset, offset + batchSize - 1)
+  // ── V1 Enrichment Tiers ──
+  const TIER1_CURATED = [
+    // Benchmarks + Sector ETFs
+    'SPY','QQQ','DIA','IWM',
+    'XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
+    // Curated equities
+    'AAPL','MSFT','NVDA','AVGO','AMD','ORCL','CRM',
+    'GOOGL','META','NFLX','DIS','TMUS','VZ',
+    'AMZN','TSLA','HD','MCD','NKE','BKNG',
+    'COST','WMT','PG','KO','PEP','PM',
+    'JPM','BAC','WFC','V','MA',
+    'LLY','UNH','JNJ','ABBV','MRK','ISRG',
+    'CAT','BA','GE','HON','UPS','DE',
+    'XOM','CVX','COP','SLB','EOG',
+    'LIN','APD','ECL','NUE','DD',
+    'PLD','AMT','EQIX','O',
+    'NEE','SO','DUK','SRE',
+    // Metals
+    'GLD','SLV','COPX','GDX','NEM','FCX','PPLT',
+  ]
 
-  if (!forceRefresh) {
-    query = query.is('enriched_at', null)
+  // Tier 2: additional high-quality S&P 500 names seeded by Alpaca
+  // These are symbols NOT in Tier 1 that have a known sector from seed-symbols SECTOR_MAP
+  const TIER2_KNOWN_SECTOR = [
+    'CSCO','ADBE','INTC','QCOM','TXN','AMAT','MU','LRCX','KLAC','SNPS','CDNS','MRVL','NOW',
+    'CMCSA','T',
+    'SBUX','LOW','TJX',
+    'MO','CL',
+    'GS','MS','BLK','AXP','C','SCHW',
+    'PFE','TMO','ABT','DHR','BMY','AMGN','GILD','MDT','SYK',
+    'MPC','PSX','VLO',
+    'RTX','UNP','LMT','MMM','FDX',
+    'D','AEP','EXC',
+    'SHW',
+    'CCI','SPG',
+  ]
+
+  // Build symbol filter based on tier
+  let symbolFilter: string[] | null = null
+  if (tier === 'tier1') {
+    symbolFilter = TIER1_CURATED
+  } else if (tier === 'tier2') {
+    symbolFilter = TIER2_KNOWN_SECTOR
+  } else if (tier === 'tier1+2') {
+    symbolFilter = [...TIER1_CURATED, ...TIER2_KNOWN_SECTOR]
   }
+  // tier === 'all' → no filter, uses offset pagination
 
-  const { data: symbols, error: fetchErr } = await query
+  let symbols: any[] | null = null
+  let fetchErr: any = null
+
+  if (symbolFilter) {
+    // For tiered enrichment, fetch exact symbols (ignore offset pagination)
+    const batch = symbolFilter.slice(offset, offset + batchSize)
+    if (batch.length === 0) {
+      return jsonRes({ ok: true, done: true, message: `No more symbols in ${tier}.`, offset, enriched: 0, tierTotal: symbolFilter.length })
+    }
+    const result = await supabase
+      .from('symbols')
+      .select('symbol, name, exchange, sector, industry, is_active, instrument_type, is_etf, is_adr, enriched_at')
+      .in('symbol', batch)
+    symbols = result.data
+    fetchErr = result.error
+    // Filter out already-enriched unless forceRefresh
+    if (!forceRefresh && symbols) {
+      symbols = symbols.filter((s: any) => !s.enriched_at)
+    }
+  } else {
+    // Original offset-based pagination for 'all'
+    let query = supabase
+      .from('symbols')
+      .select('symbol, name, exchange, sector, industry, is_active, instrument_type, is_etf, is_adr, enriched_at')
+      .eq('is_active', true)
+      .order('symbol')
+      .range(offset, offset + batchSize - 1)
+    if (!forceRefresh) {
+      query = query.is('enriched_at', null)
+    }
+    const result = await query
+    symbols = result.data
+    fetchErr = result.error
+  }
 
   if (fetchErr) {
     return jsonRes({ error: `Fetch error: ${fetchErr.message}` })
   }
 
   if (!symbols || symbols.length === 0) {
-    return jsonRes({ ok: true, done: true, message: 'No more symbols to enrich.', offset, enriched: 0 })
+    return jsonRes({ ok: true, done: true, message: `No more symbols to enrich (${tier}).`, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
   }
 
   // Log start
