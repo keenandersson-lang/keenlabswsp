@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { computeSectorIndustryClassification } from '../_shared/classification.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,21 +27,6 @@ const TYPE_MAP: Record<string, string> = {
   OS: 'OS', GDR: 'GDR', NOTE: 'NOTE',
 }
 
-const SECTOR_NORMALIZATION: Record<string, string> = {
-  'consumer defensive': 'Consumer Staples',
-  'consumer cyclical': 'Consumer Discretionary',
-  'communication services': 'Communication Services',
-  'real estate': 'Real Estate',
-  'basic materials': 'Materials',
-  'health care': 'Healthcare',
-  'industrials': 'Industrials',
-  'utilities': 'Utilities',
-  'financial services': 'Financials',
-  'technology': 'Technology',
-  'energy': 'Energy',
-  'unknown': 'Unknown',
-}
-
 const TIER1_CURATED = [
   'SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
   'AAPL','MSFT','NVDA','AVGO','AMD','ORCL','CRM','GOOGL','META','NFLX','DIS','TMUS','VZ',
@@ -58,56 +44,10 @@ const TIER2_KNOWN_SECTOR = [
 const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
 const METALS = new Set(['GLD','SLV','COPX','GDX','PPLT'])
 
-const SIC_SECTOR_MAP: Record<string, string> = {
-  '01': 'Materials','02': 'Materials','07': 'Materials','08': 'Materials','09': 'Materials',
-  '10': 'Energy','12': 'Energy','13': 'Energy','14': 'Materials','15': 'Industrials','16': 'Industrials','17': 'Industrials',
-  '20': 'Consumer Staples','21': 'Consumer Staples','22': 'Consumer Discretionary','23': 'Consumer Discretionary','24': 'Materials',
-  '25': 'Consumer Discretionary','26': 'Materials','27': 'Communication Services','28': 'Healthcare','29': 'Energy','30': 'Materials',
-  '31': 'Consumer Discretionary','32': 'Materials','33': 'Materials','34': 'Industrials','35': 'Technology','36': 'Technology',
-  '37': 'Industrials','38': 'Healthcare','39': 'Consumer Discretionary','40': 'Industrials','41': 'Industrials','42': 'Industrials',
-  '43': 'Communication Services','44': 'Industrials','45': 'Industrials','46': 'Industrials','47': 'Industrials','48': 'Communication Services',
-  '49': 'Utilities','50': 'Consumer Discretionary','51': 'Consumer Staples','52': 'Consumer Discretionary','53': 'Consumer Discretionary',
-  '54': 'Consumer Staples','55': 'Consumer Discretionary','56': 'Consumer Discretionary','57': 'Consumer Discretionary','58': 'Consumer Discretionary',
-  '59': 'Consumer Discretionary','60': 'Financials','61': 'Financials','62': 'Financials','63': 'Financials','64': 'Financials','65': 'Real Estate',
-  '67': 'Financials','70': 'Consumer Discretionary','72': 'Consumer Discretionary','73': 'Technology','75': 'Consumer Discretionary',
-  '76': 'Industrials','78': 'Communication Services','79': 'Communication Services','80': 'Healthcare','81': 'Technology','82': 'Consumer Discretionary',
-  '83': 'Consumer Discretionary','84': 'Consumer Discretionary','86': 'Consumer Discretionary','87': 'Technology','89': 'Technology',
-  '91': 'Industrials','92': 'Industrials','93': 'Industrials','94': 'Industrials','95': 'Industrials','96': 'Industrials','97': 'Industrials','99': 'Industrials',
-}
-
 function normalizeText(value: string | null | undefined): string | null {
   if (!value) return null
   const trimmed = value.trim()
   return trimmed.length ? trimmed : null
-}
-
-function normalizeSector(raw: string | null | undefined): string | null {
-  const normalized = normalizeText(raw)
-  if (!normalized) return null
-  const key = normalized.toLowerCase()
-  return SECTOR_NORMALIZATION[key] ?? titleCase(normalized)
-}
-
-function titleCase(input: string): string {
-  return input
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-    .slice(0, 100)
-}
-
-function sectorFromSic(sic: string | null | undefined): string | null {
-  if (!sic) return null
-  const prefix = sic.slice(0, 2)
-  return SIC_SECTOR_MAP[prefix] ?? null
-}
-
-function industryFromSicDesc(sicDesc: string | null | undefined): string | null {
-  const normalized = normalizeText(sicDesc)
-  if (!normalized || normalized.length < 3) return null
-  return titleCase(normalized)
 }
 
 function classifyPromotion(row: Record<string, any>) {
@@ -116,6 +56,8 @@ function classifyPromotion(row: Record<string, any>) {
   const isEtf = Boolean(row.is_etf)
   const isAdr = Boolean(row.is_adr)
   const isCommonStock = Boolean(row.is_common_stock)
+  const isClassificationEligible = ['canonicalized', 'manually_reviewed'].includes(String(row.classification_status ?? ''))
+  const hasClassificationQuality = isClassificationEligible && ['high', 'medium'].includes(String(row.classification_confidence_level ?? ''))
 
   if (!row.is_active) {
     return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: 'inactive_symbol' }
@@ -130,14 +72,21 @@ function classifyPromotion(row: Record<string, any>) {
     return { support_level: 'data_only', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: isEtf ? 'non_target_etf' : 'adr_not_promoted' }
   }
 
-  const hasFullMeta = Boolean(row.sector && row.sector !== 'Unknown' && row.industry)
-  const fullEquity = isCommonStock && hasFullMeta && ['NYSE', 'NASDAQ'].includes(exchange)
+  const isTier1Grandfathered = row.support_level === 'full_wsp_equity'
+  if (isTier1Grandfathered && isCommonStock && ['NYSE', 'NASDAQ'].includes(exchange)) {
+    return { support_level: 'full_wsp_equity', eligible_for_backfill: true, eligible_for_full_wsp: true, exclusion_reason: null }
+  }
+
+  const fullEquity = isCommonStock && hasClassificationQuality && ['NYSE', 'NASDAQ'].includes(exchange)
   if (fullEquity) {
     return { support_level: 'full_wsp_equity', eligible_for_backfill: true, eligible_for_full_wsp: true, exclusion_reason: null }
   }
 
   if (isCommonStock && ['NYSE', 'NASDAQ', 'AMEX', 'ARCA'].includes(exchange)) {
-    return { support_level: 'limited_equity', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: hasFullMeta ? 'insufficient_primary_exchange' : 'missing_sector_or_industry' }
+    const reason = !hasClassificationQuality
+      ? `classification_${String(row.classification_status ?? 'unresolved')}_${String(row.classification_confidence_level ?? 'low')}`
+      : 'insufficient_primary_exchange'
+    return { support_level: 'limited_equity', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: reason }
   }
 
   return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: 'unsupported_instrument' }
@@ -173,7 +122,7 @@ Deno.serve(async (req: Request) => {
     }
     const result = await supabase
       .from('symbols')
-      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, enriched_at')
+      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
       .in('symbol', batch)
     symbols = result.data
     fetchErr = result.error
@@ -183,7 +132,7 @@ Deno.serve(async (req: Request) => {
   } else {
     let query = supabase
       .from('symbols')
-      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, enriched_at')
+      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
       .eq('is_active', true)
       .order('symbol')
       .range(offset, offset + batchSize - 1)
@@ -314,8 +263,6 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
 
   const sicCode = normalizeText(details.sic_code)
   const sicDesc = normalizeText(details.sic_description)
-  const derivedSector = normalizeSector(details.market ?? details.sector) ?? sectorFromSic(sicCode)
-  const derivedIndustry = normalizeText(details.industry) ?? industryFromSicDesc(sicDesc)
   const companyName = normalizeText(details.name)
 
   const merged = {
@@ -330,9 +277,34 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
     is_common_stock: isCommonStock || existing.is_common_stock || false,
     is_etf: isEtf || existing.is_etf || false,
     is_adr: isAdr || existing.is_adr || false,
-    sector: existing.sector && existing.sector !== 'Unknown' ? existing.sector : (derivedSector ?? existing.sector ?? 'Unknown'),
-    industry: existing.industry || derivedIndustry || null,
+    raw_sector: existing.raw_sector || normalizeText(details.market ?? details.sector) || existing.sector,
+    raw_industry: existing.raw_industry || normalizeText(details.industry) || normalizeText(sicDesc) || existing.industry,
+    sector: existing.sector,
+    industry: existing.industry,
+    manual_override_sector: existing.manual_override_sector,
+    manual_override_industry: existing.manual_override_industry,
+    manually_reviewed: existing.manually_reviewed,
+    support_level: existing.support_level,
   }
+
+  const classification = computeSectorIndustryClassification({
+    symbol: merged.symbol,
+    rawSector: merged.raw_sector,
+    rawIndustry: merged.raw_industry,
+    sector: merged.sector,
+    industry: merged.industry,
+    sicCode,
+    sicDescription: sicDesc,
+    exchange: merged.exchange,
+    primaryExchange: merged.primary_exchange,
+    instrumentType: merged.instrument_type,
+    isEtf: merged.is_etf,
+    isAdr: merged.is_adr,
+    isCommonStock: merged.is_common_stock,
+    manualOverrideSector: merged.manual_override_sector,
+    manualOverrideIndustry: merged.manual_override_industry,
+    manuallyReviewed: merged.manually_reviewed,
+  })
 
   const update: Record<string, any> = {
     enriched_at: new Date().toISOString(),
@@ -345,6 +317,18 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
     is_common_stock: merged.is_common_stock,
     is_etf: merged.is_etf,
     is_adr: merged.is_adr,
+    raw_sector: classification.rawSector,
+    raw_industry: classification.rawIndustry,
+    canonical_sector: classification.canonicalSector,
+    canonical_industry: classification.canonicalIndustry,
+    classification_confidence: classification.confidenceScore,
+    classification_confidence_level: classification.confidenceLevel,
+    classification_source: classification.classificationSource,
+    classification_status: classification.classificationStatus,
+    classification_reason: classification.classificationReason,
+    review_needed: classification.reviewNeeded,
+    sector: classification.canonicalSector ?? merged.sector ?? 'Unknown',
+    industry: classification.canonicalIndustry ?? merged.industry,
   }
 
   if (normalizedExchange && (!existing.exchange || existing.exchange === 'Unknown')) {
@@ -355,12 +339,6 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
   }
   if (sicCode) update.sic_code = sicCode
   if (sicDesc) update.sic_description = sicDesc
-  if (merged.sector && (!existing.sector || existing.sector === 'Unknown')) {
-    update.sector = merged.sector
-  }
-  if (merged.industry && !existing.industry) {
-    update.industry = merged.industry
-  }
 
   const promotion = classifyPromotion({ ...merged, ...update })
   update.support_level = promotion.support_level
