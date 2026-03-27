@@ -26,6 +26,7 @@ interface EdgeFunctionResponse {
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
   data: {
     trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string; exchange?: string; assetClass?: string; supportsFullWsp?: boolean; wspSupport?: string }>;
+    liveScannerCohort?: string[];
     stockBars: Record<string, Bar[]>;
     benchmarkBars: Bar[];
     benchmarkSymbol: string;
@@ -278,6 +279,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   // LIVE / STALE: compute indicators client-side from raw bars
   const { data } = edgeResp;
   const benchmarkBars = data.benchmarkBars;
+  const trackedSymbolsCount = data.trackedSymbols?.length ?? TRACKED_SYMBOLS.length;
   const quotes = edgeResp.quotes ?? {};
 
   const marketFromPayload = edgeResp.market;
@@ -374,7 +376,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
     stocks: evaluatedStocks,
     ...discoverySnapshot,
     sectorStatuses,
-    providerStatus: {
+      providerStatus: {
       provider: 'finnhub',
       isLive: uiState === 'LIVE',
       uiState,
@@ -384,15 +386,15 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       errorMessage: edgeResp.error?.message ? safeError : (anyStale ? 'Live provider unavailable. Showing latest safe snapshot.' : null),
       isFallback: false,
       fallbackActive: false,
-      symbolCount: TRACKED_SYMBOLS.length,
+      symbolCount: trackedSymbolsCount,
       benchmarkSymbol: WSP_CONFIG.benchmark,
       benchmarkFetchStatus: benchmarkBars.length > 0 ? (anyStale ? 'stale' : 'success') : 'failed',
       refreshIntervalMs: WSP_CONFIG.refreshInterval,
-      readiness: {
+        readiness: {
         envVarPresent: edgeResp.providerStatus.apiKeyPresent,
         routeReachable: fetchDiagnostics.reachable,
         benchmarkSymbolConfigured: true,
-        trackedSymbolsCount: TRACKED_SYMBOLS.length,
+        trackedSymbolsCount,
         symbolsFetchedSuccessfully: evaluatedStocks.length,
         symbolsFailed: failedSymbols.length,
         lastSuccessfulLiveFetch: uiState === 'LIVE' ? now : null,
@@ -427,15 +429,24 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   };
 
   if (isDevMode()) {
-    // In dev mode, try the Vite plugin first, then fall back to edge function
+    // In dev mode, prefer edge function (same source-of-truth as production), then fall back to Vite plugin.
     const params = new URLSearchParams();
     if (options?.intervalMs) params.set('intervalMs', String(options.intervalMs));
     if (options?.forceRefresh) params.set('forceRefresh', '1');
     const devUrl = `/api/wsp-screener${params.size > 0 ? `?${params.toString()}` : ''}`;
-    
+
+    if (edgeFunctionUrl) {
+      const edgeFirst = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
+      edgeResp = edgeFirst.payload;
+      fetchDiagnostics = edgeFirst.diagnostics;
+      if (edgeResp.ok && edgeResp.data) {
+        return processEdgeResponse(edgeResp, fetchDiagnostics);
+      }
+    }
+
     const devResp = await safeFetch(devUrl);
     fetchDiagnostics = devResp.diagnostics;
-    
+
     // If dev server returned a full ScreenerApiResponse (not wrapped in edge payload), use it directly
     if (!(devResp.payload as any)?.ok && (devResp.payload as any)?.providerStatus?.uiState) {
       const raw = devResp.payload as any;
@@ -443,14 +454,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
         return raw as ScreenerApiResponse;
       }
     }
-
-    // Dev server not available or returned non-JSON — try edge function
     edgeResp = devResp.payload;
-    if ((edgeResp.error?.code === 'NON_JSON_RESPONSE' || edgeResp.error?.code === 'NETWORK_ERROR') && edgeFunctionUrl) {
-      const efResp = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
-      edgeResp = efResp.payload;
-      fetchDiagnostics = efResp.diagnostics;
-    }
   } else {
     // Production: always use edge function
     if (!edgeFunctionUrl) {

@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const ROUTE_VERSION = 'supabase-wsp-scan-results@2026-03-27.1-phase7';
 
-type Scope = 'tier1_default' | 'approved_for_live_scanner' | 'review_needed' | 'broader_candidate' | 'all';
+type Scope = 'live_default' | 'tier1_default' | 'approved_for_live_scanner' | 'review_needed' | 'broader_candidate' | 'all';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -20,9 +20,9 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const url = new URL(req.url);
-    const scopeParam = (url.searchParams.get('scope') ?? 'tier1_default') as Scope;
-    const supportedScopes: Scope[] = ['tier1_default', 'approved_for_live_scanner', 'review_needed', 'broader_candidate', 'all'];
-    const scope: Scope = supportedScopes.includes(scopeParam) ? scopeParam : 'tier1_default';
+    const scopeParam = (url.searchParams.get('scope') ?? 'live_default') as Scope;
+    const supportedScopes: Scope[] = ['live_default', 'tier1_default', 'approved_for_live_scanner', 'review_needed', 'broader_candidate', 'all'];
+    const scope: Scope = supportedScopes.includes(scopeParam) ? scopeParam : 'live_default';
 
     const limitParam = Number(url.searchParams.get('limit') ?? '250');
     const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(1000, Math.round(limitParam))) : 250;
@@ -34,7 +34,9 @@ Deno.serve(async (req: Request) => {
       .order('scan_timestamp', { ascending: false })
       .limit(limit);
 
-    if (scope !== 'all') {
+    if (scope === 'live_default') {
+      query = query.in('promotion_status', ['tier1_default', 'approved_for_live_scanner']);
+    } else if (scope !== 'all') {
       query = query.eq('promotion_status', scope);
     }
 

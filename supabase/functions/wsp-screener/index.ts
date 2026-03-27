@@ -1,5 +1,5 @@
 // WSP Screener Edge Function — Cache-first with live quote overlay
-// Reads bars from daily_prices (Tier 1 source of truth), quotes from Alpaca snapshots
+// Reads bars from daily_prices and scopes stocks from market_scan_results_latest (live cohort source of truth)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const corsHeaders = {
@@ -36,6 +36,7 @@ interface Bar {
 // ── In-memory quote cache ──
 const quoteCache = new Map<string, { price: number; change: number; changePercent: number; high: number; low: number; open: number; prevClose: number; timestamp: number; fetchedAt: number }>();
 const QUOTE_CACHE_TTL_MS = 2 * 60 * 1000;
+const LIVE_SCANNER_PROMOTION_STATUSES = ['tier1_default', 'approved_for_live_scanner'] as const;
 
 function getCachedQuote(symbol: string) {
   const cached = quoteCache.get(symbol);
@@ -109,6 +110,48 @@ const TRACKED_SYMBOLS: SymbolMeta[] = [
   { symbol: 'GDX', name: 'VanEck Gold Miners ETF', sector: 'Metals & Mining', industry: 'Gold Miners', assetClass: 'metals', exchange: 'ARCA', supportsFullWsp: false, wspSupport: 'limited', symbolClass: 'metals_limited', scannerEligible: false, discoveryEligible: false },
   { symbol: 'PPLT', name: 'abrdn Platinum ETF', sector: 'Metals & Mining', industry: 'Platinum', assetClass: 'metals', exchange: 'ARCA', supportsFullWsp: false, wspSupport: 'limited', symbolClass: 'metals_limited', scannerEligible: false, discoveryEligible: false },
 ];
+
+async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
+  const { data: latestRows, error } = await supabase
+    .from('market_scan_results_latest')
+    .select('symbol, sector, industry, promotion_status, score')
+    .in('promotion_status', [...LIVE_SCANNER_PROMOTION_STATUSES])
+    .order('score', { ascending: false })
+    .order('scan_timestamp', { ascending: false })
+    .limit(1000);
+
+  if (error || !latestRows?.length) {
+    console.warn('wsp-screener cohort fallback to TRACKED_SYMBOLS', error?.message ?? 'empty cohort');
+    return TRACKED_SYMBOLS.filter((symbol) => symbol.supportsFullWsp !== false);
+  }
+
+  const symbols = [...new Set(latestRows.map((row: any) => row.symbol).filter(Boolean))];
+  const { data: symbolRows } = await supabase
+    .from('symbols')
+    .select('symbol, name, exchange, instrument_type, is_etf')
+    .in('symbol', symbols);
+
+  const symbolMetaMap = new Map((symbolRows ?? []).map((row: any) => [row.symbol, row]));
+
+  return symbols.map((symbol) => {
+    const row = latestRows.find((item: any) => item.symbol === symbol);
+    const meta = symbolMetaMap.get(symbol);
+    const isEquity = !meta?.is_etf && meta?.instrument_type === 'CS';
+    return {
+      symbol,
+      name: meta?.name ?? symbol,
+      sector: row?.sector ?? 'Unknown',
+      industry: row?.industry ?? 'Unknown',
+      assetClass: isEquity ? 'equity' : 'commodity',
+      exchange: meta?.exchange ?? 'UNKNOWN',
+      supportsFullWsp: isEquity,
+      wspSupport: isEquity ? 'full' : 'limited',
+      symbolClass: isEquity ? 'full_wsp_equity' : 'limited_equity',
+      scannerEligible: isEquity,
+      discoveryEligible: isEquity,
+    };
+  });
+}
 
 const BENCHMARK = 'SPY';
 const MARKET_REGIME_SYMBOLS = ['SPY', 'QQQ'];
@@ -244,12 +287,14 @@ Deno.serve(async (req: Request) => {
     const keyId = Deno.env.get('ALPACA_API_KEY_ID')?.trim();
     const secret = Deno.env.get('ALPACA_API_SECRET_KEY')?.trim();
 
+    const trackedSymbols = await fetchLiveScannerCohort(supabase);
+
     // Collect all symbols we need bars for
     const allEtfs = [...new Set(Object.values(SECTOR_ETFS).flat())];
     const allBarSymbols = [...new Set([
       ...MARKET_REGIME_SYMBOLS,
       ...allEtfs,
-      ...TRACKED_SYMBOLS.map(s => s.symbol),
+      ...trackedSymbols.map(s => s.symbol),
     ])];
 
     // 1. Read bars from daily_prices cache (primary source)
@@ -262,7 +307,7 @@ Deno.serve(async (req: Request) => {
       const allQuoteSymbols = [...new Set([
         ...MARKET_REGIME_SYMBOLS,
         ...allEtfs,
-        ...TRACKED_SYMBOLS.map(s => s.symbol),
+        ...trackedSymbols.map(s => s.symbol),
       ])];
       const snapshots = await fetchAlpacaSnapshots(allQuoteSymbols, keyId, secret);
       for (const [sym, snap] of Object.entries(snapshots)) {
@@ -284,7 +329,7 @@ Deno.serve(async (req: Request) => {
     for (const sym of allEtfs) {
       if (cachedBars[sym]?.length > 0) sectorEtfBars[sym] = cachedBars[sym];
     }
-    for (const meta of TRACKED_SYMBOLS) {
+    for (const meta of trackedSymbols) {
       const bars = cachedBars[meta.symbol];
       if (!bars || bars.length === 0) {
         failedSymbols.push(meta.symbol);
@@ -301,11 +346,11 @@ Deno.serve(async (req: Request) => {
     if (!hasCandleAccess && cachedSymbolCount === 0) {
       return jsonResponse(200, {
         ok: false, mode: 'FALLBACK', data: null,
-        error: { code: 'NO_CACHED_DATA', message: 'No Tier 1 data in cache. Run backfill first.' },
+        error: { code: 'NO_CACHED_DATA', message: 'No live scanner cohort data in cache. Run broad scan/backfill first.' },
         providerStatus: {
           provider: 'cache', isLive: false, apiKeyPresent: Boolean(keyId),
           routeVersion: ROUTE_VERSION,
-          finalModeReason: 'daily_prices cache is empty. Backfill Tier 1 first.',
+          finalModeReason: 'daily_prices cache is empty for live scanner cohort. Run broad scan/backfill first.',
           fallbackCause: 'necessary',
         },
       });
@@ -315,7 +360,8 @@ Deno.serve(async (req: Request) => {
       ok: true,
       mode,
       data: {
-        trackedSymbols: TRACKED_SYMBOLS,
+        trackedSymbols,
+        liveScannerCohort: LIVE_SCANNER_PROMOTION_STATUSES,
         stockBars: stockBarData,
         benchmarkBars,
         benchmarkSymbol: BENCHMARK,
@@ -338,14 +384,14 @@ Deno.serve(async (req: Request) => {
         hasCandleAccess,
         symbolsFetched: Object.keys(stockBarData).length,
         symbolsFailed: failedSymbols.length,
-        totalSymbols: TRACKED_SYMBOLS.length,
+        totalSymbols: trackedSymbols.length,
         quotesAvailable: Object.keys(quotesMap).length,
         fetchedAt: new Date().toISOString(),
         cachedSymbols: cachedSymbolCount,
         routeVersion: ROUTE_VERSION,
         benchmarkSuccessCount: MARKET_REGIME_SYMBOLS.filter(s => (cachedBars[s]?.length ?? 0) > 0).length,
         benchmarkFailureCount: MARKET_REGIME_SYMBOLS.filter(s => !(cachedBars[s]?.length > 0)).length,
-        finalModeReason: `Cache-first: ${Object.keys(stockBarData).length}/${TRACKED_SYMBOLS.length} symbols from daily_prices. ${Object.keys(quotesMap).length} live quotes.`,
+        finalModeReason: `Cache-first live cohort: ${Object.keys(stockBarData).length}/${trackedSymbols.length} symbols from daily_prices. ${Object.keys(quotesMap).length} live quotes.`,
         fallbackCause: mode === 'LIVE' ? 'none' : 'necessary',
         cacheInvalidated: false,
         activeProvider: 'cache+alpaca',

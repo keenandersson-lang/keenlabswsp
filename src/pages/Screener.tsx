@@ -71,7 +71,7 @@ export default function Screener() {
           <div>
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              WSP 3-layer engine · {equityStocks.length} equities
+              Live approved scanner cohort · {equityStocks.length} equities
               {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> · {providerStatus.uiState}</span>}
             </p>
           </div>
