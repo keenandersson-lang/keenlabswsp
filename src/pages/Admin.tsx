@@ -97,10 +97,43 @@ export default function Admin() {
     setRunning(null);
   };
 
+  const [backfillProgress, setBackfillProgress] = useState({ offset: 0, total: 0, fetched: 0, failed: 0, running: false });
+
   const runBackfill = async () => {
     setRunning('backfill');
-    toast.info('Backfill startat — detta kan ta 30–60 min.');
-    await invokeFunction('historical-backfill', { yearsBack: 5 });
+    const batchSize = 3; // 3 symbols per invocation to stay within edge function timeout
+    let offset = 0;
+    let totalFetched = 0;
+    let totalFailed = 0;
+    let hasMore = true;
+
+    toast.info('Backfill startat — körs i automatiska batchar.');
+    setBackfillProgress({ offset: 0, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true });
+
+    while (hasMore) {
+      try {
+        const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
+        if (!data || data.error) {
+          toast.error(`Backfill stoppat vid offset ${offset}: ${data?.error || 'okänt fel'}`);
+          break;
+        }
+        totalFetched += data.fetched ?? 0;
+        totalFailed += data.failed ?? 0;
+        hasMore = data.hasMore === true;
+        offset = data.nextOffset ?? offset + batchSize;
+        setBackfillProgress({ offset, total: stats?.symbolCount ?? 0, fetched: totalFetched, failed: totalFailed, running: hasMore });
+
+        if (offset % 30 === 0) {
+          queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+        }
+      } catch (err) {
+        toast.error(`Backfill nätverksfel vid offset ${offset}`);
+        break;
+      }
+    }
+
+    setBackfillProgress(prev => ({ ...prev, running: false }));
+    toast.success(`Backfill klart! ${totalFetched} symboler hämtade, ${totalFailed} misslyckade.`);
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     setRunning(null);
   };
@@ -229,7 +262,11 @@ export default function Admin() {
           {running && (
             <div className="flex items-center gap-2 text-xs text-primary font-mono">
               <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>{running === 'backfill' ? 'Backfill körs i bakgrunden...' : 'Bearbetar...'}</span>
+              <span>
+                {running === 'backfill'
+                  ? `Backfill: offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.failed} misslyckade`
+                  : 'Bearbetar...'}
+              </span>
             </div>
           )}
         </CardContent>
