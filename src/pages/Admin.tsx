@@ -287,7 +287,7 @@ export default function Admin() {
   const invokeFunction = async (fnName: string, body: Record<string, unknown> = {}) => {
     if (!syncKey) {
       toast.error('Ange SYNC_SECRET_KEY först');
-      return;
+      return { ok: false, error: 'SYNC_SECRET_KEY saknas', code: 'MISSING_SYNC_KEY' };
     }
     const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
     const url = `https://${projectId}.supabase.co/functions/v1/${fnName}`;
@@ -300,15 +300,33 @@ export default function Admin() {
         },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        toast.error(`${fnName} misslyckades: ${data.error || res.statusText}`);
-      } else {
-        toast.success(`${fnName} klart!`, { description: JSON.stringify(data).slice(0, 100) });
+      const responseText = await res.text();
+      let data: Record<string, any> = {};
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = {
+            ok: false,
+            error: `Invalid JSON response (${res.status})`,
+            code: 'INVALID_JSON_RESPONSE',
+            raw: responseText.slice(0, 300),
+          };
+        }
       }
-      return data;
+
+      const errorMessage = data?.error || `${res.status} ${res.statusText}`;
+      if (!res.ok || data.error) {
+        toast.error(`${fnName} misslyckades: ${errorMessage}`);
+        return { ok: false, ...data, status: res.status };
+      }
+
+      toast.success(`${fnName} klart!`, { description: JSON.stringify(data).slice(0, 100) });
+      return { ok: true, ...data, status: res.status };
     } catch (err) {
-      toast.error(`Nätverksfel: ${String(err)}`);
+      const message = `Nätverksfel: ${String(err)}`;
+      toast.error(message);
+      return { ok: false, error: message, code: 'NETWORK_ERROR' };
     }
   };
 
