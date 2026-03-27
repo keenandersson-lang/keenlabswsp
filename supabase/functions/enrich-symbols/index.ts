@@ -12,6 +12,9 @@ const supabase = createClient(
 )
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
+const MAX_EXECUTION_MS = 110_000
+const POLYGON_RETRY_SLEEP_MS = 1_200
+const BETWEEN_SYMBOL_SLEEP_MS = 250
 
 const EXCHANGE_MAP: Record<string, string> = {
   XNYS: 'NYSE', XNAS: 'NASDAQ', XASE: 'AMEX', ARCX: 'ARCA',
@@ -94,207 +97,250 @@ function classifyPromotion(row: Record<string, any>) {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
-  }
+  const requestStartedAt = Date.now()
+  try {
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders })
+    }
 
-  const authHeader = req.headers.get('Authorization')
-  if (authHeader !== `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
-
-  const body = await req.json().catch(() => ({})) as Record<string, any>
-  const { batchSize = 20, offset = 0, forceRefresh = false } = body
-  const tierInput = normalizeScopeInput(body)
-  const tier = resolveTier(tierInput)
-
-  if (!SUPPORTED_ENRICH_TIERS.has(tier)) {
-    return jsonRes({
-      error: `Unsupported enrich scope: ${tierInput}. Supported: all, tier1, tier2, tier1+2`,
-    })
-  }
-
-  let symbolFilter: string[] | null = null
-  if (tier === 'tier1') symbolFilter = TIER1_CURATED
-  else if (tier === 'tier2') symbolFilter = TIER2_KNOWN_SECTOR
-  else if (tier === 'tier1+2') symbolFilter = [...TIER1_CURATED, ...TIER2_KNOWN_SECTOR]
-
-  let symbols: any[] | null = null
-  let fetchErr: any = null
-
-  const shouldRecomputeDerived = forceRefresh || tier === 'tier1' || tier === 'tier1+2'
-
-  if (symbolFilter) {
-    const batch = symbolFilter.slice(offset, offset + batchSize)
-    const nextOffset = offset + batchSize
-    const hasMore = nextOffset < symbolFilter.length
-    if (batch.length === 0) {
-      return jsonRes({
-        ok: true,
-        done: true,
-        message: `No more symbols in ${tier}.`,
-        offset,
-        nextOffset,
-        hasMore: false,
-        enriched: 0,
-        selected: 0,
-        requested: 0,
-        missingSymbols: [],
-        tierTotal: symbolFilter.length,
+    const authHeader = req.headers.get('Authorization')
+    if (authHeader !== `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`) {
+      return new Response(JSON.stringify({ error: 'Unauthorized', code: 'UNAUTHORIZED' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-    const result = await supabase
-      .from('symbols')
-      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
-      .in('symbol', batch)
-    symbols = result.data
-    fetchErr = result.error
-    if (!shouldRecomputeDerived && symbols) {
-      symbols = symbols.filter((s: any) => !s.enriched_at)
-    }
 
-    if (!fetchErr && (!symbols || symbols.length === 0)) {
+    const body = await req.json().catch(() => ({})) as Record<string, any>
+    const { batchSize = 20, offset = 0, forceRefresh = false } = body
+    const tierInput = normalizeScopeInput(body)
+    const tier = resolveTier(tierInput)
+
+    if (!SUPPORTED_ENRICH_TIERS.has(tier)) {
       return jsonRes({
-        ok: true,
-        tier,
-        done: !hasMore,
-        message: `No matching symbols found in symbols table for ${tier} batch.`,
-        offset,
-        nextOffset,
-        hasMore,
-        enriched: 0,
-        skipped: 0,
-        failed: 0,
-        promoted: 0,
-        selected: 0,
-        requested: batch.length,
-        missingSymbols: batch,
-        tierTotal: symbolFilter.length,
-        promotions: [],
-        errors: [],
+        ok: false,
+        error: `Unsupported enrich scope: ${tierInput}. Supported: all, tier1, tier2, tier1+2`,
+        code: 'UNSUPPORTED_SCOPE',
       })
     }
-  } else {
-    let query = supabase
-      .from('symbols')
-      .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
-      .eq('is_active', true)
-      .order('symbol')
-      .range(offset, offset + batchSize - 1)
-    if (!shouldRecomputeDerived) query = query.is('enriched_at', null)
-    const result = await query
-    symbols = result.data
-    fetchErr = result.error
-  }
 
-  if (fetchErr) return jsonRes({ error: `Fetch error: ${fetchErr.message}` })
-  if (!symbols || symbols.length === 0) {
-    return jsonRes({ ok: true, done: true, message: `No more symbols to enrich (${tier}).`, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
-  }
+    let symbolFilter: string[] | null = null
+    if (tier === 'tier1') symbolFilter = TIER1_CURATED
+    else if (tier === 'tier2') symbolFilter = TIER2_KNOWN_SECTOR
+    else if (tier === 'tier1+2') symbolFilter = [...TIER1_CURATED, ...TIER2_KNOWN_SECTOR]
 
-  const { data: logRow } = await supabase
-    .from('data_sync_log')
-    .insert({
-      sync_type: 'enrich',
-      status: 'running',
-      data_source: 'polygon_ticker_details',
-      metadata: { batch_size: batchSize, offset, symbols_count: symbols.length, tier },
-      started_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single()
+    let symbols: any[] | null = null
+    let fetchErr: any = null
 
-  let enriched = 0
-  let skipped = 0
-  let failed = 0
-  let promoted = 0
-  const errors: string[] = []
-  const promotions: string[] = []
+    const shouldRecomputeDerived = forceRefresh || tier === 'tier1' || tier === 'tier1+2'
 
-  for (const sym of symbols) {
-    try {
-      const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_KEY}`
-      const res = await fetch(url)
-      if (res.status === 429) {
-        await sleep(12000)
-        const retryRes = await fetch(url)
-        if (!retryRes.ok) {
-          failed++
-          errors.push(`${sym.symbol}: rate-limited, retry failed ${retryRes.status}`)
+    if (symbolFilter) {
+      const batch = symbolFilter.slice(offset, offset + batchSize)
+      const nextOffset = offset + batchSize
+      const hasMore = nextOffset < symbolFilter.length
+      if (batch.length === 0) {
+        return jsonRes({
+          ok: true,
+          done: true,
+          message: `No more symbols in ${tier}.`,
+          offset,
+          nextOffset,
+          hasMore: false,
+          enriched: 0,
+          selected: 0,
+          requested: 0,
+          missingSymbols: [],
+          tierTotal: symbolFilter.length,
+        })
+      }
+      const result = await supabase
+        .from('symbols')
+        .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
+        .in('symbol', batch)
+      symbols = result.data
+      fetchErr = result.error
+      if (!shouldRecomputeDerived && symbols) {
+        symbols = symbols.filter((s: any) => !s.enriched_at)
+      }
+
+      if (!fetchErr && (!symbols || symbols.length === 0)) {
+        return jsonRes({
+          ok: true,
+          tier,
+          done: !hasMore,
+          message: `No matching symbols found in symbols table for ${tier} batch.`,
+          offset,
+          nextOffset,
+          hasMore,
+          enriched: 0,
+          skipped: 0,
+          failed: 0,
+          promoted: 0,
+          selected: 0,
+          requested: batch.length,
+          missingSymbols: batch,
+          tierTotal: symbolFilter.length,
+          promotions: [],
+          errors: [],
+        })
+      }
+    } else {
+      let query = supabase
+        .from('symbols')
+        .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
+        .eq('is_active', true)
+        .order('symbol')
+        .range(offset, offset + batchSize - 1)
+      if (!shouldRecomputeDerived) query = query.is('enriched_at', null)
+      const result = await query
+      symbols = result.data
+      fetchErr = result.error
+    }
+
+    if (fetchErr) return jsonRes({ ok: false, error: `Fetch error: ${fetchErr.message}`, code: 'FETCH_ERROR' })
+    if (!symbols || symbols.length === 0) {
+      return jsonRes({ ok: true, done: true, message: `No more symbols to enrich (${tier}).`, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
+    }
+
+    const { data: logRow } = await supabase
+      .from('data_sync_log')
+      .insert({
+        sync_type: 'enrich',
+        status: 'running',
+        data_source: 'polygon_ticker_details',
+        metadata: { batch_size: batchSize, offset, symbols_count: symbols.length, tier },
+        started_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+
+    let enriched = 0
+    let skipped = 0
+    let failed = 0
+    let promoted = 0
+    let processed = 0
+    let timedOut = false
+    const errors: string[] = []
+    const promotions: string[] = []
+
+    for (const sym of symbols) {
+      if (Date.now() - requestStartedAt >= MAX_EXECUTION_MS) {
+        timedOut = true
+        errors.push(`Execution window reached after ${processed} symbols; returning partial progress.`)
+        break
+      }
+
+      try {
+        const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_KEY}`
+        const res = await fetch(url)
+        if (res.status === 429) {
+          await sleep(POLYGON_RETRY_SLEEP_MS)
+          const retryRes = await fetch(url)
+          if (!retryRes.ok) {
+            failed++
+            processed++
+            errors.push(`${sym.symbol}: rate-limited, retry failed ${retryRes.status}`)
+            continue
+          }
+          const retryData = await retryRes.json().catch(() => null)
+          if (!retryData) {
+            failed++
+            processed++
+            errors.push(`${sym.symbol}: retry response not valid JSON`)
+            continue
+          }
+          const wasPromoted = await processTickerDetails(sym, retryData)
+          enriched++
+          processed++
+          if (wasPromoted) {
+            promoted++
+            promotions.push(sym.symbol)
+          }
+          await sleep(BETWEEN_SYMBOL_SLEEP_MS)
           continue
         }
-        const retryData = await retryRes.json()
-        const wasPromoted = await processTickerDetails(sym, retryData)
+        if (!res.ok) {
+          processed++
+          if (res.status === 404) {
+            skipped++
+            continue
+          }
+          failed++
+          errors.push(`${sym.symbol}: polygon ${res.status}`)
+          continue
+        }
+
+        const data = await res.json().catch(() => null)
+        if (!data) {
+          failed++
+          processed++
+          errors.push(`${sym.symbol}: polygon invalid JSON body`)
+          continue
+        }
+
+        const wasPromoted = await processTickerDetails(sym, data)
         enriched++
+        processed++
         if (wasPromoted) {
           promoted++
           promotions.push(sym.symbol)
         }
-        continue
-      }
-      if (!res.ok) {
-        if (res.status === 404) {
-          skipped++
-          continue
-        }
+        await sleep(BETWEEN_SYMBOL_SLEEP_MS)
+      } catch (err) {
         failed++
-        errors.push(`${sym.symbol}: polygon ${res.status}`)
-        continue
+        processed++
+        errors.push(`${sym.symbol}: ${String(err).slice(0, 100)}`)
       }
-
-      const data = await res.json()
-      const wasPromoted = await processTickerDetails(sym, data)
-      enriched++
-      if (wasPromoted) {
-        promoted++
-        promotions.push(sym.symbol)
-      }
-      await sleep(12500)
-    } catch (err) {
-      failed++
-      errors.push(`${sym.symbol}: ${String(err).slice(0, 100)}`)
     }
-  }
 
-  await supabase
-    .from('data_sync_log')
-    .update({
-      status: failed === 0 ? 'success' : 'partial',
-      symbols_processed: enriched,
-      symbols_failed: failed,
-      completed_at: new Date().toISOString(),
-      error_message: errors.slice(0, 10).join('\n') || null,
-      metadata: {
-        tier, batch_size: batchSize, offset,
-        tier_total: symbolFilter?.length ?? null,
-        symbols_count: symbols.length,
-        enriched, skipped, failed, promoted,
-        promotions: promotions.slice(0, 50),
-      },
+    const nextOffset = offset + processed
+    const hasMoreBySelection = symbolFilter ? nextOffset < symbolFilter.length : symbols.length === batchSize
+    const hasMore = timedOut ? true : hasMoreBySelection
+
+    await supabase
+      .from('data_sync_log')
+      .update({
+        status: failed === 0 && !timedOut ? 'success' : 'partial',
+        symbols_processed: processed,
+        symbols_failed: failed,
+        completed_at: new Date().toISOString(),
+        error_message: errors.slice(0, 10).join('\n') || null,
+        metadata: {
+          tier, batch_size: batchSize, offset,
+          tier_total: symbolFilter?.length ?? null,
+          symbols_count: symbols.length,
+          processed, enriched, skipped, failed, promoted, timed_out: timedOut,
+          promotions: promotions.slice(0, 50),
+        },
+      })
+      .eq('id', logRow?.id)
+
+    return jsonRes({
+      ok: true,
+      tier,
+      tierTotal: symbolFilter?.length ?? null,
+      enriched,
+      skipped,
+      failed,
+      promoted,
+      processed,
+      timedOut,
+      promotions: promotions.slice(0, 20),
+      selected: symbols.length,
+      requested: symbolFilter ? Math.min(batchSize, Math.max(0, symbolFilter.length - offset)) : symbols.length,
+      offset,
+      nextOffset,
+      hasMore,
+      errors: errors.slice(0, 10),
     })
-    .eq('id', logRow?.id)
-
-  const nextOffset = offset + batchSize
-  const hasMore = symbolFilter ? nextOffset < symbolFilter.length : symbols.length === batchSize
-
-  return jsonRes({
-    ok: true,
-    tier,
-    tierTotal: symbolFilter?.length ?? null,
-    enriched,
-    skipped,
-    failed,
-    promoted,
-    promotions: promotions.slice(0, 20),
-    selected: symbols.length,
-    requested: symbolFilter ? Math.min(batchSize, Math.max(0, symbolFilter.length - offset)) : symbols.length,
-    offset,
-    nextOffset,
-    hasMore,
-    errors: errors.slice(0, 10),
-  })
+  } catch (err) {
+    console.error('Unhandled enrich-symbols failure:', err)
+    return jsonRes({
+      ok: false,
+      error: 'Unhandled enrich-symbols failure',
+      code: 'UNHANDLED_EXCEPTION',
+      details: String(err).slice(0, 300),
+    }, 500)
+  }
 })
 
 async function processTickerDetails(existing: any, polygonResponse: any): Promise<boolean> {
@@ -424,8 +470,9 @@ function resolveTier(input: string): string {
   return normalized
 }
 
-function jsonRes(body: unknown) {
+function jsonRes(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
+    status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 }
