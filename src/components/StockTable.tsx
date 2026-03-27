@@ -3,9 +3,10 @@ import type { DiscoveryMeta, EvaluatedStock, IndicatorWarning, StockAudit, WSPBl
 import { PatternBadge } from './PatternBadge';
 import { RecommendationBadge } from './RecommendationBadge';
 import { EntryCriteria } from './EntryCriteria';
+import { WSPScoreRing } from './WSPScoreRing';
 import { ArrowDownRight, ArrowUpRight, AlertTriangle, ChevronDown, ChevronUp, Filter, Search } from 'lucide-react';
 import { formatBlockedReason } from '@/lib/wsp-assertions';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 interface StockTableProps {
   stocks: EvaluatedStock[];
@@ -86,6 +87,7 @@ function BoolCell({ value }: { value: boolean | null | undefined }) {
 }
 
 export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterValue>('all');
   const [search, setSearch] = useState('');
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
@@ -230,8 +232,8 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
               return (
                 <Fragment key={stock.symbol}>
                   <tr
-                    onClick={() => setExpandedTicker(expandedTicker === stock.symbol ? null : stock.symbol)}
-                    className={`cursor-pointer border-b border-border/50 align-top transition-colors hover:bg-muted/30 ${
+                    onClick={() => navigate(`/stock/${stock.symbol}`)}
+                    className={`cursor-pointer border-b border-border/50 align-top transition-colors hover:bg-[#1a1a24] ${
                       stock.finalRecommendation === 'KÖP' ? 'bg-signal-buy/5' : stock.finalRecommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
                     } ${hasPartialData ? 'ring-1 ring-inset ring-signal-caution/20' : ''}`}
                   >
@@ -277,12 +279,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                     </td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1">
-                        {[...Array(stock.maxScore)].map((_, index) => (
-                          <div key={index} className={`h-1.5 w-2 rounded-full ${index < stock.score ? 'bg-primary' : 'bg-border'}`} />
-                        ))}
-                        <span className="ml-1 font-mono text-[10px] text-muted-foreground">{stock.score}/{stock.maxScore}</span>
-                      </div>
+                      <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={36} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="space-y-1">
