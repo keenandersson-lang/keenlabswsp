@@ -64,27 +64,33 @@ Deno.serve(async (req: Request) => {
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
 
-  // Get symbols to backfill
+  // Get symbols to backfill — filter by V1 contract eligibility
   let symbolsToProcess: string[]
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
   } else {
-    // Fetch ALL symbols using range to bypass 1000-row default
-    const allSymbols: string[] = []
-    let from = offset
-    const pageSize = batchSize
+    // Fetch batch of active symbols with valid format (no dots/slashes/spaces)
     const { data, error: fetchErr } = await supabase
       .from('symbols')
-      .select('symbol')
+      .select('symbol, exchange, sector, industry, asset_class, is_active')
       .eq('is_active', true)
       .order('symbol')
-      .range(from, from + pageSize - 1)
-    
+      .range(offset, offset + batchSize - 1)
+
     if (fetchErr) {
       return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
     }
-    allSymbols.push(...(data?.map((r: any) => r.symbol) ?? []))
-    symbolsToProcess = allSymbols
+
+    // Apply V1 contract: exclude invalid symbol formats, keep only backfill-eligible
+    symbolsToProcess = (data ?? [])
+      .filter((r: any) => {
+        const sym = (r.symbol ?? '').toUpperCase()
+        // Exclude invalid formats (dots, slashes, spaces, >5 chars)
+        if (sym.length === 0 || sym.length > 5) return false
+        if (/[^A-Z0-9]/.test(sym)) return false
+        return true
+      })
+      .map((r: any) => r.symbol)
   }
 
   if (symbolsToProcess.length === 0) {

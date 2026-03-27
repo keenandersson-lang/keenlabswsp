@@ -4,10 +4,13 @@
  */
 
 import { SECTOR_ETF_MAP } from './market-universe';
-import { TRACKED_SYMBOLS } from './tracked-symbols';
+import { TRACKED_SYMBOLS, SCANNER_ELIGIBLE_SYMBOLS } from './tracked-symbols';
 
 export const WSP_CONFIG = {
-  symbols: TRACKED_SYMBOLS.map((item) => item.symbol),
+  /** All tracked symbols (for charting, detail views) */
+  allSymbols: TRACKED_SYMBOLS.map((item) => item.symbol),
+  /** Only scanner-eligible symbols (full WSP equities) */
+  symbols: SCANNER_ELIGIBLE_SYMBOLS.map((item) => item.symbol),
 
   benchmark: 'SPY',
   marketRegimeSymbols: ['SPY', 'QQQ'],
