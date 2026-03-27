@@ -12,7 +12,11 @@ interface DebugPanelProps {
 
 export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta }: DebugPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const debugDiagnosticsEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).get('debug') === '1';
+  const debugEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).get('debug') === '1';
+  const debugDiagnosticsEnabled = debugEnabled;
+
+  // Hide entire debug panel from public production visitors
+  if (!debugEnabled) return null;
   const qaChecks = useMemo(() => ([
     { label: 'Engine fixtures passing', value: `${debugSummary.fixturePassCount}/${debugSummary.fixturePassCount + debugSummary.fixtureFailCount}`, ok: debugSummary.fixtureFailCount === 0 },
     { label: 'Indicator fixtures passing', value: `${debugSummary.indicatorTestPassCount}/${debugSummary.indicatorTestPassCount + debugSummary.indicatorTestFailCount}`, ok: debugSummary.indicatorTestFailCount === 0 },
