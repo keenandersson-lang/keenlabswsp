@@ -390,6 +390,8 @@ export default function Admin() {
                 <span>
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
+                    : running === 'enrich'
+                    ? `Offset ${enrichProgress.offset} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted · ${enrichProgress.failed} misslyckade`
                     : 'Bearbetar...'}
                 </span>
               </div>
