@@ -97,6 +97,56 @@ export default function Admin() {
     setRunning(null);
   };
 
+  const [enrichProgress, setEnrichProgress] = useState({
+    offset: 0, enriched: 0, promoted: 0, failed: 0, running: false,
+    promotions: [] as string[],
+  });
+
+  const runEnrich = async () => {
+    setRunning('enrich');
+    const batchSize = 20;
+    let offset = 0;
+    let totalEnriched = 0;
+    let totalPromoted = 0;
+    let totalFailed = 0;
+    let allPromotions: string[] = [];
+    let hasMore = true;
+
+    toast.info('Metadata enrichment startat');
+    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [] });
+
+    while (hasMore) {
+      try {
+        const data = await invokeFunction('enrich-symbols', { batchSize, offset });
+        if (!data || data.error) {
+          toast.error(`Enrichment stoppat: ${data?.error || 'No response'}`);
+          break;
+        }
+        totalEnriched += data.enriched ?? 0;
+        totalPromoted += data.promoted ?? 0;
+        totalFailed += data.failed ?? 0;
+        if (data.promotions) allPromotions = [...allPromotions, ...data.promotions];
+        hasMore = data.hasMore === true;
+        offset = data.nextOffset ?? offset + batchSize;
+        setEnrichProgress({
+          offset, enriched: totalEnriched, promoted: totalPromoted,
+          failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
+        });
+        if (offset % 100 === 0) queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      } catch (err) {
+        toast.error(`Enrichment nätverksfel vid offset ${offset}`);
+        break;
+      }
+    }
+
+    if (!hasMore) {
+      toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted till full WSP.`);
+    }
+    setEnrichProgress(prev => ({ ...prev, running: false }));
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    setRunning(null);
+  };
+
   const [backfillProgress, setBackfillProgress] = useState({
     offset: 0, total: 0, fetched: 0, failed: 0, running: false,
     rowsWritten: 0, lastError: '', failureCounts: {} as Record<string, number>,
