@@ -26,7 +26,14 @@ const SECTOR_ETFS = [
 ]
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'DIA', 'IWM']
-const METALS_ETFS = new Set(['GLD', 'SLV', 'COPX', 'GDX', 'PPLT'])
+const METALS_ETFS = [
+  { symbol: 'GLD', sector: 'Metals & Mining', name: 'SPDR Gold Shares' },
+  { symbol: 'SLV', sector: 'Metals & Mining', name: 'iShares Silver Trust' },
+  { symbol: 'COPX', sector: 'Metals & Mining', name: 'Global X Copper Miners ETF' },
+  { symbol: 'GDX', sector: 'Metals & Mining', name: 'VanEck Gold Miners ETF' },
+  { symbol: 'PPLT', sector: 'Metals & Mining', name: 'abrdn Physical Platinum Shares ETF' },
+]
+const METALS_ETF_SET = new Set(METALS_ETFS.map((item) => item.symbol))
 
 const SECTOR_MAP: Record<string, string> = {
   AAPL: 'Technology', MSFT: 'Technology', NVDA: 'Technology', AVGO: 'Technology',
@@ -79,7 +86,7 @@ function classifyPromotion(row: Record<string, any>) {
   if (INDEX_SYMBOLS.includes(symbol) || SECTOR_ETFS.some(s => s.symbol === symbol)) {
     return { support_level: 'sector_benchmark_proxy', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: null }
   }
-  if (METALS_ETFS.has(symbol)) {
+  if (METALS_ETF_SET.has(symbol)) {
     return { support_level: 'metals_limited', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: null }
   }
   if (isEtf || isAdr) {
@@ -189,6 +196,21 @@ Deno.serve(async (req: Request) => {
         is_adr: false,
         is_active: true,
         source_provider: 'seed_sector_etf',
+      })),
+      ...METALS_ETFS.map((e) => ({
+        symbol: e.symbol,
+        company_name: e.name,
+        name: e.name,
+        raw_sector: e.sector,
+        exchange: 'ARCA',
+        primary_exchange: 'ARCA',
+        asset_class: 'us_equity',
+        instrument_type: 'ETF',
+        is_common_stock: false,
+        is_etf: true,
+        is_adr: false,
+        is_active: true,
+        source_provider: 'seed_metals_etf',
       })),
       ...tradeableSymbols.map((a: any) => ({
         symbol: a.symbol,
