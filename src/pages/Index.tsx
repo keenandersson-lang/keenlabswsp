@@ -68,7 +68,7 @@ const Index = () => {
   }
 
   return (
-    <div className="space-y-5 px-4 py-4 max-w-7xl mx-auto pb-20 md:pb-4">
+    <div className="space-y-3 px-2 py-2 sm:px-4 sm:py-4 sm:space-y-4 max-w-7xl mx-auto pb-20 md:pb-4">
       {/* Zone 1 — Market Overview */}
       <MarketHeader
         market={market}
@@ -86,8 +86,8 @@ const Index = () => {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">Marknadsöversikt · WSP Top Setups</p>
+          <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">V1 Universe · {equityStocks.length} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
         </div>
         <CreditsBadge />
       </div>
@@ -108,10 +108,11 @@ const Index = () => {
 
       {/* Zone 3 — Top 10 WSP Setups */}
       <div className="rounded-lg border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
           <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            <h3 className="text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS IDAG</h3>
+            <TrendingUp className="h-3.5 w-3.5 text-primary" />
+            <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS</h3>
+            <span className="text-[8px] font-mono text-muted-foreground">({topSetups.length})</span>
           </div>
           <Link
             to="/screener"
@@ -120,19 +121,41 @@ const Index = () => {
             Visa alla →
           </Link>
         </div>
-        <div className="overflow-x-auto">
+        {/* Mobile: card layout */}
+        <div className="grid grid-cols-2 gap-1.5 p-2 sm:hidden">
+          {topSetups.map((stock) => (
+            <Link key={stock.symbol} to={`/stock/${stock.symbol}`} className="rounded border border-border bg-background p-2 hover:border-primary/30 transition-colors">
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-mono text-[10px] font-bold text-foreground">{stock.symbol}</span>
+                <RecommendationBadge recommendation={stock.finalRecommendation} />
+              </div>
+              <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="font-mono text-[9px] text-foreground">${stock.price.toFixed(2)}</span>
+                <span className={`font-mono text-[9px] font-medium ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                  {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-1">
+                <PatternBadge pattern={stock.pattern} />
+                <span className="text-[8px] font-mono text-muted-foreground">{stock.score}/{stock.maxScore}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Desktop: table layout */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/50 text-left text-[10px] text-muted-foreground font-mono">
-                <th className="px-4 py-2">SYMBOL</th>
-                <th className="px-3 py-2">PRIS</th>
-                <th className="px-3 py-2">ÄNDR.</th>
-                <th className="px-3 py-2">MÖNSTER</th>
-                <th className="px-3 py-2 text-center">WSP SCORE</th>
-                <th className="px-3 py-2">VOL</th>
-                <th className="px-3 py-2">50MA</th>
-                <th className="px-3 py-2">SEKTOR</th>
-                <th className="px-3 py-2">SIGNAL</th>
+                <th className="px-3 py-1.5">SYMBOL</th>
+                <th className="px-2 py-1.5">PRIS</th>
+                <th className="px-2 py-1.5">ÄNDR.</th>
+                <th className="px-2 py-1.5">MÖNSTER</th>
+                <th className="px-2 py-1.5 text-center">SCORE</th>
+                <th className="px-2 py-1.5">VOL</th>
+                <th className="px-2 py-1.5">SEKTOR</th>
+                <th className="px-2 py-1.5">SIGNAL</th>
               </tr>
             </thead>
             <tbody>
@@ -157,45 +180,32 @@ function TopSetupRow({ stock }: { stock: EvaluatedStock }) {
 
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-2">
         <Link to={`/stock/${stock.symbol}`} className="hover:text-primary transition-colors">
           <span className="font-mono text-xs font-bold text-foreground">{stock.symbol}</span>
-          <span className="block text-[9px] text-muted-foreground truncate max-w-[90px]">{stock.name}</span>
+          <span className="block text-[8px] text-muted-foreground truncate max-w-[80px]">{stock.name}</span>
         </Link>
       </td>
-      <td className="px-3 py-2.5 font-mono text-xs font-medium text-foreground">
-        ${stock.price.toFixed(2)}
-      </td>
-      <td className="px-3 py-2.5">
+      <td className="px-2 py-2 font-mono text-xs text-foreground">${stock.price.toFixed(2)}</td>
+      <td className="px-2 py-2">
         <span className={`flex items-center gap-0.5 font-mono text-xs font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
           {positive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
           {positive ? '+' : ''}{stock.changePercent.toFixed(2)}%
         </span>
       </td>
-      <td className="px-3 py-2.5">
-        <PatternBadge pattern={stock.pattern} />
-      </td>
-      <td className="px-3 py-2.5 text-center">
+      <td className="px-2 py-2"><PatternBadge pattern={stock.pattern} /></td>
+      <td className="px-2 py-2 text-center">
         <div className="flex justify-center">
-          <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={38} />
+          <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={32} />
         </div>
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-2 py-2">
         <span className={`font-mono text-xs ${volumeMultiple != null && volumeMultiple >= 2 ? 'text-signal-buy font-semibold' : 'text-muted-foreground'}`}>
           {volumeMultiple != null ? `${volumeMultiple.toFixed(1)}x` : '—'}
         </span>
       </td>
-      <td className="px-3 py-2.5">
-        <span className="font-mono text-xs">
-          {slopeDir === 'rising' ? '↑' : slopeDir === 'falling' ? '↓' : '→'}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 text-[10px] text-muted-foreground truncate max-w-[80px]">
-        {stock.sector}
-      </td>
-      <td className="px-3 py-2.5">
-        <RecommendationBadge recommendation={stock.finalRecommendation} />
-      </td>
+      <td className="px-2 py-2 text-[9px] text-muted-foreground truncate max-w-[70px]">{stock.sector}</td>
+      <td className="px-2 py-2"><RecommendationBadge recommendation={stock.finalRecommendation} /></td>
     </tr>
   );
 }

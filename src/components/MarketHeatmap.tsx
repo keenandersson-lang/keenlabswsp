@@ -38,21 +38,26 @@ export function MarketHeatmap({
     );
   }
 
+  const totalStockCount = sectors.reduce((sum, s) => sum + s.stocks.length, 0);
+
   return (
-    <section className="space-y-2.5">
+    <section className="space-y-1.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">MARKET HEATMAP · SECTOR → INDUSTRY → STOCK</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">MARKET HEATMAP</h3>
+          <span className="text-[8px] font-mono text-muted-foreground">{sectors.length} sektorer · {totalStockCount} aktier</span>
+        </div>
         <HeatmapLegend />
       </div>
 
       {degradedMessage && (
-        <div className="flex items-center gap-2 rounded border border-signal-caution/20 bg-signal-caution/5 px-2.5 py-1.5 text-[9px] font-mono text-signal-caution">
+        <div className="flex items-center gap-2 rounded border border-signal-caution/20 bg-signal-caution/5 px-2 py-1 text-[9px] font-mono text-signal-caution">
           <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0" />
           {degradedMessage}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
         {sectors.map((sector) => {
           const sectorActive = activeSector === sector.sector;
           const byIndustry = new Map<string, EvaluatedStock[]>();
@@ -65,29 +70,27 @@ export function MarketHeatmap({
           return (
             <article
               key={sector.sector}
-              className={`rounded border p-2 ${heatmapCellClass(sector.avgChange)} ${sectorActive ? 'ring-1 ring-primary/50 ring-offset-1 ring-offset-background' : ''}`}
+              className={`rounded border p-1.5 ${heatmapCellClass(sector.avgChange)} ${sectorActive ? 'ring-1 ring-primary/50 ring-offset-1 ring-offset-background' : ''}`}
             >
-              <button className="mb-1 flex w-full items-center justify-between" onClick={() => onSectorSelect(sector.sector)}>
-                <span className="text-[10px] font-mono font-bold text-foreground">{sector.sector}</span>
-                <span className={`font-mono text-[10px] font-semibold ${sector.avgChange >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+              <button className="mb-1 flex w-full items-center justify-between gap-1" onClick={() => onSectorSelect(sector.sector)}>
+                <span className="text-[9px] font-mono font-bold text-foreground truncate">{sector.sector}</span>
+                <span className={`font-mono text-[9px] font-semibold flex-shrink-0 ${sector.avgChange >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
                   {sector.avgChange >= 0 ? '+' : ''}{sector.avgChange.toFixed(2)}%
                 </span>
               </button>
 
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {[...byIndustry.entries()].map(([industry, industryStocks]) => {
                   const industryChange = industryStocks.reduce((sum, stock) => sum + stock.changePercent, 0) / industryStocks.length;
-                  const industryActive = sectorActive && activeIndustry === industry;
-                  const shownStocks = [...industryStocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 8);
+                  const shownStocks = [...industryStocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 6);
 
                   return (
-                    <div key={industry} className={`rounded border ${heatmapCellClass(industryChange)} p-1.5`}>
-                      <button className="mb-1 flex w-full items-center justify-between" onClick={() => { onSectorSelect(sector.sector); onIndustrySelect(industry); }}>
-                        <span className="text-[9px] font-mono text-foreground">{industry}</span>
-                        <span className="text-[8px] font-mono text-muted-foreground">{industryStocks.length} stk</span>
+                    <div key={industry} className={`rounded border ${heatmapCellClass(industryChange)} p-1`}>
+                      <button className="mb-0.5 flex w-full items-center justify-between" onClick={() => { onSectorSelect(sector.sector); onIndustrySelect(industry); }}>
+                        <span className="text-[8px] font-mono text-foreground truncate">{industry}</span>
                       </button>
 
-                      <div className="grid grid-cols-4 gap-1">
+                      <div className="flex flex-wrap gap-0.5">
                         {shownStocks.map((stock) => (
                           <button
                             key={stock.symbol}
@@ -96,13 +99,13 @@ export function MarketHeatmap({
                               onIndustrySelect(industry);
                               onStockSelect(stock.symbol);
                             }}
-                            className={`rounded border px-1 py-1 text-left ${heatmapCellClass(stock.changePercent)} ${industryActive ? 'hover:border-primary/40' : ''}`}
-                            title={`${stock.symbol} ${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}% · ${stock.supportsFullWsp ? 'Full WSP' : 'Limited WSP'}`}
+                            className={`rounded border px-1 py-0.5 text-left ${heatmapCellClass(stock.changePercent)} hover:border-primary/40 transition-colors`}
+                            title={`${stock.symbol} ${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}% · ${stock.supportsFullWsp ? 'Full WSP' : 'Limited'}`}
                           >
-                            <div className="text-[9px] font-mono font-bold text-foreground">{stock.symbol}</div>
-                            <div className={`text-[8px] font-mono ${stock.changePercent >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+                            <span className="text-[8px] font-mono font-bold text-foreground">{stock.symbol}</span>
+                            <span className={`text-[7px] font-mono ml-0.5 ${stock.changePercent >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
                               {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
-                            </div>
+                            </span>
                           </button>
                         ))}
                       </div>
