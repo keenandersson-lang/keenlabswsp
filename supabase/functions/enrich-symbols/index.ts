@@ -133,6 +133,7 @@ Deno.serve(async (req: Request) => {
     let requestedSymbolsForRuntimeDiagnostics: string[] = []
     let matchedDbRowsCount = 0
     let missingSymbolsCount = 0
+    let pendingCandidatesCount = 0
     let matchedSymbolsForRuntimeDiagnostics: string[] = []
     let missingSymbolsForRuntimeDiagnostics: string[] = []
     let skippedEmptyProxyBatchAndContinued = false
@@ -156,10 +157,11 @@ Deno.serve(async (req: Request) => {
         const hasMore = nextOffset < symbolFilter.length
 
         if (batch.length === 0) {
-          return jsonRes({
+          return jsonRes(buildTierScopePayload({
             ok: true,
             done: true,
             message: `No more symbols in ${tier}.`,
+            tier,
             offset: scanCursor,
             nextOffset,
             hasMore: false,
@@ -169,12 +171,15 @@ Deno.serve(async (req: Request) => {
             requestedBatchSymbols: [],
             matchedRows: [],
             missingSymbols: [],
+            pendingCandidates: 0,
             tierTotal: symbolFilter.length,
-            runtimeDiagnostics: buildTierRuntimeDiagnostics({
+            skippedEmptyProxyBatchAndContinued,
+            diagnosticsInput: {
               tier,
               requestedSymbols: [],
               tier1CuratedExists,
               matchedDbRowsCount: 0,
+              pendingCandidatesCount: 0,
               missingSymbolsCount: 0,
               matchedSymbols: [],
               missingSymbols: [],
@@ -182,8 +187,8 @@ Deno.serve(async (req: Request) => {
               hasMore: false,
               skippedEmptyProxyBatchAndContinued,
               selectedBatchScanCount,
-            }),
-          })
+            },
+          }))
         }
 
         selectedBatchScanCount += 1
@@ -217,6 +222,7 @@ Deno.serve(async (req: Request) => {
           }
           pendingCandidates.push(row)
         }
+        pendingCandidatesCount = pendingCandidates.length
 
         if (pendingCandidates.length > 0) {
           selectedBatchOffset = scanCursor
@@ -237,7 +243,7 @@ Deno.serve(async (req: Request) => {
             pendingCandidates: 0,
             matchedInSymbolsTable: matchedSymbols.length,
           }
-          return jsonRes({
+          return jsonRes(buildTierScopePayload({
             ok: true,
             tier,
             done: true,
@@ -262,11 +268,12 @@ Deno.serve(async (req: Request) => {
             tierTotal: symbolFilter.length,
             promotions: [],
             errors: [],
-            runtimeDiagnostics: buildTierRuntimeDiagnostics({
+            diagnosticsInput: {
               tier,
               requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
               tier1CuratedExists,
               matchedDbRowsCount,
+              pendingCandidatesCount: 0,
               missingSymbolsCount,
               matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
               missingSymbols: missingSymbolsForRuntimeDiagnostics,
@@ -274,8 +281,8 @@ Deno.serve(async (req: Request) => {
               hasMore: false,
               skippedEmptyProxyBatchAndContinued,
               selectedBatchScanCount,
-            }),
-          })
+            },
+          }))
         }
 
         scanCursor = nextOffset
@@ -298,24 +305,27 @@ Deno.serve(async (req: Request) => {
       const emptyMessage = symbolFilter
         ? `No pending symbols to enrich (${tier}) after scope resolution.`
         : `No more symbols to enrich (${tier}).`
-      return jsonRes({
+      return jsonRes(buildTierScopePayload({
         ok: true,
         done: true,
+        tier,
         message: emptyMessage,
         offset: symbolFilter ? selectedBatchOffset : offset,
         nextOffset: symbolFilter ? selectedBatchOffset : offset,
         hasMore: false,
         enriched: 0,
         tierTotal: symbolFilter?.length ?? null,
+        pendingCandidates: 0,
         requestedBatchSymbols: requestedSymbolsForRuntimeDiagnostics,
         matchedRows: matchedSymbolsForRuntimeDiagnostics,
         missingSymbols: missingSymbolsForRuntimeDiagnostics,
         skippedEmptyProxyBatchAndContinued,
-        runtimeDiagnostics: buildTierRuntimeDiagnostics({
+        diagnosticsInput: {
           tier,
           requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
           tier1CuratedExists,
           matchedDbRowsCount,
+          pendingCandidatesCount: 0,
           missingSymbolsCount,
           matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
           missingSymbols: missingSymbolsForRuntimeDiagnostics,
@@ -323,8 +333,8 @@ Deno.serve(async (req: Request) => {
           hasMore: false,
           skippedEmptyProxyBatchAndContinued,
           selectedBatchScanCount,
-        }),
-      })
+        },
+      }))
     }
 
     const { data: logRow } = await supabase
@@ -440,7 +450,7 @@ Deno.serve(async (req: Request) => {
       })
       .eq('id', logRow?.id)
 
-    return jsonRes({
+    return jsonRes(buildTierScopePayload({
       ok: true,
       tier,
       tierTotal: symbolFilter?.length ?? null,
@@ -459,13 +469,15 @@ Deno.serve(async (req: Request) => {
       requestedBatchSymbols: requestedSymbolsForRuntimeDiagnostics,
       matchedRows: matchedSymbolsForRuntimeDiagnostics,
       missingSymbols: missingSymbolsForRuntimeDiagnostics,
+      pendingCandidates: pendingCandidatesCount,
       skippedEmptyProxyBatchAndContinued,
       errors: errors.slice(0, 10),
-      runtimeDiagnostics: buildTierRuntimeDiagnostics({
+      diagnosticsInput: {
         tier,
         requestedSymbols: requestedSymbolsForRuntimeDiagnostics,
         tier1CuratedExists,
         matchedDbRowsCount,
+        pendingCandidatesCount,
         missingSymbolsCount,
         matchedSymbols: matchedSymbolsForRuntimeDiagnostics,
         missingSymbols: missingSymbolsForRuntimeDiagnostics,
@@ -473,8 +485,8 @@ Deno.serve(async (req: Request) => {
         hasMore: symbolFilter ? selectedBatchHasMore : hasMore,
         skippedEmptyProxyBatchAndContinued,
         selectedBatchScanCount,
-      }),
-    })
+      },
+    }))
   } catch (err) {
     console.error('Unhandled enrich-symbols failure:', err)
     return jsonRes({
@@ -620,11 +632,39 @@ function jsonRes(body: unknown, status = 200) {
   })
 }
 
+function isTierScoped(tier: string): boolean {
+  return tier === 'tier1' || tier === 'tier2' || tier === 'tier1+2'
+}
+
+function buildTierScopePayload(payload: Record<string, any>) {
+  const diagnosticsInput = payload.diagnosticsInput
+  delete payload.diagnosticsInput
+  const tier = String(payload.tier ?? diagnosticsInput?.tier ?? '')
+
+  if (!isTierScoped(tier) || !diagnosticsInput) {
+    return payload
+  }
+
+  const runtimeDiagnostics = buildTierRuntimeDiagnostics(diagnosticsInput)
+  return {
+    ...payload,
+    tier,
+    runtimeDiagnostics,
+    requestedSymbolCount: runtimeDiagnostics.requestedSymbolCount,
+    matchedDbRows: runtimeDiagnostics.matchedDbRows,
+    pendingCandidates: payload.pendingCandidates ?? runtimeDiagnostics.pendingCandidates,
+    missingSymbols: payload.missingSymbols ?? runtimeDiagnostics.missingSymbolList,
+    nextOffset: payload.nextOffset ?? runtimeDiagnostics.nextOffset,
+    hasMore: payload.hasMore ?? runtimeDiagnostics.hasMore,
+  }
+}
+
 function buildTierRuntimeDiagnostics({
   tier,
   requestedSymbols,
   tier1CuratedExists,
   matchedDbRowsCount,
+  pendingCandidatesCount,
   missingSymbolsCount,
   matchedSymbols,
   missingSymbols,
@@ -637,6 +677,7 @@ function buildTierRuntimeDiagnostics({
   requestedSymbols: string[]
   tier1CuratedExists: boolean
   matchedDbRowsCount: number
+  pendingCandidatesCount: number
   missingSymbolsCount: number
   matchedSymbols: string[]
   missingSymbols: string[]
@@ -645,8 +686,6 @@ function buildTierRuntimeDiagnostics({
   skippedEmptyProxyBatchAndContinued: boolean
   selectedBatchScanCount: number
 }) {
-  if (tier !== 'tier1') return null
-
   return {
     resolvedTier: tier,
     requestedSymbolCount: requestedSymbols.length,
@@ -655,6 +694,7 @@ function buildTierRuntimeDiagnostics({
     tier1CuratedLength: tier1CuratedExists ? TIER1_CURATED.length : null,
     tier1SymbolSource: TIER1_SYMBOL_SOURCE,
     matchedDbRows: matchedDbRowsCount,
+    pendingCandidates: pendingCandidatesCount,
     missingSymbols: missingSymbolsCount,
     matchedSymbolList: matchedSymbols,
     missingSymbolList: missingSymbols,
