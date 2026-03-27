@@ -336,6 +336,7 @@ export default function Admin() {
 
   const [enrichProgress, setEnrichProgress] = useState({
     offset: 0, enriched: 0, promoted: 0, failed: 0, running: false,
+    selected: 0, requested: 0, missingSymbols: [] as string[],
     promotions: [] as string[], tier: '' as string, tierTotal: 0,
   });
 
@@ -346,12 +347,19 @@ export default function Admin() {
     let totalEnriched = 0;
     let totalPromoted = 0;
     let totalFailed = 0;
+    let totalSelected = 0;
+    let totalRequested = 0;
+    let allMissingSymbols: string[] = [];
     let allPromotions: string[] = [];
     let hasMore = true;
     let tierTotal = 0;
 
     toast.info(`Enrichment startat: ${tier}`);
-    setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [], tier, tierTotal: 0 });
+    setEnrichProgress({
+      offset: 0, enriched: 0, promoted: 0, failed: 0, running: true,
+      selected: 0, requested: 0, missingSymbols: [],
+      promotions: [], tier, tierTotal: 0,
+    });
 
     while (hasMore) {
       try {
@@ -363,6 +371,9 @@ export default function Admin() {
         totalEnriched += data.enriched ?? 0;
         totalPromoted += data.promoted ?? 0;
         totalFailed += data.failed ?? 0;
+        totalSelected += data.selected ?? 0;
+        totalRequested += data.requested ?? 0;
+        if (data.missingSymbols) allMissingSymbols = [...allMissingSymbols, ...data.missingSymbols];
         if (data.tierTotal) tierTotal = data.tierTotal;
         if (data.promotions) allPromotions = [...allPromotions, ...data.promotions];
         hasMore = data.hasMore === true;
@@ -370,6 +381,7 @@ export default function Admin() {
         setEnrichProgress({
           offset, enriched: totalEnriched, promoted: totalPromoted,
           failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
+          selected: totalSelected, requested: totalRequested, missingSymbols: allMissingSymbols.slice(0, 50),
           tier, tierTotal,
         });
       } catch (err) {
@@ -379,7 +391,11 @@ export default function Admin() {
     }
 
     if (!hasMore) {
-      toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted.`);
+      if (totalSelected === 0) {
+        toast.warning(`Enrichment klart: 0 matchande symboler i DB (begärda ${totalRequested}).`);
+      } else {
+        toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted. (${totalSelected}/${totalRequested} matchade)`);
+      }
     }
     setEnrichProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
@@ -1046,7 +1062,7 @@ Broad backfill
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader · ${backfillProgress.failed} misslyckade`
                     : running === 'enrich'
-                    ? `${enrichProgress.tier.toUpperCase()} · ${enrichProgress.offset}/${enrichProgress.tierTotal || '?'} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted`
+                    ? `${enrichProgress.tier.toUpperCase()} · ${enrichProgress.offset}/${enrichProgress.tierTotal || '?'} · ${enrichProgress.selected}/${enrichProgress.requested} matchade · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted`
                     : 'Bearbetar...'}
                 </span>
               </div>
