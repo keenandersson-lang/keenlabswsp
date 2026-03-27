@@ -25,6 +25,9 @@ export function DebugPanel({ providerStatus, debugSummary, market, discoveryMeta
     { label: 'Stocks with insufficient history', value: String(debugSummary.insufficientHistoryCases), ok: debugSummary.insufficientHistoryCases === 0 },
   ]), [debugSummary, providerStatus]);
 
+  // Hide entire debug panel from public production visitors
+  if (!debugEnabled) return null;
+
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <button
