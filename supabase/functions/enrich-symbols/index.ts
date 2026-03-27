@@ -157,7 +157,7 @@ Deno.serve(async (req: Request) => {
         const hasMore = nextOffset < symbolFilter.length
 
         if (batch.length === 0) {
-          return jsonRes(buildTierScopePayload({
+          return tierScopedJsonRes({
             ok: true,
             done: true,
             message: `No more symbols in ${tier}.`,
@@ -188,7 +188,7 @@ Deno.serve(async (req: Request) => {
               skippedEmptyProxyBatchAndContinued,
               selectedBatchScanCount,
             },
-          }))
+          })
         }
 
         selectedBatchScanCount += 1
@@ -243,7 +243,7 @@ Deno.serve(async (req: Request) => {
             pendingCandidates: 0,
             matchedInSymbolsTable: matchedSymbols.length,
           }
-          return jsonRes(buildTierScopePayload({
+          return tierScopedJsonRes({
             ok: true,
             tier,
             done: true,
@@ -282,7 +282,7 @@ Deno.serve(async (req: Request) => {
               skippedEmptyProxyBatchAndContinued,
               selectedBatchScanCount,
             },
-          }))
+          })
         }
 
         scanCursor = nextOffset
@@ -305,7 +305,7 @@ Deno.serve(async (req: Request) => {
       const emptyMessage = symbolFilter
         ? `No pending symbols to enrich (${tier}) after scope resolution.`
         : `No more symbols to enrich (${tier}).`
-      return jsonRes(buildTierScopePayload({
+      return tierScopedJsonRes({
         ok: true,
         done: true,
         tier,
@@ -334,7 +334,7 @@ Deno.serve(async (req: Request) => {
           skippedEmptyProxyBatchAndContinued,
           selectedBatchScanCount,
         },
-      }))
+      })
     }
 
     const { data: logRow } = await supabase
@@ -450,7 +450,7 @@ Deno.serve(async (req: Request) => {
       })
       .eq('id', logRow?.id)
 
-    return jsonRes(buildTierScopePayload({
+    return tierScopedJsonRes({
       ok: true,
       tier,
       tierTotal: symbolFilter?.length ?? null,
@@ -486,7 +486,7 @@ Deno.serve(async (req: Request) => {
         skippedEmptyProxyBatchAndContinued,
         selectedBatchScanCount,
       },
-    }))
+    })
   } catch (err) {
     console.error('Unhandled enrich-symbols failure:', err)
     return jsonRes({
@@ -632,6 +632,10 @@ function jsonRes(body: unknown, status = 200) {
   })
 }
 
+function tierScopedJsonRes(payload: Record<string, any>, status = 200) {
+  return jsonRes(buildTierScopePayload(payload), status)
+}
+
 function isTierScoped(tier: string): boolean {
   return tier === 'tier1' || tier === 'tier2' || tier === 'tier1+2'
 }
@@ -641,18 +645,33 @@ function buildTierScopePayload(payload: Record<string, any>) {
   delete payload.diagnosticsInput
   const tier = String(payload.tier ?? diagnosticsInput?.tier ?? '')
 
-  if (!isTierScoped(tier) || !diagnosticsInput) {
+  if (!isTierScoped(tier)) {
     return payload
   }
 
-  const runtimeDiagnostics = buildTierRuntimeDiagnostics(diagnosticsInput)
+  const runtimeDiagnostics = buildTierRuntimeDiagnostics(diagnosticsInput ?? {
+    tier,
+    requestedSymbols: [],
+    tier1CuratedExists: Array.isArray(TIER1_CURATED),
+    matchedDbRowsCount: 0,
+    pendingCandidatesCount: 0,
+    missingSymbolsCount: 0,
+    matchedSymbols: [],
+    missingSymbols: [],
+    nextOffset: Number(payload.nextOffset ?? payload.offset ?? 0),
+    hasMore: Boolean(payload.hasMore ?? false),
+    skippedEmptyProxyBatchAndContinued: Boolean(payload.skippedEmptyProxyBatchAndContinued ?? false),
+    selectedBatchScanCount: 0,
+  })
   return {
     ...payload,
+    responseShapeVersion: 'tier-debug-v3',
     tier,
+    resolvedTier: runtimeDiagnostics.resolvedTier,
     runtimeDiagnostics,
     requestedSymbolCount: runtimeDiagnostics.requestedSymbolCount,
     matchedDbRows: runtimeDiagnostics.matchedDbRows,
-    pendingCandidates: payload.pendingCandidates ?? runtimeDiagnostics.pendingCandidates,
+    pendingCandidates: Number(payload.pendingCandidates ?? runtimeDiagnostics.pendingCandidates ?? 0),
     missingSymbols: payload.missingSymbols ?? runtimeDiagnostics.missingSymbolList,
     nextOffset: payload.nextOffset ?? runtimeDiagnostics.nextOffset,
     hasMore: payload.hasMore ?? runtimeDiagnostics.hasMore,
