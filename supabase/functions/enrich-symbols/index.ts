@@ -115,6 +115,8 @@ Deno.serve(async (req: Request) => {
   let symbols: any[] | null = null
   let fetchErr: any = null
 
+  const shouldRecomputeDerived = forceRefresh || tier === 'tier1' || tier === 'tier1+2'
+
   if (symbolFilter) {
     const batch = symbolFilter.slice(offset, offset + batchSize)
     if (batch.length === 0) {
@@ -126,7 +128,7 @@ Deno.serve(async (req: Request) => {
       .in('symbol', batch)
     symbols = result.data
     fetchErr = result.error
-    if (!forceRefresh && symbols) {
+    if (!shouldRecomputeDerived && symbols) {
       symbols = symbols.filter((s: any) => !s.enriched_at)
     }
   } else {
@@ -136,7 +138,7 @@ Deno.serve(async (req: Request) => {
       .eq('is_active', true)
       .order('symbol')
       .range(offset, offset + batchSize - 1)
-    if (!forceRefresh) query = query.is('enriched_at', null)
+    if (!shouldRecomputeDerived) query = query.is('enriched_at', null)
     const result = await query
     symbols = result.data
     fetchErr = result.error
@@ -277,8 +279,8 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
     is_common_stock: isCommonStock || existing.is_common_stock || false,
     is_etf: isEtf || existing.is_etf || false,
     is_adr: isAdr || existing.is_adr || false,
-    raw_sector: existing.raw_sector || normalizeText(details.market ?? details.sector) || existing.sector,
-    raw_industry: existing.raw_industry || normalizeText(details.industry) || normalizeText(sicDesc) || existing.industry,
+    raw_sector: normalizeText(details.market ?? details.sector) || existing.raw_sector || existing.sector,
+    raw_industry: normalizeText(details.industry) || normalizeText(sicDesc) || existing.raw_industry || existing.industry,
     sector: existing.sector,
     industry: existing.industry,
     manual_override_sector: existing.manual_override_sector,
