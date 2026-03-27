@@ -265,7 +265,8 @@ Deno.serve(async (req: Request) => {
       completed_at: new Date().toISOString(),
       error_message: errors.slice(0, 10).join('\n') || null,
       metadata: {
-        batch_size: batchSize, offset,
+        tier, batch_size: batchSize, offset,
+        tier_total: symbolFilter?.length ?? null,
         symbols_count: symbols.length,
         enriched, skipped, failed, promoted,
         promotions: promotions.slice(0, 50),
@@ -274,8 +275,15 @@ Deno.serve(async (req: Request) => {
     .eq('id', logRow?.id)
 
   const nextOffset = offset + batchSize
+  const tierTotal = symbolFilter?.length ?? null
+  const hasMore = symbolFilter
+    ? nextOffset < symbolFilter.length
+    : symbols.length === batchSize
+
   return jsonRes({
     ok: true,
+    tier,
+    tierTotal,
     enriched,
     skipped,
     failed,
@@ -283,7 +291,7 @@ Deno.serve(async (req: Request) => {
     promotions: promotions.slice(0, 20),
     offset,
     nextOffset,
-    hasMore: symbols.length === batchSize,
+    hasMore,
     errors: errors.slice(0, 10),
   })
 })
