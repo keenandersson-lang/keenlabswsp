@@ -180,45 +180,32 @@ function TopSetupRow({ stock }: { stock: EvaluatedStock }) {
 
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-2">
         <Link to={`/stock/${stock.symbol}`} className="hover:text-primary transition-colors">
           <span className="font-mono text-xs font-bold text-foreground">{stock.symbol}</span>
-          <span className="block text-[9px] text-muted-foreground truncate max-w-[90px]">{stock.name}</span>
+          <span className="block text-[8px] text-muted-foreground truncate max-w-[80px]">{stock.name}</span>
         </Link>
       </td>
-      <td className="px-3 py-2.5 font-mono text-xs font-medium text-foreground">
-        ${stock.price.toFixed(2)}
-      </td>
-      <td className="px-3 py-2.5">
+      <td className="px-2 py-2 font-mono text-xs text-foreground">${stock.price.toFixed(2)}</td>
+      <td className="px-2 py-2">
         <span className={`flex items-center gap-0.5 font-mono text-xs font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
           {positive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
           {positive ? '+' : ''}{stock.changePercent.toFixed(2)}%
         </span>
       </td>
-      <td className="px-3 py-2.5">
-        <PatternBadge pattern={stock.pattern} />
-      </td>
-      <td className="px-3 py-2.5 text-center">
+      <td className="px-2 py-2"><PatternBadge pattern={stock.pattern} /></td>
+      <td className="px-2 py-2 text-center">
         <div className="flex justify-center">
-          <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={38} />
+          <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={32} />
         </div>
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-2 py-2">
         <span className={`font-mono text-xs ${volumeMultiple != null && volumeMultiple >= 2 ? 'text-signal-buy font-semibold' : 'text-muted-foreground'}`}>
           {volumeMultiple != null ? `${volumeMultiple.toFixed(1)}x` : '—'}
         </span>
       </td>
-      <td className="px-3 py-2.5">
-        <span className="font-mono text-xs">
-          {slopeDir === 'rising' ? '↑' : slopeDir === 'falling' ? '↓' : '→'}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 text-[10px] text-muted-foreground truncate max-w-[80px]">
-        {stock.sector}
-      </td>
-      <td className="px-3 py-2.5">
-        <RecommendationBadge recommendation={stock.finalRecommendation} />
-      </td>
+      <td className="px-2 py-2 text-[9px] text-muted-foreground truncate max-w-[70px]">{stock.sector}</td>
+      <td className="px-2 py-2"><RecommendationBadge recommendation={stock.finalRecommendation} /></td>
     </tr>
   );
 }
