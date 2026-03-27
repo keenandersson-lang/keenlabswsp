@@ -43,6 +43,7 @@ const TIER2_KNOWN_SECTOR = [
 
 const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
 const METALS = new Set(['GLD','SLV','COPX','GDX','PPLT'])
+const SUPPORTED_ENRICH_TIERS = new Set(['all', 'tier1', 'tier2', 'tier1+2'] as const)
 
 function normalizeText(value: string | null | undefined): string | null {
   if (!value) return null
@@ -105,7 +106,15 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
-  const { batchSize = 20, offset = 0, forceRefresh = false, tier = 'all' } = body
+  const { batchSize = 20, offset = 0, forceRefresh = false } = body
+  const tierInput = normalizeScopeInput(body)
+  const tier = resolveTier(tierInput)
+
+  if (!SUPPORTED_ENRICH_TIERS.has(tier)) {
+    return jsonRes({
+      error: `Unsupported enrich scope: ${tierInput}. Supported: all, tier1, tier2, tier1+2`,
+    })
+  }
 
   let symbolFilter: string[] | null = null
   if (tier === 'tier1') symbolFilter = TIER1_CURATED
@@ -397,6 +406,22 @@ async function processTickerDetails(existing: any, polygonResponse: any): Promis
 
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms))
+}
+
+function normalizeScopeInput(body: Record<string, any>): string {
+  if (typeof body.tier === 'string' && body.tier.trim()) return body.tier.trim()
+  if (typeof body.scope === 'string' && body.scope.trim()) return body.scope.trim()
+  return 'all'
+}
+
+function resolveTier(input: string): string {
+  const normalized = input.toLowerCase()
+  if (normalized === 'tier1_default') return 'tier1'
+  if (normalized === 'tier_1') return 'tier1'
+  if (normalized === 'tier_2') return 'tier2'
+  if (normalized === 'tier1+2' || normalized === 'tier1_plus_tier2' || normalized === 'tier1+tier2') return 'tier1+2'
+  if (normalized === 'live_default') return 'tier1'
+  return normalized
 }
 
 function jsonRes(body: unknown) {
