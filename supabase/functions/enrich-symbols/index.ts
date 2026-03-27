@@ -152,36 +152,69 @@ Deno.serve(async (req: Request) => {
           tierTotal: symbolFilter.length,
         })
       }
+
       const result = await supabase
         .from('symbols')
         .select('symbol, name, company_name, exchange, primary_exchange, sector, industry, raw_sector, raw_industry, manual_override_sector, manual_override_industry, manually_reviewed, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at')
         .in('symbol', batch)
       symbols = result.data
       fetchErr = result.error
-      if (!shouldRecomputeDerived && symbols) {
-        symbols = symbols.filter((s: any) => !s.enriched_at)
-      }
 
-      if (!fetchErr && (!symbols || symbols.length === 0)) {
-        return jsonRes({
-          ok: true,
-          tier,
-          done: !hasMore,
-          message: `No matching symbols found in symbols table for ${tier} batch.`,
-          offset,
-          nextOffset,
-          hasMore,
-          enriched: 0,
-          skipped: 0,
-          failed: 0,
-          promoted: 0,
-          selected: 0,
-          requested: batch.length,
-          missingSymbols: batch,
-          tierTotal: symbolFilter.length,
-          promotions: [],
-          errors: [],
-        })
+      if (!fetchErr) {
+        const rows = symbols ?? []
+        const bySymbol = new Map(rows.map((row: any) => [String(row.symbol).toUpperCase(), row]))
+        const matchedSymbols = batch.filter((sym) => bySymbol.has(sym))
+        const missingSymbols = batch.filter((sym) => !bySymbol.has(sym))
+
+        const alreadyEnrichedSymbols: string[] = []
+        const pendingCandidates: any[] = []
+        for (const sym of matchedSymbols) {
+          const row = bySymbol.get(sym)!
+          if (!shouldRecomputeDerived && row.enriched_at) {
+            alreadyEnrichedSymbols.push(sym)
+            continue
+          }
+          pendingCandidates.push(row)
+        }
+
+        if (pendingCandidates.length === 0) {
+          const skipSummary = {
+            missingFromSymbolsTable: missingSymbols.length,
+            alreadyEnriched: alreadyEnrichedSymbols.length,
+            pendingCandidates: 0,
+            matchedInSymbolsTable: matchedSymbols.length,
+          }
+          const skipReasonParts: string[] = []
+          if (skipSummary.missingFromSymbolsTable > 0) skipReasonParts.push(`${skipSummary.missingFromSymbolsTable} missing from symbols table`)
+          if (skipSummary.alreadyEnriched > 0) skipReasonParts.push(`${skipSummary.alreadyEnriched} already enriched`)
+          if (skipReasonParts.length === 0) skipReasonParts.push('0 matched pending after scope resolution')
+
+          return jsonRes({
+            ok: true,
+            tier,
+            done: !hasMore,
+            message: `No pending symbols to enrich in ${tier} batch: ${skipReasonParts.join(', ')}.`,
+            offset,
+            nextOffset,
+            hasMore,
+            enriched: 0,
+            skipped: matchedSymbols.length,
+            failed: 0,
+            promoted: 0,
+            selected: 0,
+            requested: batch.length,
+            matchedSymbols: matchedSymbols.length,
+            pendingCandidates: 0,
+            skipSummary,
+            missingSymbols,
+            alreadyEnrichedSymbols: alreadyEnrichedSymbols.slice(0, 50),
+            tierTotal: symbolFilter.length,
+            promotions: [],
+            errors: [],
+          })
+        }
+
+        symbols = pendingCandidates
       }
     } else {
       let query = supabase
@@ -198,7 +231,10 @@ Deno.serve(async (req: Request) => {
 
     if (fetchErr) return jsonRes({ ok: false, error: `Fetch error: ${fetchErr.message}`, code: 'FETCH_ERROR' })
     if (!symbols || symbols.length === 0) {
-      return jsonRes({ ok: true, done: true, message: `No more symbols to enrich (${tier}).`, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
+      const emptyMessage = symbolFilter
+        ? `No pending symbols to enrich (${tier}) after scope resolution.`
+        : `No more symbols to enrich (${tier}).`
+      return jsonRes({ ok: true, done: true, message: emptyMessage, offset, enriched: 0, tierTotal: symbolFilter?.length ?? null })
     }
 
     const { data: logRow } = await supabase
