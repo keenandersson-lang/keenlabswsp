@@ -121,19 +121,41 @@ const Index = () => {
             Visa alla →
           </Link>
         </div>
-        <div className="overflow-x-auto">
+        {/* Mobile: card layout */}
+        <div className="grid grid-cols-2 gap-1.5 p-2 sm:hidden">
+          {topSetups.map((stock) => (
+            <Link key={stock.symbol} to={`/stock/${stock.symbol}`} className="rounded border border-border bg-background p-2 hover:border-primary/30 transition-colors">
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-mono text-[10px] font-bold text-foreground">{stock.symbol}</span>
+                <RecommendationBadge recommendation={stock.finalRecommendation} />
+              </div>
+              <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="font-mono text-[9px] text-foreground">${stock.price.toFixed(2)}</span>
+                <span className={`font-mono text-[9px] font-medium ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                  {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-1">
+                <PatternBadge pattern={stock.pattern} />
+                <span className="text-[8px] font-mono text-muted-foreground">{stock.score}/{stock.maxScore}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Desktop: table layout */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/50 text-left text-[10px] text-muted-foreground font-mono">
-                <th className="px-4 py-2">SYMBOL</th>
-                <th className="px-3 py-2">PRIS</th>
-                <th className="px-3 py-2">ÄNDR.</th>
-                <th className="px-3 py-2">MÖNSTER</th>
-                <th className="px-3 py-2 text-center">WSP SCORE</th>
-                <th className="px-3 py-2">VOL</th>
-                <th className="px-3 py-2">50MA</th>
-                <th className="px-3 py-2">SEKTOR</th>
-                <th className="px-3 py-2">SIGNAL</th>
+                <th className="px-3 py-1.5">SYMBOL</th>
+                <th className="px-2 py-1.5">PRIS</th>
+                <th className="px-2 py-1.5">ÄNDR.</th>
+                <th className="px-2 py-1.5">MÖNSTER</th>
+                <th className="px-2 py-1.5 text-center">SCORE</th>
+                <th className="px-2 py-1.5">VOL</th>
+                <th className="px-2 py-1.5">SEKTOR</th>
+                <th className="px-2 py-1.5">SIGNAL</th>
               </tr>
             </thead>
             <tbody>
