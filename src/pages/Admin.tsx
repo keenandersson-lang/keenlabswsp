@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server, Zap,
+  XCircle, AlertTriangle, Clock, Server, Zap, Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,8 +14,26 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
+import { SCANNER_ELIGIBLE_SYMBOLS, TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 
 type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | null;
+
+const TIER1_SYMBOLS = [
+  'SPY','QQQ','DIA','IWM',
+  'XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
+  'AAPL','MSFT','NVDA','AVGO','AMD','ORCL','CRM',
+  'GOOGL','META','NFLX','DIS','TMUS','VZ',
+  'AMZN','TSLA','HD','MCD','NKE','BKNG',
+  'COST','WMT','PG','KO','PEP','PM',
+  'JPM','BAC','WFC','V','MA',
+  'LLY','UNH','JNJ','ABBV','MRK','ISRG',
+  'CAT','BA','GE','HON','UPS','DE',
+  'XOM','CVX','COP','SLB','EOG',
+  'LIN','APD','ECL','NUE','DD',
+  'PLD','AMT','EQIX','O',
+  'NEE','SO','DUK','SRE',
+  'GLD','SLV','COPX','GDX','NEM','FCX','PPLT',
+];
 
 export default function Admin() {
   const [running, setRunning] = useState<RunningType>(null);
@@ -53,6 +71,85 @@ export default function Admin() {
       };
     },
     refetchInterval: 15000,
+  });
+
+  // Tier 1 readiness query
+  const { data: tier1Status } = useQuery({
+    queryKey: ['tier1-readiness'],
+    queryFn: async () => {
+      // Get Tier 1 symbols metadata
+      const { data: symbols } = await supabase
+        .from('symbols')
+        .select('symbol, sector, industry, instrument_type, is_etf, is_adr, exchange, enriched_at, is_active')
+        .in('symbol', TIER1_SYMBOLS);
+
+      // Get price coverage for Tier 1
+      const { data: priceCoverage } = await supabase
+        .from('daily_prices')
+        .select('symbol')
+        .in('symbol', TIER1_SYMBOLS);
+
+      // Count unique symbols with prices
+      const symbolsWithPrices = new Set((priceCoverage ?? []).map((r: any) => r.symbol));
+
+      // Count bars per symbol
+      const barCounts: Record<string, number> = {};
+      (priceCoverage ?? []).forEach((r: any) => {
+        barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1;
+      });
+
+      // Classification
+      let fullWsp = 0, limited = 0, proxy = 0, metals = 0, excluded = 0;
+      let enriched = 0, missingIndustry: string[] = [], missingSector: string[] = [];
+
+      const BENCHMARKS = ['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'];
+      const METALS_ETFS = ['GLD','SLV','COPX','GDX','PPLT'];
+
+      (symbols ?? []).forEach((s: any) => {
+        if (s.enriched_at) enriched++;
+        if (BENCHMARKS.includes(s.symbol)) { proxy++; return; }
+        if (METALS_ETFS.includes(s.symbol) || s.symbol === 'NEM' || s.symbol === 'FCX') { metals++; return; }
+        if (s.instrument_type === 'CS' && s.sector && s.sector !== 'Unknown' && s.industry) {
+          fullWsp++;
+        } else {
+          limited++;
+          if (!s.industry) missingIndustry.push(s.symbol);
+          if (!s.sector || s.sector === 'Unknown') missingSector.push(s.symbol);
+        }
+      });
+
+      // Analysis readiness (need 200+ bars)
+      let analysisReady = 0;
+      let backfilledButNotReady = 0;
+      const fullWspSymbols = (symbols ?? []).filter((s: any) =>
+        !BENCHMARKS.includes(s.symbol) && !METALS_ETFS.includes(s.symbol) && s.symbol !== 'NEM' && s.symbol !== 'FCX' &&
+        s.instrument_type === 'CS' && s.sector && s.sector !== 'Unknown' && s.industry
+      );
+      fullWspSymbols.forEach((s: any) => {
+        const bars = barCounts[s.symbol] ?? 0;
+        if (bars >= 200) analysisReady++;
+        else if (bars > 0) backfilledButNotReady++;
+      });
+
+      return {
+        total: symbols?.length ?? 0,
+        enriched,
+        fullWsp,
+        limited,
+        proxy,
+        metals,
+        excluded,
+        withPrices: symbolsWithPrices.size,
+        analysisReady,
+        backfilledButNotReady,
+        noPrices: TIER1_SYMBOLS.filter(s => !symbolsWithPrices.has(s)),
+        missingIndustry,
+        missingSector,
+        fullWspSymbols: fullWspSymbols.map((s: any) => s.symbol),
+        barCounts,
+      };
+    },
+    refetchInterval: 30000,
   });
 
   const invokeFunction = async (fnName: string, body: Record<string, unknown> = {}) => {
@@ -113,13 +210,7 @@ export default function Admin() {
     let hasMore = true;
     let tierTotal = 0;
 
-    const tierLabels: Record<string, string> = {
-      tier1: 'Tier 1 (curated + benchmarks)',
-      tier2: 'Tier 2 (S&P 500 extended)',
-      'tier1+2': 'Tier 1+2',
-      all: 'Alla symboler',
-    };
-    toast.info(`Enrichment startat: ${tierLabels[tier] ?? tier}`);
+    toast.info(`Enrichment startat: ${tier}`);
     setEnrichProgress({ offset: 0, enriched: 0, promoted: 0, failed: 0, running: true, promotions: [], tier, tierTotal: 0 });
 
     while (hasMore) {
@@ -141,7 +232,6 @@ export default function Admin() {
           failed: totalFailed, running: hasMore, promotions: allPromotions.slice(0, 50),
           tier, tierTotal,
         });
-        if (offset % 100 === 0) queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
       } catch (err) {
         toast.error(`Enrichment nätverksfel vid offset ${offset}`);
         break;
@@ -149,10 +239,10 @@ export default function Admin() {
     }
 
     if (!hasMore) {
-      toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted till full WSP.`);
+      toast.success(`Enrichment klart! ${totalEnriched} berikade, ${totalPromoted} promoted.`);
     }
     setEnrichProgress(prev => ({ ...prev, running: false }));
-    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
     setRunning(null);
   };
 
@@ -162,11 +252,9 @@ export default function Admin() {
     stopped: false, stopReason: '',
   });
   const [resumeOffset, setResumeOffset] = useState(0);
-  const [backfillStopped, setBackfillStopped] = useState(false);
 
   const runBackfill = async (startOffset = 0) => {
     setRunning('backfill');
-    setBackfillStopped(false);
     const batchSize = 20;
     let offset = startOffset;
     let totalFetched = 0;
@@ -182,7 +270,7 @@ export default function Admin() {
       try {
         const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
         if (!data) {
-          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response from edge function' }));
+          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response' }));
           break;
         }
         if (data.error) {
@@ -193,7 +281,6 @@ export default function Admin() {
         totalFetched += data.fetched ?? 0;
         totalFailed += data.failed ?? 0;
         totalRowsWritten += data.rowsWritten ?? data.fetched ?? 0;
-        // Merge failure counts
         if (data.failureCounts) {
           for (const [k, v] of Object.entries(data.failureCounts)) {
             allFailureCounts[k] = (allFailureCounts[k] ?? 0) + (v as number);
@@ -208,23 +295,18 @@ export default function Admin() {
           rowsWritten: totalRowsWritten, lastError: '',
           failureCounts: allFailureCounts, stopped: false, stopReason: '',
         });
-
-        if (offset % 100 === 0) {
-          queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
-        }
       } catch (err) {
-        const errMsg = String(err);
-        setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: `Network: ${errMsg}` }));
+        setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: String(err) }));
         toast.error(`Backfill nätverksfel vid offset ${offset}`);
         break;
       }
     }
 
-    if (hasMore === false) {
-      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader skrivna, ${totalFailed} misslyckade.`);
+    if (!hasMore) {
+      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader, ${totalFailed} misslyckade.`);
     }
     setBackfillProgress(prev => ({ ...prev, running: false }));
-    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
     setRunning(null);
   };
 
@@ -234,6 +316,9 @@ export default function Admin() {
     if (status === 'running') return <RefreshCw className="h-4 w-4 text-primary animate-spin" />;
     return <XCircle className="h-4 w-4 text-signal-danger" />;
   };
+
+  const t1 = tier1Status;
+  const tier1Complete = t1 && t1.fullWsp > 0 && t1.limited === 0 && t1.withPrices >= (t1.fullWsp + t1.proxy + t1.metals);
 
   return (
     <div className="space-y-6 px-4 py-6 max-w-5xl mx-auto pb-20 md:pb-6">
@@ -256,20 +341,58 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      {/* Data Source */}
-      <Card className="bg-card border-border">
+      {/* ═══ TIER 1 V1 READINESS ═══ */}
+      <Card className="bg-card border-border border-2 border-primary/30">
         <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            DATAKÄLLA
+          <CardTitle className="text-xs font-mono tracking-wider text-primary flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            TIER 1 V1 READINESS
+            {tier1Complete && <Badge className="bg-primary text-primary-foreground text-[10px] ml-2">REDO</Badge>}
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="border-primary text-primary font-mono text-xs">
-              Polygon.io ✅
-            </Badge>
-            <span className="text-xs text-muted-foreground font-mono">Full volym · Alla US-börser</span>
+        <CardContent className="space-y-4">
+          {/* Classification */}
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Klassificering</p>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <StatBox label="Total Tier 1" value={String(t1?.total ?? '—')} />
+              <StatBox label="full_wsp_equity" value={String(t1?.fullWsp ?? '—')} highlight />
+              <StatBox label="Benchmarks/Proxy" value={String(t1?.proxy ?? '—')} />
+              <StatBox label="Metals (limited)" value={String(t1?.metals ?? '—')} />
+              <StatBox label="Enriched" value={String(t1?.enriched ?? '—')} />
+            </div>
+          </div>
+
+          {/* Data Readiness */}
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Datareadiness</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <StatBox label="Med prisdata" value={String(t1?.withPrices ?? '—')} highlight={t1 ? t1.withPrices >= t1.total : false} />
+              <StatBox label="Analysredo (≥200 bars)" value={String(t1?.analysisReady ?? '—')} highlight={t1 ? t1.analysisReady >= t1.fullWsp : false} />
+              <StatBox label="Backfill men <200" value={String(t1?.backfilledButNotReady ?? '—')} />
+              <StatBox label="Saknar prisdata" value={String(t1?.noPrices?.length ?? '—')} />
+            </div>
+          </div>
+
+          {/* Missing data warnings */}
+          {t1 && t1.noPrices && t1.noPrices.length > 0 && t1.noPrices.length <= 20 && (
+            <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2">
+              <span className="text-signal-caution">⚠ Saknar prisdata:</span>{' '}
+              {t1.noPrices.join(', ')}
+            </div>
+          )}
+
+          {t1 && t1.limited > 0 && (
+            <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2">
+              <span className="text-signal-caution">⚠ Ej full WSP (metadata saknas):</span>{' '}
+              {t1.missingIndustry?.join(', ') || t1.missingSector?.join(', ')}
+            </div>
+          )}
+
+          {/* Client-side classification */}
+          <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2">
+            <span className="text-primary">Scanner-eligible (client):</span> {SCANNER_ELIGIBLE_SYMBOLS.length} symboler ·{' '}
+            <span className="text-primary">Tracked total:</span> {TRACKED_SYMBOLS.length} symboler
           </div>
         </CardContent>
       </Card>
@@ -301,33 +424,19 @@ export default function Admin() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={runSeed}
-              disabled={running !== null}
-              variant="outline"
-              className="font-mono text-xs"
-            >
+            <Button onClick={runSeed} disabled={running !== null} variant="outline" className="font-mono text-xs">
               <Sprout className="h-4 w-4 mr-2" />
               {running === 'seed' ? 'Seedar...' : 'Seed symbol-lista'}
             </Button>
 
-            <Button
-              onClick={runDailySync}
-              disabled={running !== null}
-              variant="outline"
-              className="font-mono text-xs"
-            >
+            <Button onClick={runDailySync} disabled={running !== null} variant="outline" className="font-mono text-xs">
               <RefreshCw className={`h-4 w-4 mr-2 ${running === 'daily' ? 'animate-spin' : ''}`} />
               {running === 'daily' ? 'Synkar...' : 'Kör daglig sync'}
             </Button>
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button
-                  disabled={running !== null}
-                  variant="outline"
-                  className="font-mono text-xs"
-                >
+                <Button disabled={running !== null} variant="outline" className="font-mono text-xs">
                   <Download className="h-4 w-4 mr-2" />
                   {running === 'backfill' ? 'Backfill pågår...' : 'Starta backfill'}
                 </Button>
@@ -336,9 +445,7 @@ export default function Admin() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Starta historisk backfill?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Detta laddar 5 år historisk data för alla symboler via Polygon.io.
-                    Det tar 30–60 minuter beroende på antal symboler.
-                    Processen körs i bakgrunden.
+                    Laddar 5 år historisk data för alla symboler via Polygon.io.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -350,40 +457,21 @@ export default function Admin() {
 
             {/* Enrichment Tier Buttons */}
             <div className="flex flex-wrap gap-2 border-l border-border pl-3">
-              <Button
-                onClick={() => runEnrich('tier1')}
-                disabled={running !== null}
-                variant="outline"
-                className="font-mono text-xs"
-              >
+              <Button onClick={() => runEnrich('tier1')} disabled={running !== null} variant="outline" className="font-mono text-xs">
                 <Zap className="h-4 w-4 mr-2" />
-                {running === 'enrich' && enrichProgress.tier === 'tier1' ? 'Tier 1...' : 'Berika Tier 1 (80)'}
+                {running === 'enrich' && enrichProgress.tier === 'tier1' ? 'Tier 1...' : 'Berika Tier 1'}
               </Button>
-              <Button
-                onClick={() => runEnrich('tier2')}
-                disabled={running !== null}
-                variant="outline"
-                className="font-mono text-xs"
-              >
+              <Button onClick={() => runEnrich('tier2')} disabled={running !== null} variant="outline" className="font-mono text-xs">
                 <Zap className="h-4 w-4 mr-2" />
-                {running === 'enrich' && enrichProgress.tier === 'tier2' ? 'Tier 2...' : 'Berika Tier 2 (50)'}
-              </Button>
-              <Button
-                onClick={() => runEnrich('all')}
-                disabled={running !== null}
-                variant="outline"
-                className="font-mono text-xs"
-              >
-                <Zap className="h-4 w-4 mr-2" />
-                {running === 'enrich' && enrichProgress.tier === 'all' ? 'Alla...' : 'Berika alla'}
+                {running === 'enrich' && enrichProgress.tier === 'tier2' ? 'Tier 2...' : 'Berika Tier 2'}
               </Button>
             </div>
           </div>
 
-          {/* Resume from offset */}
+          {/* Resume */}
           {!running && resumeOffset > 0 && (
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs font-mono text-muted-foreground">Resume från offset:</span>
+              <span className="text-xs font-mono text-muted-foreground">Resume offset:</span>
               <input
                 type="number"
                 value={resumeOffset}
@@ -402,9 +490,9 @@ export default function Admin() {
                 <RefreshCw className="h-3 w-3 animate-spin" />
                 <span>
                   {running === 'backfill'
-                    ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader skrivna · ${backfillProgress.failed} misslyckade`
+                    ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader · ${backfillProgress.failed} misslyckade`
                     : running === 'enrich'
-                    ? `${enrichProgress.tier.toUpperCase()} · ${enrichProgress.offset}/${enrichProgress.tierTotal || '?'} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted · ${enrichProgress.failed} misslyckade`
+                    ? `${enrichProgress.tier.toUpperCase()} · ${enrichProgress.offset}/${enrichProgress.tierTotal || '?'} · ${enrichProgress.enriched} berikade · ${enrichProgress.promoted} promoted`
                     : 'Bearbetar...'}
                 </span>
               </div>
@@ -448,9 +536,7 @@ export default function Admin() {
                         {log.started_at ? new Date(log.started_at).toLocaleDateString('sv-SE') : '—'}
                       </td>
                       <td className="py-2 pr-4">
-                        <Badge variant="outline" className="text-[10px] font-mono">
-                          {log.sync_type}
-                        </Badge>
+                        <Badge variant="outline" className="text-[10px] font-mono">{log.sync_type}</Badge>
                       </td>
                       <td className="py-2 pr-4">
                         <div className="flex items-center gap-1">
@@ -481,11 +567,11 @@ export default function Admin() {
   );
 }
 
-function StatBox({ label, value }: { label: string; value: string }) {
+function StatBox({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-muted rounded-lg p-3">
+    <div className={`rounded-lg p-3 ${highlight ? 'bg-primary/10 border border-primary/20' : 'bg-muted'}`}>
       <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{label}</p>
-      <p className="text-sm font-bold text-foreground font-mono mt-1">{value}</p>
+      <p className={`text-sm font-bold font-mono mt-1 ${highlight ? 'text-primary' : 'text-foreground'}`}>{value}</p>
     </div>
   );
 }
