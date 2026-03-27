@@ -57,6 +57,8 @@ export type Database = {
           high: number
           low: number
           open: number
+          support_level: string | null
+          support_level?: string | null
           symbol: string
           volume: number
         }
@@ -69,6 +71,7 @@ export type Database = {
           high: number
           low: number
           open: number
+          support_level: string | null
           symbol: string
           volume: number
         }
@@ -81,6 +84,7 @@ export type Database = {
           high?: number
           low?: number
           open?: number
+          support_level?: string | null
           symbol?: string
           volume?: number
         }
@@ -263,55 +267,76 @@ export type Database = {
       symbols: {
         Row: {
           asset_class: string | null
+          company_name: string | null
           created_at: string | null
+          eligible_for_backfill: boolean | null
+          eligible_for_full_wsp: boolean | null
           enriched_at: string | null
           exchange: string | null
+          exclusion_reason: string | null
           industry: string | null
           instrument_type: string | null
+          is_common_stock: boolean | null
           is_active: boolean | null
           is_adr: boolean | null
           is_etf: boolean | null
           name: string | null
           primary_exchange: string | null
+          source_provider: string | null
           sector: string | null
           sic_code: string | null
           sic_description: string | null
+          support_level: string | null
           symbol: string
           updated_at: string | null
         }
         Insert: {
           asset_class?: string | null
+          company_name?: string | null
           created_at?: string | null
+          eligible_for_backfill?: boolean | null
+          eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
           exchange?: string | null
+          exclusion_reason?: string | null
           industry?: string | null
           instrument_type?: string | null
+          is_common_stock?: boolean | null
           is_active?: boolean | null
           is_adr?: boolean | null
           is_etf?: boolean | null
           name?: string | null
           primary_exchange?: string | null
+          source_provider?: string | null
           sector?: string | null
           sic_code?: string | null
           sic_description?: string | null
+          support_level?: string | null
           symbol: string
           updated_at?: string | null
         }
         Update: {
           asset_class?: string | null
+          company_name?: string | null
           created_at?: string | null
+          eligible_for_backfill?: boolean | null
+          eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
           exchange?: string | null
+          exclusion_reason?: string | null
           industry?: string | null
           instrument_type?: string | null
+          is_common_stock?: boolean | null
           is_active?: boolean | null
           is_adr?: boolean | null
           is_etf?: boolean | null
           name?: string | null
           primary_exchange?: string | null
+          source_provider?: string | null
           sector?: string | null
           sic_code?: string | null
           sic_description?: string | null
+          support_level?: string | null
           symbol?: string
           updated_at?: string | null
         }
@@ -358,6 +383,7 @@ export type Database = {
           mansfield_rs: number | null
           pct_change_1d: number | null
           pct_from_52w_high: number | null
+          support_level: string | null
           symbol: string
           volume: number | null
           volume_ratio: number | null
@@ -377,6 +403,7 @@ export type Database = {
           mansfield_rs?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
+          support_level: string | null
           symbol: string
           volume?: number | null
           volume_ratio?: number | null
@@ -396,6 +423,7 @@ export type Database = {
           mansfield_rs?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
+          support_level?: string | null
           symbol?: string
           volume?: number | null
           volume_ratio?: number | null

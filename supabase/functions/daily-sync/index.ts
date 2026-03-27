@@ -35,6 +35,7 @@ Deno.serve(async (req: Request) => {
       .from('symbols')
       .select('symbol')
       .eq('is_active', true)
+      .eq('eligible_for_backfill', true)
       .order('symbol')
       .range(from, from + 999)
     if (!page || page.length === 0) break

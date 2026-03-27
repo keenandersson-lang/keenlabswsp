@@ -81,6 +81,7 @@ Deno.serve(async (req: Request) => {
     batchSize = 20,
     offset = 0,
     tier1Only = false,
+    backfillScope = tier1Only ? 'tier1' : 'eligible_common_stock',
     sleepBetweenMs = 13000,
   } = body
 
@@ -91,59 +92,59 @@ Deno.serve(async (req: Request) => {
   let symbolsToProcess: string[]
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
-  } else if (tier1Only) {
-    // Only process Tier 1 symbols that still need data
+  } else {
+    const resolvedScope = tier1Only ? 'tier1' : backfillScope
     const { data: existingCoverage } = await supabase
       .from('daily_prices')
       .select('symbol')
-      .in('symbol', TIER1_SYMBOLS)
 
-    const coveredSymbols = new Set<string>()
     const barCounts: Record<string, number> = {}
     ;(existingCoverage ?? []).forEach((r: any) => {
-      coveredSymbols.add(r.symbol)
       barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1
     })
-
     const expectedDays = yearsBack * 252
-    // Filter to symbols that need backfill (missing or incomplete)
-    symbolsToProcess = TIER1_SYMBOLS.filter(s => {
-      const bars = barCounts[s] ?? 0
-      return bars < expectedDays * 0.8
-    })
 
-    // Priority order: benchmarks first, then full_wsp_equity, then metals
-    const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
-    const METALS = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
-    symbolsToProcess.sort((a, b) => {
-      const prioA = BENCHMARKS.has(a) ? 0 : METALS.has(a) ? 2 : 1
-      const prioB = BENCHMARKS.has(b) ? 0 : METALS.has(b) ? 2 : 1
-      return prioA - prioB || a.localeCompare(b)
-    })
+    if (resolvedScope === 'tier1') {
+      symbolsToProcess = TIER1_SYMBOLS.filter(s => (barCounts[s] ?? 0) < expectedDays * 0.8)
+      const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
+      const METALS = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
+      symbolsToProcess.sort((a, b) => {
+        const prioA = BENCHMARKS.has(a) ? 0 : METALS.has(a) ? 2 : 1
+        const prioB = BENCHMARKS.has(b) ? 0 : METALS.has(b) ? 2 : 1
+        return prioA - prioB || a.localeCompare(b)
+      })
+    } else {
+      let query = supabase
+        .from('symbols')
+        .select('symbol, support_level, eligible_for_backfill, is_common_stock')
+        .eq('is_active', true)
+        .eq('eligible_for_backfill', true)
 
-    // Apply batch pagination
-    symbolsToProcess = symbolsToProcess.slice(offset, offset + batchSize)
-  } else {
-    // Full universe (legacy mode)
-    const { data, error: fetchErr } = await supabase
-      .from('symbols')
-      .select('symbol')
-      .eq('is_active', true)
-      .order('symbol')
-      .range(offset, offset + batchSize - 1)
+      if (resolvedScope === 'tier2') {
+        query = query.eq('support_level', 'limited_equity')
+      } else if (resolvedScope === 'full_wsp_only') {
+        query = query.eq('support_level', 'full_wsp_equity')
+      } else if (resolvedScope === 'stored_all_eligible') {
+        // keep base eligible_for_backfill filter
+      } else {
+        query = query.eq('is_common_stock', true)
+      }
 
-    if (fetchErr) {
-      return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
+      const { data, error: fetchErr } = await query.order('symbol')
+      if (fetchErr) {
+        return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
+      }
+
+      symbolsToProcess = (data ?? [])
+        .map((r: any) => r.symbol)
+        .filter((sym: string) => {
+          const s = sym.toUpperCase()
+          return s.length > 0 && s.length <= 5 && !/[^A-Z0-9]/.test(s)
+        })
+        .filter((sym: string) => (barCounts[sym] ?? 0) < expectedDays * 0.8)
     }
 
-    symbolsToProcess = (data ?? [])
-      .filter((r: any) => {
-        const sym = (r.symbol ?? '').toUpperCase()
-        if (sym.length === 0 || sym.length > 5) return false
-        if (/[^A-Z0-9]/.test(sym)) return false
-        return true
-      })
-      .map((r: any) => r.symbol)
+    symbolsToProcess = symbolsToProcess.slice(offset, offset + batchSize)
   }
 
   if (symbolsToProcess.length === 0) {
@@ -154,7 +155,7 @@ Deno.serve(async (req: Request) => {
   const { data: logRow, error: logErr } = await supabase
     .from('data_sync_log')
     .insert({
-      sync_type: tier1Only ? 'backfill_tier1' : 'backfill',
+      sync_type: (tier1Only || backfillScope === 'tier1') ? 'backfill_tier1' : `backfill_${backfillScope}`,
       status: 'running',
       data_source: 'polygon',
       metadata: {
@@ -164,6 +165,7 @@ Deno.serve(async (req: Request) => {
         offset,
         batch_size: batchSize,
         tier1_only: tier1Only,
+        backfill_scope: backfillScope,
         sleep_between_ms: sleepBetweenMs,
       },
       started_at: new Date().toISOString(),
@@ -272,6 +274,7 @@ Deno.serve(async (req: Request) => {
         offset,
         batch_size: batchSize,
         tier1_only: tier1Only,
+        backfill_scope: backfillScope,
         failure_counts: failureCounts,
         top_failure_categories: topFailureCategories.slice(0, 5),
         retryable_failures: retryableFailures,
@@ -295,6 +298,7 @@ Deno.serve(async (req: Request) => {
     nextOffset,
     hasMore: symbolsToProcess.length === batchSize,
     tier1Only,
+    backfillScope,
     tier1Total: totalNeeded,
     failureCounts,
     topFailureCategories,

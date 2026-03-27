@@ -25,6 +25,7 @@ const SECTOR_ETFS = [
 ]
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'DIA', 'IWM']
+const METALS_ETFS = new Set(['GLD', 'SLV', 'COPX', 'GDX', 'PPLT'])
 
 // Top S&P 500 sector mapping
 const SECTOR_MAP: Record<string, string> = {
@@ -59,9 +60,33 @@ const SECTOR_MAP: Record<string, string> = {
   FCX: 'Materials', NEM: 'Materials', NUE: 'Materials',
   PLD: 'Real Estate', AMT: 'Real Estate', CCI: 'Real Estate',
   EQIX: 'Real Estate', SPG: 'Real Estate', O: 'Real Estate',
-  // Metals ETFs
   GLD: 'Metals & Mining', SLV: 'Metals & Mining', COPX: 'Metals & Mining',
   GDX: 'Metals & Mining', PPLT: 'Metals & Mining',
+}
+
+function classifyPromotion(row: Record<string, any>) {
+  const symbol = String(row.symbol ?? '').toUpperCase()
+  const exchange = String(row.exchange ?? row.primary_exchange ?? '').toUpperCase()
+  const isEtf = Boolean(row.is_etf)
+  const isAdr = Boolean(row.is_adr)
+  const isCommonStock = Boolean(row.is_common_stock)
+
+  if (!row.is_active) {
+    return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: 'inactive_symbol' }
+  }
+  if (INDEX_SYMBOLS.includes(symbol) || SECTOR_ETFS.some(s => s.symbol === symbol)) {
+    return { support_level: 'sector_benchmark_proxy', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: null }
+  }
+  if (METALS_ETFS.has(symbol)) {
+    return { support_level: 'metals_limited', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: null }
+  }
+  if (isEtf || isAdr) {
+    return { support_level: 'data_only', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: isEtf ? 'non_target_etf' : 'adr_not_promoted' }
+  }
+  if (isCommonStock && ['NYSE', 'NASDAQ', 'AMEX', 'ARCA'].includes(exchange)) {
+    return { support_level: 'limited_equity', eligible_for_backfill: true, eligible_for_full_wsp: false, exclusion_reason: null }
+  }
+  return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false, exclusion_reason: 'unsupported_instrument' }
 }
 
 Deno.serve(async (req: Request) => {
@@ -78,7 +103,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Fetch active assets from Alpaca
     const alpacaKeyId = Deno.env.get('ALPACA_API_KEY_ID')
     const alpacaSecret = Deno.env.get('ALPACA_API_SECRET_KEY')
 
@@ -98,7 +122,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Filter to tradeable symbols with short tickers
     const tradeableSymbols = alpacaAssets
       .filter(
         (a: any) =>
@@ -111,55 +134,106 @@ Deno.serve(async (req: Request) => {
       )
       .map((a: any) => ({
         symbol: a.symbol,
-        name: a.name,
+        company_name: a.name,
         exchange: a.exchange,
+        primary_exchange: a.exchange,
         asset_class: 'us_equity',
+        instrument_type: 'CS',
+        is_common_stock: true,
+        is_active: true,
+        source_provider: 'alpaca_assets',
       }))
 
-    // Build inserts
     const inserts = [
       ...INDEX_SYMBOLS.map((s) => ({
         symbol: s,
+        company_name: s,
         name: s,
         sector: 'Index',
         exchange: 'ARCA',
+        primary_exchange: 'ARCA',
         asset_class: 'us_equity',
+        instrument_type: 'ETF',
+        is_common_stock: false,
+        is_etf: true,
+        is_adr: false,
         is_active: true,
+        source_provider: 'seed_index',
       })),
       ...SECTOR_ETFS.map((e) => ({
         symbol: e.symbol,
+        company_name: e.name,
         name: e.name,
         sector: e.sector,
         exchange: 'ARCA',
+        primary_exchange: 'ARCA',
         asset_class: 'us_equity',
+        instrument_type: 'ETF',
+        is_common_stock: false,
+        is_etf: true,
+        is_adr: false,
         is_active: true,
+        source_provider: 'seed_sector_etf',
       })),
       ...tradeableSymbols.map((a: any) => ({
         symbol: a.symbol,
-        name: a.name,
-        sector: SECTOR_MAP[a.symbol] || 'Unknown',
+        company_name: a.company_name,
+        name: a.company_name,
+        sector: SECTOR_MAP[a.symbol] || null,
         exchange: a.exchange,
+        primary_exchange: a.primary_exchange,
         asset_class: a.asset_class,
+        instrument_type: a.instrument_type,
+        is_common_stock: a.is_common_stock,
+        is_etf: false,
+        is_adr: false,
         is_active: true,
+        source_provider: a.source_provider,
       })),
     ]
 
-    // Deduplicate by symbol
     const uniqueMap = new Map<string, any>()
     for (const item of inserts) {
       uniqueMap.set(item.symbol, item)
     }
     const uniqueInserts = Array.from(uniqueMap.values())
 
-    // Upsert in batches
-    const batches = chunkArray(uniqueInserts, 500)
+    const { data: existingRows } = await supabase
+      .from('symbols')
+      .select('symbol, name, company_name, sector, industry, exchange, primary_exchange, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, eligible_for_backfill, eligible_for_full_wsp, exclusion_reason, source_provider')
+      .in('symbol', uniqueInserts.map((i: any) => i.symbol))
+
+    const existingMap = new Map<string, any>((existingRows ?? []).map((r: any) => [r.symbol, r]))
+
+    const mergedRows = uniqueInserts.map((candidate: any) => {
+      const existing = existingMap.get(candidate.symbol)
+      const merged = {
+        ...existing,
+        ...candidate,
+        name: existing?.name || candidate.company_name,
+        company_name: existing?.company_name || candidate.company_name || existing?.name || candidate.symbol,
+        sector: existing?.sector && existing.sector !== 'Unknown' ? existing.sector : (candidate.sector || existing?.sector || 'Unknown'),
+        industry: existing?.industry || candidate.industry || null,
+        exchange: existing?.exchange || candidate.exchange || null,
+        primary_exchange: existing?.primary_exchange || candidate.primary_exchange || null,
+        source_provider: existing?.source_provider || candidate.source_provider || 'seed_v1',
+      }
+
+      const promotion = classifyPromotion(merged)
+      return {
+        ...merged,
+        ...promotion,
+      }
+    })
+
+    const batches = chunkArray(mergedRows, 500)
     for (const batch of batches) {
       await supabase.from('symbols').upsert(batch, { onConflict: 'symbol' })
     }
 
     return jsonRes({
       ok: true,
-      totalSeeded: uniqueInserts.length,
+      totalSeeded: mergedRows.length,
       fromAlpaca: tradeableSymbols.length,
       withSector: Object.keys(SECTOR_MAP).length,
     })
