@@ -97,43 +97,74 @@ export default function Admin() {
     setRunning(null);
   };
 
-  const [backfillProgress, setBackfillProgress] = useState({ offset: 0, total: 0, fetched: 0, failed: 0, running: false });
+  const [backfillProgress, setBackfillProgress] = useState({
+    offset: 0, total: 0, fetched: 0, failed: 0, running: false,
+    rowsWritten: 0, lastError: '', failureCounts: {} as Record<string, number>,
+    stopped: false, stopReason: '',
+  });
+  const [resumeOffset, setResumeOffset] = useState(0);
+  const [backfillStopped, setBackfillStopped] = useState(false);
 
-  const runBackfill = async () => {
+  const runBackfill = async (startOffset = 0) => {
     setRunning('backfill');
-    const batchSize = 3; // 3 symbols per invocation to stay within edge function timeout
-    let offset = 0;
+    setBackfillStopped(false);
+    const batchSize = 20;
+    let offset = startOffset;
     let totalFetched = 0;
     let totalFailed = 0;
     let hasMore = true;
+    let totalRowsWritten = 0;
+    let allFailureCounts: Record<string, number> = {};
 
-    toast.info('Backfill startat — körs i automatiska batchar.');
-    setBackfillProgress({ offset: 0, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true });
+    toast.info(`Backfill startat från offset ${startOffset}`);
+    setBackfillProgress({ offset: startOffset, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
 
     while (hasMore) {
       try {
         const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
-        if (!data || data.error) {
-          toast.error(`Backfill stoppat vid offset ${offset}: ${data?.error || 'okänt fel'}`);
+        if (!data) {
+          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response from edge function' }));
+          break;
+        }
+        if (data.error) {
+          setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: data.error }));
+          toast.error(`Backfill stoppat vid offset ${offset}: ${data.error}`);
           break;
         }
         totalFetched += data.fetched ?? 0;
         totalFailed += data.failed ?? 0;
+        totalRowsWritten += data.rowsWritten ?? data.fetched ?? 0;
+        // Merge failure counts
+        if (data.failureCounts) {
+          for (const [k, v] of Object.entries(data.failureCounts)) {
+            allFailureCounts[k] = (allFailureCounts[k] ?? 0) + (v as number);
+          }
+        }
         hasMore = data.hasMore === true;
         offset = data.nextOffset ?? offset + batchSize;
-        setBackfillProgress({ offset, total: stats?.symbolCount ?? 0, fetched: totalFetched, failed: totalFailed, running: hasMore });
+        setResumeOffset(offset);
+        setBackfillProgress({
+          offset, total: stats?.symbolCount ?? 0,
+          fetched: totalFetched, failed: totalFailed, running: hasMore,
+          rowsWritten: totalRowsWritten, lastError: '',
+          failureCounts: allFailureCounts, stopped: false, stopReason: '',
+        });
 
-        if (offset % 30 === 0) {
+        if (offset % 100 === 0) {
           queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
         }
       } catch (err) {
+        const errMsg = String(err);
+        setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: `Network: ${errMsg}` }));
         toast.error(`Backfill nätverksfel vid offset ${offset}`);
         break;
       }
     }
 
+    if (hasMore === false) {
+      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader skrivna, ${totalFailed} misslyckade.`);
+    }
     setBackfillProgress(prev => ({ ...prev, running: false }));
-    toast.success(`Backfill klart! ${totalFetched} symboler hämtade, ${totalFailed} misslyckade.`);
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     setRunning(null);
   };
