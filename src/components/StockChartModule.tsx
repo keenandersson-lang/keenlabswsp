@@ -63,10 +63,22 @@ export const StockChartModule = memo(function StockChartModule({
   const [showBollinger, setShowBollinger] = useState(false);
 
   const { bars, cadence } = useMemo(() => barsForTimeframe(timeframe, dailyBars, weeklyBars), [timeframe, dailyBars, weeklyBars]);
-  const benchmarkBars = barsForTimeframe(timeframe, dailyBenchmark, weeklyBenchmark).bars;
 
   const clampedAsOfIndex = clampAsOfIndex(asOfIndex, bars.length);
   const visibleBars = asOfEnabled ? bars.slice(0, clampedAsOfIndex + 1) : bars;
+  const asOfDate = visibleBars[visibleBars.length - 1]?.date ?? null;
+  const historySourceBars = cadence === 'weekly' ? weeklyBars : dailyBars;
+  const benchmarkHistorySourceBars = cadence === 'weekly' ? weeklyBenchmark : dailyBenchmark;
+
+  const fullHistoryBars = useMemo(() => {
+    if (!asOfDate) return historySourceBars;
+    return historySourceBars.filter((bar) => bar.date <= asOfDate);
+  }, [historySourceBars, asOfDate]);
+
+  const fullBenchmarkBars = useMemo(() => {
+    if (!asOfDate) return benchmarkHistorySourceBars;
+    return benchmarkHistorySourceBars.filter((bar) => bar.date <= asOfDate);
+  }, [benchmarkHistorySourceBars, asOfDate]);
 
   const [zoomRange, setZoomRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
   const zoomedBars = useMemo(() => {
@@ -77,27 +89,54 @@ export const StockChartModule = memo(function StockChartModule({
     return visibleBars.slice(start, end + 1);
   }, [visibleBars, zoomRange]);
 
+  const smaSeries = useMemo(() => {
+    const periods = [20, 50, 150, 200] as const;
+    const maps = {
+      20: new Map<string, number | null>(),
+      50: new Map<string, number | null>(),
+      150: new Map<string, number | null>(),
+      200: new Map<string, number | null>(),
+    } as const;
+
+    for (let index = 0; index < fullHistoryBars.length; index += 1) {
+      const bar = fullHistoryBars[index];
+      const slice = fullHistoryBars.slice(0, index + 1);
+      for (const period of periods) {
+        maps[period].set(bar.date, sma(slice, period));
+      }
+    }
+
+    return maps;
+  }, [fullHistoryBars]);
+
+  const rsiByDate = useMemo(
+    () => new Map(computeRsiSeries(fullHistoryBars).map((item) => [item.date, item.value])),
+    [fullHistoryBars],
+  );
+
+  const mansfieldByDate = useMemo(
+    () => new Map(computeMansfieldSeries(fullHistoryBars, fullBenchmarkBars).map((item) => [item.date, item.value])),
+    [fullHistoryBars, fullBenchmarkBars],
+  );
+
   const chartData = useMemo(() => {
-    const rsi = new Map(computeRsiSeries(visibleBars).map((item) => [item.date, item.value]));
-    const mansfield = new Map(computeMansfieldSeries(visibleBars, benchmarkBars).map((item) => [item.date, item.value]));
     const bbands = showBollinger ? computeBollingerBands(zoomedBars) : null;
 
-    return zoomedBars.map((bar, index, array) => {
-      const localSeries = array.slice(0, index + 1);
+    return zoomedBars.map((bar, index) => {
       return {
         ...bar,
         isBull: bar.close >= bar.open,
-        sma20: sma(localSeries, 20),
-        sma50: sma(localSeries, 50),
-        sma150: sma(localSeries, 150),
-        sma200: sma(localSeries, 200),
-        rsi: rsi.get(bar.date) ?? null,
-        mansfield: mansfield.get(bar.date) ?? null,
+        sma20: smaSeries[20].get(bar.date) ?? null,
+        sma50: smaSeries[50].get(bar.date) ?? null,
+        sma150: smaSeries[150].get(bar.date) ?? null,
+        sma200: smaSeries[200].get(bar.date) ?? null,
+        rsi: rsiByDate.get(bar.date) ?? null,
+        mansfield: mansfieldByDate.get(bar.date) ?? null,
         bbUpper: bbands?.[index]?.upper ?? null,
         bbLower: bbands?.[index]?.lower ?? null,
       };
     });
-  }, [zoomedBars, visibleBars, benchmarkBars, showBollinger]);
+  }, [zoomedBars, showBollinger, smaSeries, rsiByDate, mansfieldByDate]);
 
   const hasMansfieldData = chartData.some((entry) => typeof entry.mansfield === 'number' && Number.isFinite(entry.mansfield));
 
