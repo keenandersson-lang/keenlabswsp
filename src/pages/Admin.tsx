@@ -253,9 +253,9 @@ export default function Admin() {
   });
   const [resumeOffset, setResumeOffset] = useState(0);
 
-  const runBackfill = async (startOffset = 0) => {
+  const runBackfill = async (startOffset = 0, tier1Only = false) => {
     setRunning('backfill');
-    const batchSize = 20;
+    const batchSize = tier1Only ? 10 : 20;
     let offset = startOffset;
     let totalFetched = 0;
     let totalFailed = 0;
@@ -263,19 +263,22 @@ export default function Admin() {
     let totalRowsWritten = 0;
     let allFailureCounts: Record<string, number> = {};
 
-    toast.info(`Backfill startat från offset ${startOffset}`);
-    setBackfillProgress({ offset: startOffset, total: stats?.symbolCount ?? 0, fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
+    const label = tier1Only ? 'Tier 1 backfill' : 'Backfill';
+    toast.info(`${label} startat från offset ${startOffset}`);
+    setBackfillProgress({ offset: startOffset, total: tier1Only ? TIER1_SYMBOLS.length : (stats?.symbolCount ?? 0), fetched: 0, failed: 0, running: true, rowsWritten: 0, lastError: '', failureCounts: {}, stopped: false, stopReason: '' });
 
     while (hasMore) {
       try {
-        const data = await invokeFunction('historical-backfill', { yearsBack: 5, batchSize, offset });
+        const data = await invokeFunction('historical-backfill', {
+          yearsBack: 5, batchSize, offset, tier1Only, sleepBetweenMs: 13000,
+        });
         if (!data) {
           setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: 'No response' }));
           break;
         }
         if (data.error) {
           setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: data.error }));
-          toast.error(`Backfill stoppat vid offset ${offset}: ${data.error}`);
+          toast.error(`${label} stoppat vid offset ${offset}: ${data.error}`);
           break;
         }
         totalFetched += data.fetched ?? 0;
@@ -290,20 +293,20 @@ export default function Admin() {
         offset = data.nextOffset ?? offset + batchSize;
         setResumeOffset(offset);
         setBackfillProgress({
-          offset, total: stats?.symbolCount ?? 0,
+          offset, total: tier1Only ? TIER1_SYMBOLS.length : (stats?.symbolCount ?? 0),
           fetched: totalFetched, failed: totalFailed, running: hasMore,
           rowsWritten: totalRowsWritten, lastError: '',
           failureCounts: allFailureCounts, stopped: false, stopReason: '',
         });
       } catch (err) {
         setBackfillProgress(prev => ({ ...prev, running: false, stopped: true, stopReason: String(err) }));
-        toast.error(`Backfill nätverksfel vid offset ${offset}`);
+        toast.error(`${label} nätverksfel vid offset ${offset}`);
         break;
       }
     }
 
     if (!hasMore) {
-      toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader, ${totalFailed} misslyckade.`);
+      toast.success(`${label} klart! ${totalFetched} symboler, ${totalRowsWritten} rader, ${totalFailed} misslyckade.`);
     }
     setBackfillProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
