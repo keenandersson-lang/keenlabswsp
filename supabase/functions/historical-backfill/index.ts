@@ -12,36 +12,53 @@ const supabase = createClient(
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
 
+// ── Tier 1 curated universe ──
+const TIER1_SYMBOLS = [
+  'SPY','QQQ','DIA','IWM',
+  'XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
+  'AAPL','MSFT','NVDA','AVGO','AMD','ORCL','CRM',
+  'GOOGL','META','NFLX','DIS','TMUS','VZ',
+  'AMZN','TSLA','HD','MCD','NKE','BKNG',
+  'COST','WMT','PG','KO','PEP','PM',
+  'JPM','BAC','WFC','V','MA',
+  'LLY','UNH','JNJ','ABBV','MRK','ISRG',
+  'CAT','BA','GE','HON','UPS','DE',
+  'XOM','CVX','COP','SLB','EOG',
+  'LIN','APD','ECL','NUE','DD',
+  'PLD','AMT','EQIX','O',
+  'NEE','SO','DUK','SRE',
+  'GLD','SLV','COPX','GDX','NEM','FCX','PPLT',
+]
+
+// ── Failure categories (granular) ──
 type FailureCategory =
-  | 'no_polygon_data_returned'
-  | 'invalid_incompatible_symbol_format'
-  | 'delisted_inactive_symbol'
-  | 'transform_parsing_failure'
-  | 'database_insert_upsert_failure'
-  | 'other_provider_api_error'
+  | 'rate_limited'
+  | 'provider_5xx'
+  | 'provider_timeout'
+  | 'empty_response'
+  | 'symbol_not_found'
+  | 'invalid_symbol_format'
+  | 'malformed_payload'
+  | 'database_upsert_failure'
+  | 'unknown_provider_error'
 
 type FailureDetail = {
   symbol: string
   category: FailureCategory
   reason: string
+  retryable: boolean
 }
 
-const categoryLabels: Record<FailureCategory, string> = {
-  no_polygon_data_returned: 'no Polygon data returned',
-  invalid_incompatible_symbol_format: 'invalid/incompatible symbol format',
-  delisted_inactive_symbol: 'delisted/inactive symbol',
-  transform_parsing_failure: 'transform/parsing failure',
-  database_insert_upsert_failure: 'database insert/upsert failure',
-  other_provider_api_error: 'other provider/API error',
-}
-
-const retryPolicyByCategory: Record<FailureCategory, { retries: number; action: 'skip' | 'retry_then_skip' }> = {
-  no_polygon_data_returned: { retries: 0, action: 'skip' },
-  invalid_incompatible_symbol_format: { retries: 0, action: 'skip' },
-  delisted_inactive_symbol: { retries: 0, action: 'skip' },
-  transform_parsing_failure: { retries: 1, action: 'retry_then_skip' },
-  database_insert_upsert_failure: { retries: 2, action: 'retry_then_skip' },
-  other_provider_api_error: { retries: 2, action: 'retry_then_skip' },
+const categoryMeta: Record<FailureCategory, { label: string; retryable: boolean; maxRetries: number; backoffMs: number }> = {
+  rate_limited:           { label: 'Rate limited (429)',       retryable: true,  maxRetries: 3, backoffMs: 13000 },
+  provider_5xx:           { label: 'Provider 5xx error',       retryable: true,  maxRetries: 2, backoffMs: 5000 },
+  provider_timeout:       { label: 'Provider timeout',         retryable: true,  maxRetries: 2, backoffMs: 5000 },
+  empty_response:         { label: 'No data returned',         retryable: false, maxRetries: 0, backoffMs: 0 },
+  symbol_not_found:       { label: 'Symbol not found (404)',   retryable: false, maxRetries: 0, backoffMs: 0 },
+  invalid_symbol_format:  { label: 'Invalid symbol format',    retryable: false, maxRetries: 0, backoffMs: 0 },
+  malformed_payload:      { label: 'Malformed/parse error',    retryable: false, maxRetries: 0, backoffMs: 0 },
+  database_upsert_failure:{ label: 'Database upsert failure',  retryable: true,  maxRetries: 2, backoffMs: 1000 },
+  unknown_provider_error: { label: 'Unknown provider error',   retryable: true,  maxRetries: 1, backoffMs: 3000 },
 }
 
 Deno.serve(async (req: Request) => {
@@ -49,7 +66,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders })
   }
 
-  // Auth check
   const authHeader = req.headers.get('Authorization')
   if (authHeader !== `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -59,20 +75,59 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
-  const { yearsBack = 5, symbols: specificSymbols, batchSize = 20, offset = 0 } = body
+  const {
+    yearsBack = 5,
+    symbols: specificSymbols,
+    batchSize = 20,
+    offset = 0,
+    tier1Only = false,
+    sleepBetweenMs = 13000,
+  } = body
 
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
 
-  // Get symbols to backfill — filter by V1 contract eligibility
+  // ── Determine symbols to process ──
   let symbolsToProcess: string[]
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
+  } else if (tier1Only) {
+    // Only process Tier 1 symbols that still need data
+    const { data: existingCoverage } = await supabase
+      .from('daily_prices')
+      .select('symbol')
+      .in('symbol', TIER1_SYMBOLS)
+
+    const coveredSymbols = new Set<string>()
+    const barCounts: Record<string, number> = {}
+    ;(existingCoverage ?? []).forEach((r: any) => {
+      coveredSymbols.add(r.symbol)
+      barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1
+    })
+
+    const expectedDays = yearsBack * 252
+    // Filter to symbols that need backfill (missing or incomplete)
+    symbolsToProcess = TIER1_SYMBOLS.filter(s => {
+      const bars = barCounts[s] ?? 0
+      return bars < expectedDays * 0.8
+    })
+
+    // Priority order: benchmarks first, then full_wsp_equity, then metals
+    const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
+    const METALS = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
+    symbolsToProcess.sort((a, b) => {
+      const prioA = BENCHMARKS.has(a) ? 0 : METALS.has(a) ? 2 : 1
+      const prioB = BENCHMARKS.has(b) ? 0 : METALS.has(b) ? 2 : 1
+      return prioA - prioB || a.localeCompare(b)
+    })
+
+    // Apply batch pagination
+    symbolsToProcess = symbolsToProcess.slice(offset, offset + batchSize)
   } else {
-    // Fetch batch of active symbols with valid format (no dots/slashes/spaces)
+    // Full universe (legacy mode)
     const { data, error: fetchErr } = await supabase
       .from('symbols')
-      .select('symbol, exchange, sector, industry, asset_class, is_active')
+      .select('symbol')
       .eq('is_active', true)
       .order('symbol')
       .range(offset, offset + batchSize - 1)
@@ -81,11 +136,9 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
     }
 
-    // Apply V1 contract: exclude invalid symbol formats, keep only backfill-eligible
     symbolsToProcess = (data ?? [])
       .filter((r: any) => {
         const sym = (r.symbol ?? '').toUpperCase()
-        // Exclude invalid formats (dots, slashes, spaces, >5 chars)
         if (sym.length === 0 || sym.length > 5) return false
         if (/[^A-Z0-9]/.test(sym)) return false
         return true
@@ -94,17 +147,25 @@ Deno.serve(async (req: Request) => {
   }
 
   if (symbolsToProcess.length === 0) {
-    return jsonRes({ ok: true, message: 'No more symbols at this offset.', offset, done: true })
+    return jsonRes({ ok: true, message: 'No symbols need backfill at this offset.', offset, done: true, tier1Only })
   }
 
   // Log start
   const { data: logRow, error: logErr } = await supabase
     .from('data_sync_log')
     .insert({
-      sync_type: 'backfill',
+      sync_type: tier1Only ? 'backfill_tier1' : 'backfill',
       status: 'running',
       data_source: 'polygon',
-      metadata: { symbols_total: symbolsToProcess.length, years_back: yearsBack, offset, batch_size: batchSize },
+      metadata: {
+        symbols_total: symbolsToProcess.length,
+        symbols_list: symbolsToProcess,
+        years_back: yearsBack,
+        offset,
+        batch_size: batchSize,
+        tier1_only: tier1Only,
+        sleep_between_ms: sleepBetweenMs,
+      },
       started_at: new Date().toISOString(),
     })
     .select('id')
@@ -114,39 +175,24 @@ Deno.serve(async (req: Request) => {
 
   let fetched = 0
   let failed = 0
-  const errors: string[] = []
+  let skipped = 0
   const failureDetails: FailureDetail[] = []
-  const failureCounts: Record<FailureCategory, number> = {
-    no_polygon_data_returned: 0,
-    invalid_incompatible_symbol_format: 0,
-    delisted_inactive_symbol: 0,
-    transform_parsing_failure: 0,
-    database_insert_upsert_failure: 0,
-    other_provider_api_error: 0,
-  }
-  const retriesByCategory: Record<FailureCategory, number> = {
-    no_polygon_data_returned: 0,
-    invalid_incompatible_symbol_format: 0,
-    delisted_inactive_symbol: 0,
-    transform_parsing_failure: 0,
-    database_insert_upsert_failure: 0,
-    other_provider_api_error: 0,
-  }
+  const failureCounts: Record<FailureCategory, number> = Object.fromEntries(
+    Object.keys(categoryMeta).map(k => [k, 0])
+  ) as Record<FailureCategory, number>
 
   const recordFailure = (symbol: string, category: FailureCategory, rawReason: string) => {
     const reason = safeReason(rawReason)
+    const meta = categoryMeta[category]
     failed++
     failureCounts[category]++
-    failureDetails.push({ symbol, category, reason })
-    errors.push(`${symbol}: ${categoryLabels[category]}: ${reason}`)
-    console.error(
-      `[BACKFILL_FAILURE] symbol=${symbol} category=${category} policy=${retryPolicyByCategory[category].action}/${retryPolicyByCategory[category].retries} reason=${reason}`
-    )
+    failureDetails.push({ symbol, category, reason, retryable: meta.retryable })
+    console.error(`[BACKFILL_FAILURE] symbol=${symbol} category=${category} retryable=${meta.retryable} reason=${reason}`)
   }
 
   for (const symbol of symbolsToProcess) {
     try {
-      // Check if we already have sufficient data
+      // Check existing coverage
       const { count } = await supabase
         .from('daily_prices')
         .select('*', { count: 'exact', head: true })
@@ -156,77 +202,59 @@ Deno.serve(async (req: Request) => {
       const expectedDays = yearsBack * 252
       if (count && count > expectedDays * 0.8) {
         fetched++
+        skipped++
+        console.log(`[BACKFILL_SKIP] symbol=${symbol} already has ${count} bars`)
         continue
       }
 
-      const bars = await fetchPolygonBarsWithRetry(symbol, startDate, endDate, retriesByCategory)
+      const bars = await fetchPolygonBarsWithRetry(symbol, startDate, endDate)
+
+      if (bars.length === 0) {
+        recordFailure(symbol, 'empty_response', `No bars returned for ${symbol}`)
+        continue
+      }
 
       // Save in batches of 500
       const batches = chunkArray(bars, 500)
       let symbolFailed = false
       for (const batch of batches) {
-        let upsertAttempt = 0
-        let upsertSucceeded = false
-        const upsertMaxAttempts = retryPolicyByCategory.database_insert_upsert_failure.retries + 1
-        while (upsertAttempt < upsertMaxAttempts && !upsertSucceeded) {
-          const { error: upsertErr } = await supabase
-            .from('daily_prices')
-            .upsert(
-              batch.map((b: any) => ({
-                symbol,
-                date: b.date,
-                open: b.open,
-                high: b.high,
-                low: b.low,
-                close: b.close,
-                volume: b.volume,
-                data_source: 'polygon',
-                has_full_volume: true,
-              })),
-              { onConflict: 'symbol,date', ignoreDuplicates: false }
-            )
-
-          if (!upsertErr) {
-            upsertSucceeded = true
-            break
-          }
-
-          upsertAttempt++
-          if (upsertAttempt < upsertMaxAttempts) {
-            retriesByCategory.database_insert_upsert_failure++
-            console.warn(
-              `[BACKFILL_RETRY] symbol=${symbol} category=database_insert_upsert_failure attempt=${upsertAttempt}/${upsertMaxAttempts - 1} reason=${safeReason(upsertErr.message)}`
-            )
-            await sleep(1000 * upsertAttempt)
-            continue
-          }
-
+        const upsertOk = await upsertWithRetry(symbol, batch)
+        if (!upsertOk) {
           symbolFailed = true
-          recordFailure(symbol, 'database_insert_upsert_failure', upsertErr.message)
+          recordFailure(symbol, 'database_upsert_failure', `Upsert failed after retries for ${symbol}`)
           break
         }
-
-        if (symbolFailed) break
       }
 
-      if (symbolFailed) {
-        continue
+      if (!symbolFailed) {
+        fetched++
+        console.log(`[BACKFILL_OK] symbol=${symbol} bars=${bars.length}`)
       }
 
-      fetched++
-
-      // Rate limiting: 5 req/min on free tier
-      await sleep(2000)
+      // Rate limiting sleep between symbols
+      await sleep(sleepBetweenMs)
     } catch (err) {
-      const { category, reason } = classifyBackfillError(err)
+      const { category, reason } = classifyError(err)
       recordFailure(symbol, category, reason)
+      // Extra sleep after rate limit errors
+      if (category === 'rate_limited') {
+        await sleep(15000)
+      }
     }
   }
+
+  const retryableFailures = failureDetails.filter(f => f.retryable).length
+  const permanentFailures = failureDetails.filter(f => !f.retryable).length
 
   const topFailureCategories = Object.entries(failureCounts)
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([category, count]) => ({ category, label: categoryLabels[category as FailureCategory], count }))
+    .map(([category, count]) => ({
+      category,
+      label: categoryMeta[category as FailureCategory].label,
+      count,
+      retryable: categoryMeta[category as FailureCategory].retryable,
+    }))
 
   // Update log
   await supabase
@@ -236,68 +264,69 @@ Deno.serve(async (req: Request) => {
       symbols_processed: fetched,
       symbols_failed: failed,
       completed_at: new Date().toISOString(),
-      error_message: errors.slice(0, 10).join('\n') || null,
+      error_message: failureDetails.slice(0, 10).map(f => `${f.symbol}: ${f.category}: ${f.reason}`).join('\n') || null,
       metadata: {
         symbols_total: symbolsToProcess.length,
+        symbols_list: symbolsToProcess,
         years_back: yearsBack,
         offset,
         batch_size: batchSize,
+        tier1_only: tier1Only,
         failure_counts: failureCounts,
-        retries_by_category: retriesByCategory,
-        top_failure_categories: topFailureCategories.slice(0, 3),
+        top_failure_categories: topFailureCategories.slice(0, 5),
+        retryable_failures: retryableFailures,
+        permanent_failures: permanentFailures,
+        skipped,
       },
     })
     .eq('id', logRow?.id)
 
   const nextOffset = offset + batchSize
+  const totalNeeded = tier1Only ? TIER1_SYMBOLS.length : undefined
   return jsonRes({
     ok: true,
     fetched,
     failed,
+    skipped,
     successRate: symbolsToProcess.length ? Number(((fetched / symbolsToProcess.length) * 100).toFixed(2)) : 0,
     symbolsAttempted: symbolsToProcess.length,
+    symbolsList: symbolsToProcess,
     offset,
     nextOffset,
     hasMore: symbolsToProcess.length === batchSize,
+    tier1Only,
+    tier1Total: totalNeeded,
     failureCounts,
     topFailureCategories,
-    retryPolicyByCategory,
-    retriesByCategory,
+    retryableFailures,
+    permanentFailures,
     failedSymbols: failureDetails,
-    errors: errors.slice(0, 20),
   })
 })
 
-async function fetchPolygonBarsWithRetry(
-  symbol: string,
-  start: string,
-  end: string,
-  retriesByCategory: Record<FailureCategory, number>,
-) {
+// ── Polygon fetch with smart retry ──
+async function fetchPolygonBarsWithRetry(symbol: string, start: string, end: string) {
   let attempt = 0
-  let currentMaxRetries = retryPolicyByCategory.other_provider_api_error.retries
+  let lastCategory: FailureCategory = 'unknown_provider_error'
 
-  while (attempt <= currentMaxRetries) {
+  while (true) {
     try {
       return await fetchPolygonBars(symbol, start, end)
     } catch (err) {
-      const { category, reason } = classifyBackfillError(err)
-      currentMaxRetries = retryPolicyByCategory[category].retries
-      if (attempt < currentMaxRetries) {
-        attempt++
-        retriesByCategory[category]++
-        console.warn(
-          `[BACKFILL_RETRY] symbol=${symbol} category=${category} attempt=${attempt}/${currentMaxRetries} reason=${safeReason(reason)}`
-        )
-        await sleep(1000 * attempt)
-        continue
+      const { category, reason } = classifyError(err)
+      lastCategory = category
+      const meta = categoryMeta[category]
+
+      if (!meta.retryable || attempt >= meta.maxRetries) {
+        throw err
       }
 
-      throw new Error(JSON.stringify({ category, reason }))
+      attempt++
+      const backoff = meta.backoffMs * attempt
+      console.warn(`[BACKFILL_RETRY] symbol=${symbol} category=${category} attempt=${attempt}/${meta.maxRetries} backoff=${backoff}ms reason=${safeReason(reason)}`)
+      await sleep(backoff)
     }
   }
-
-  throw new Error(JSON.stringify({ category: 'other_provider_api_error', reason: 'retry loop exhausted unexpectedly' }))
 }
 
 async function fetchPolygonBars(symbol: string, start: string, end: string) {
@@ -306,55 +335,54 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
     `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`
 
   while (url) {
-    const res = await fetch(url)
-    if (!res.ok) {
-      if (res.status === 429) {
-        throw new Error(JSON.stringify({ category: 'other_provider_api_error', reason: 'polygon rate-limited (429)' }))
+    let res: Response
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
+      res = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeoutId)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw makeError('provider_timeout', `Request timed out for ${symbol}`)
       }
+      throw makeError('unknown_provider_error', `Network error for ${symbol}: ${String(err)}`)
+    }
+
+    if (!res.ok) {
       const rawText = await res.text().catch(() => '')
+      if (res.status === 429) {
+        throw makeError('rate_limited', `Polygon rate-limited (429) for ${symbol}`)
+      }
       if (res.status === 400) {
-        throw new Error(JSON.stringify({
-          category: 'invalid_incompatible_symbol_format',
-          reason: `polygon 400 for ticker ${symbol}: ${safeReason(rawText)}`,
-        }))
+        throw makeError('invalid_symbol_format', `Polygon 400 for ${symbol}: ${safeReason(rawText)}`)
       }
       if (res.status === 404) {
-        throw new Error(JSON.stringify({
-          category: 'delisted_inactive_symbol',
-          reason: `polygon 404 for ticker ${symbol}: ${safeReason(rawText)}`,
-        }))
+        throw makeError('symbol_not_found', `Polygon 404 for ${symbol}`)
       }
-      throw new Error(JSON.stringify({
-        category: 'other_provider_api_error',
-        reason: `polygon ${res.status}: ${safeReason(rawText)}`,
-      }))
+      if (res.status >= 500) {
+        throw makeError('provider_5xx', `Polygon ${res.status} for ${symbol}: ${safeReason(rawText)}`)
+      }
+      throw makeError('unknown_provider_error', `Polygon ${res.status} for ${symbol}: ${safeReason(rawText)}`)
     }
-    const data = await res.json().catch((err) => {
-      throw new Error(JSON.stringify({
-        category: 'transform_parsing_failure',
-        reason: `polygon json parse error: ${safeReason(String(err))}`,
-      }))
-    })
+
+    let data: any
+    try {
+      data = await res.json()
+    } catch (err) {
+      throw makeError('malformed_payload', `JSON parse error for ${symbol}: ${String(err)}`)
+    }
 
     if (data?.status === 'ERROR') {
-      throw new Error(JSON.stringify({
-        category: 'other_provider_api_error',
-        reason: `polygon status error: ${safeReason(data?.error ?? data?.message ?? 'unknown error')}`,
-      }))
+      throw makeError('unknown_provider_error', `Polygon error: ${safeReason(data?.error ?? data?.message ?? 'unknown')}`)
     }
 
     if (data?.status === 'NOT_FOUND') {
-      throw new Error(JSON.stringify({
-        category: 'delisted_inactive_symbol',
-        reason: `polygon status not found for ${symbol}`,
-      }))
+      throw makeError('symbol_not_found', `Polygon NOT_FOUND for ${symbol}`)
     }
 
     if (data?.status === 'OK' && (!Array.isArray(data.results) || data.results.length === 0)) {
-      throw new Error(JSON.stringify({
-        category: 'no_polygon_data_returned',
-        reason: `polygon returned no aggregate results for ${symbol}`,
-      }))
+      // No data — not an error for pagination, just empty
+      break
     }
 
     if (data.results) {
@@ -366,11 +394,8 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
         const close = Number(r.c)
         const volume = Number(r.v)
 
-        if (!date || Number.isNaN(open) || Number.isNaN(high) || Number.isNaN(low) || Number.isNaN(close) || Number.isNaN(volume)) {
-          throw new Error(JSON.stringify({
-            category: 'transform_parsing_failure',
-            reason: `invalid bar shape for ${symbol}`,
-          }))
+        if (!date || Number.isNaN(open) || Number.isNaN(close) || Number.isNaN(volume)) {
+          continue // skip bad bars instead of failing entire symbol
         }
 
         bars.push({ date, open, high, low, close, volume: Math.round(volume) })
@@ -381,48 +406,65 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
   return bars
 }
 
-function classifyBackfillError(err: unknown): { category: FailureCategory; reason: string } {
-  const fallback = {
-    category: 'other_provider_api_error' as FailureCategory,
-    reason: safeReason(String(err)),
-  }
+// ── Upsert with retry ──
+async function upsertWithRetry(symbol: string, batch: any[]): Promise<boolean> {
+  const meta = categoryMeta.database_upsert_failure
+  for (let attempt = 0; attempt <= meta.maxRetries; attempt++) {
+    const { error } = await supabase
+      .from('daily_prices')
+      .upsert(
+        batch.map((b: any) => ({
+          symbol,
+          date: b.date,
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+          data_source: 'polygon',
+          has_full_volume: true,
+        })),
+        { onConflict: 'symbol,date', ignoreDuplicates: false }
+      )
 
+    if (!error) return true
+
+    if (attempt < meta.maxRetries) {
+      console.warn(`[BACKFILL_UPSERT_RETRY] symbol=${symbol} attempt=${attempt + 1}/${meta.maxRetries} error=${safeReason(error.message)}`)
+      await sleep(meta.backoffMs * (attempt + 1))
+    } else {
+      console.error(`[BACKFILL_UPSERT_FAIL] symbol=${symbol} error=${safeReason(error.message)}`)
+    }
+  }
+  return false
+}
+
+// ── Error classification ──
+function makeError(category: FailureCategory, reason: string): Error {
+  return new Error(JSON.stringify({ category, reason }))
+}
+
+function classifyError(err: unknown): { category: FailureCategory; reason: string } {
+  const fallback = { category: 'unknown_provider_error' as FailureCategory, reason: safeReason(String(err)) }
   if (!err) return fallback
 
-  const message = typeof err === 'string'
-    ? err
-    : err instanceof Error
-      ? err.message
-      : JSON.stringify(err)
+  const message = typeof err === 'string' ? err : err instanceof Error ? err.message : JSON.stringify(err)
 
   try {
     const parsed = JSON.parse(message)
-    if (parsed?.category && parsed?.reason && categoryLabels[parsed.category as FailureCategory]) {
-      return {
-        category: parsed.category as FailureCategory,
-        reason: safeReason(String(parsed.reason)),
-      }
+    if (parsed?.category && categoryMeta[parsed.category as FailureCategory]) {
+      return { category: parsed.category as FailureCategory, reason: safeReason(String(parsed.reason)) }
     }
-  } catch {
-    // no-op, we'll classify by message text below
-  }
+  } catch {}
 
   const lower = message.toLowerCase()
-  if (lower.includes('no aggregate results') || lower.includes('no data')) {
-    return { category: 'no_polygon_data_returned', reason: safeReason(message) }
-  }
-  if (lower.includes('invalid') || lower.includes('malformed') || lower.includes('ticker')) {
-    return { category: 'invalid_incompatible_symbol_format', reason: safeReason(message) }
-  }
-  if (lower.includes('not found') || lower.includes('delisted') || lower.includes('inactive')) {
-    return { category: 'delisted_inactive_symbol', reason: safeReason(message) }
-  }
-  if (lower.includes('parse') || lower.includes('json') || lower.includes('transform')) {
-    return { category: 'transform_parsing_failure', reason: safeReason(message) }
-  }
-  if (lower.includes('upsert') || lower.includes('insert') || lower.includes('duplicate key') || lower.includes('constraint')) {
-    return { category: 'database_insert_upsert_failure', reason: safeReason(message) }
-  }
+  if (lower.includes('429') || lower.includes('rate')) return { category: 'rate_limited', reason: safeReason(message) }
+  if (lower.includes('timeout') || lower.includes('abort')) return { category: 'provider_timeout', reason: safeReason(message) }
+  if (lower.includes('500') || lower.includes('502') || lower.includes('503')) return { category: 'provider_5xx', reason: safeReason(message) }
+  if (lower.includes('404') || lower.includes('not found')) return { category: 'symbol_not_found', reason: safeReason(message) }
+  if (lower.includes('400') || lower.includes('invalid')) return { category: 'invalid_symbol_format', reason: safeReason(message) }
+  if (lower.includes('parse') || lower.includes('json')) return { category: 'malformed_payload', reason: safeReason(message) }
+  if (lower.includes('upsert') || lower.includes('insert') || lower.includes('constraint')) return { category: 'database_upsert_failure', reason: safeReason(message) }
   return fallback
 }
 
@@ -432,7 +474,6 @@ function safeReason(raw: string) {
 
 function getYesterdayNYT(): string {
   const now = new Date()
-  // Simple UTC-5 offset for ET
   const et = new Date(now.getTime() - 5 * 60 * 60 * 1000)
   et.setDate(et.getDate() - 1)
   return et.toISOString().slice(0, 10)
