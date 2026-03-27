@@ -523,8 +523,16 @@ export default function Admin() {
                 </span>
               </div>
               {running === 'backfill' && Object.keys(backfillProgress.failureCounts).some(k => (backfillProgress.failureCounts[k] ?? 0) > 0) && (
-                <div className="text-[10px] font-mono text-muted-foreground ml-5">
-                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(' · ')}
+                <div className="text-[10px] font-mono text-muted-foreground ml-5 space-y-0.5">
+                  {Object.entries(backfillProgress.failureCounts).filter(([,v]) => v > 0).sort((a,b) => (b[1] as number) - (a[1] as number)).map(([k,v]) => {
+                    const retryable = ['rate_limited','provider_5xx','provider_timeout','database_upsert_failure','unknown_provider_error'].includes(k);
+                    return (
+                      <div key={k}>
+                        <span className={retryable ? 'text-signal-caution' : 'text-signal-danger'}>{retryable ? '🔄' : '⛔'}</span>{' '}
+                        {k}: {String(v)}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
