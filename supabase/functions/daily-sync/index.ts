@@ -27,7 +27,6 @@ Deno.serve(async (req: Request) => {
 
   const targetDate = getLastTradingDay()
 
-  // Get all active symbols
   const { data: symbolRows } = await supabase
     .from('symbols')
     .select('symbol')
@@ -38,7 +37,6 @@ Deno.serve(async (req: Request) => {
     return jsonRes({ error: 'No symbols found. Seed symbols first.' })
   }
 
-  // Log start
   const { data: logRow } = await supabase
     .from('data_sync_log')
     .insert({
@@ -55,7 +53,6 @@ Deno.serve(async (req: Request) => {
   let failed = 0
 
   try {
-    // Use grouped daily endpoint — ONE call for ALL symbols
     const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${POLYGON_KEY}`
     const res = await fetch(url)
 
@@ -71,14 +68,10 @@ Deno.serve(async (req: Request) => {
         polygonMap[r.T] = r
       }
 
-      // Save prices for tracked symbols
       const upserts: any[] = []
       for (const symbol of symbols) {
         const r = polygonMap[symbol]
-        if (!r) {
-          failed++
-          continue
-        }
+        if (!r) { failed++; continue }
         upserts.push({
           symbol,
           date: targetDate,
@@ -93,17 +86,14 @@ Deno.serve(async (req: Request) => {
         fetched++
       }
 
-      // Batch upsert all at once
       if (upserts.length > 0) {
         const batches = chunkArray(upserts, 500)
         for (const batch of batches) {
-          await supabase
-            .from('daily_prices')
-            .upsert(batch, { onConflict: 'symbol,date' })
+          await supabase.from('daily_prices').upsert(batch, { onConflict: 'symbol,date' })
         }
       }
 
-      // Calculate WSP indicators for each symbol
+      // Calculate WSP indicators
       for (const symbol of symbols) {
         if (!polygonMap[symbol]) continue
         try {
@@ -132,7 +122,6 @@ Deno.serve(async (req: Request) => {
 })
 
 async function calculateAndSaveWSP(symbol: string, calcDate: string) {
-  // Get last 300 trading days from cache
   const { data: rows } = await supabase
     .from('daily_prices')
     .select('date, close, high, low, volume')
@@ -151,9 +140,8 @@ async function calculateAndSaveWSP(symbol: string, calcDate: string) {
   const ma50 = len >= 50 ? avg(closes.slice(-50)) : null
   const ma150 = len >= 150 ? avg(closes.slice(-150)) : null
 
-  // MA50 slope
   const ma50_10ago = len >= 60 ? avg(closes.slice(-60, -10)) : null
-  let ma50Slope: string = 'flat'
+  let ma50Slope = 'flat'
   if (ma50 && ma50_10ago) {
     const slopePct = ((ma50 - ma50_10ago) / ma50_10ago) * 100
     if (slopePct > 0.3) ma50Slope = 'up'
@@ -164,11 +152,9 @@ async function calculateAndSaveWSP(symbol: string, calcDate: string) {
   const prevClose = closes[len - 2] ?? currentClose
   const pctChange1d = ((currentClose - prevClose) / prevClose) * 100
 
-  // Volume ratio
   const avgVol5d = len >= 6 ? avg(volumes.slice(-6, -1)) : volumes[len - 1]
   const volumeRatio = avgVol5d > 0 ? volumes[len - 1] / avgVol5d : 1
 
-  // 52-week high
   const barsFor52w = Math.min(252, len)
   const high52w = Math.max(...highs.slice(-barsFor52w))
   const pctFrom52wHigh = ((currentClose - high52w) / high52w) * 100
@@ -176,7 +162,7 @@ async function calculateAndSaveWSP(symbol: string, calcDate: string) {
   const above50 = ma50 ? currentClose > ma50 : false
   const above150 = ma150 ? currentClose > ma150 : false
 
-  // Mansfield RS vs SPY
+  // Mansfield RS
   let mansfieldRs: number | null = null
   if (len >= 50) {
     const { data: spyRows } = await supabase
@@ -199,16 +185,13 @@ async function calculateAndSaveWSP(symbol: string, calcDate: string) {
     }
   }
 
-  // WSP Pattern
   let pattern: string
   if (!above150) pattern = 'DOWNHILL'
-  else if (above50 && ma50Slope === 'up' && above150 && volumeRatio >= 2)
-    pattern = 'CLIMBING'
+  else if (above50 && ma50Slope === 'up' && above150 && volumeRatio >= 2) pattern = 'CLIMBING'
   else if (pctFrom52wHigh >= -5 && ma50Slope !== 'up') pattern = 'TIRED'
   else if (above150) pattern = 'BASE'
   else pattern = 'DOWNHILL'
 
-  // WSP Score
   let score = 0
   if (above50) score += 20
   if (ma50Slope === 'up') score += 15
@@ -248,7 +231,6 @@ function getLastTradingDay(): string {
   const now = new Date()
   const et = new Date(now.getTime() - 5 * 60 * 60 * 1000)
   const day = et.getDay()
-  // If weekend, go back to Friday
   if (day === 0) et.setDate(et.getDate() - 2)
   else if (day === 6) et.setDate(et.getDate() - 1)
   else et.setDate(et.getDate() - 1)
@@ -263,15 +245,6 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 function jsonRes(body: unknown) {
   return new Response(JSON.stringify(body), {
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
-}
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
 }
