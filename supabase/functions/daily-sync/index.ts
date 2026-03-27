@@ -12,6 +12,13 @@ const supabase = createClient(
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
 
+type SymbolSelection = {
+  symbols: string[]
+  selectedFrom: 'eligible_for_backfill' | 'active_fallback'
+  eligibleCount: number
+  activeCount: number
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -26,27 +33,21 @@ Deno.serve(async (req: Request) => {
   }
 
   const targetDate = getLastTradingDay()
-
-  // Fetch ALL symbols (bypass 1000-row default)
-  const allSymbols: string[] = []
-  let from = 0
-  while (true) {
-    const { data: page } = await supabase
-      .from('symbols')
-      .select('symbol')
-      .eq('is_active', true)
-      .eq('eligible_for_backfill', true)
-      .order('symbol')
-      .range(from, from + 999)
-    if (!page || page.length === 0) break
-    allSymbols.push(...page.map((r: any) => r.symbol))
-    if (page.length < 1000) break
-    from += 1000
-  }
-  const symbols = allSymbols
+  const selection = await selectDailySyncSymbols()
+  const symbols = selection.symbols
 
   if (symbols.length === 0) {
-    return jsonRes({ error: 'No symbols found. Seed symbols first.' })
+    return jsonRes({
+      ok: false,
+      error: 'No active symbols found for daily sync.',
+      date: targetDate,
+      symbolsSelected: 0,
+      symbolsSkipped: 0,
+      skipReasons: {
+        no_active_symbols: 1,
+      },
+      selection,
+    })
   }
 
   const { data: logRow } = await supabase
@@ -55,14 +56,28 @@ Deno.serve(async (req: Request) => {
       sync_type: 'daily',
       status: 'running',
       data_source: 'polygon',
-      metadata: { symbols_total: symbols.length, target_date: targetDate },
+      metadata: {
+        symbols_total: symbols.length,
+        target_date: targetDate,
+        symbol_selection: selection,
+      },
       started_at: new Date().toISOString(),
     })
     .select('id')
     .single()
 
-  let fetched = 0
-  let failed = 0
+  let symbolsFetched = 0
+  let symbolsFailed = 0
+  let rowsFetched = 0
+  let rowsAttempted = 0
+  let rowsWritten = 0
+  let symbolsSkipped = 0
+  const skipReasons: Record<string, number> = {}
+
+  const addSkipReason = (reason: string, count = 1) => {
+    symbolsSkipped += count
+    skipReasons[reason] = (skipReasons[reason] ?? 0) + count
+  }
 
   try {
     const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${POLYGON_KEY}`
@@ -74,7 +89,9 @@ Deno.serve(async (req: Request) => {
 
     const data = await res.json()
 
-    if (data.results?.length) {
+    if (!Array.isArray(data.results) || data.results.length === 0) {
+      addSkipReason('empty_grouped_response')
+    } else {
       const polygonMap: Record<string, any> = {}
       for (const r of data.results) {
         polygonMap[r.T] = r
@@ -83,7 +100,11 @@ Deno.serve(async (req: Request) => {
       const upserts: any[] = []
       for (const symbol of symbols) {
         const r = polygonMap[symbol]
-        if (!r) { failed++; continue }
+        if (!r) {
+          symbolsFailed++
+          addSkipReason('missing_from_polygon_grouped_response')
+          continue
+        }
         upserts.push({
           symbol,
           date: targetDate,
@@ -95,34 +116,42 @@ Deno.serve(async (req: Request) => {
           data_source: 'polygon',
           has_full_volume: true,
         })
-        fetched++
+        symbolsFetched++
       }
+
+      rowsFetched = upserts.length
+      rowsAttempted = upserts.length
 
       if (upserts.length > 0) {
         const batches = chunkArray(upserts, 500)
         for (const batch of batches) {
           const { error: upsertErr, count } = await supabase
             .from('daily_prices')
-            .upsert(batch, { onConflict: 'symbol,date', ignoreDuplicates: false })
+            .upsert(batch, {
+              onConflict: 'symbol,date',
+              ignoreDuplicates: false,
+              count: 'exact',
+            })
           if (upsertErr) {
             console.error('Daily prices upsert error:', upsertErr.message, upsertErr.details, upsertErr.hint)
-            failed += batch.length
-            fetched -= batch.length
+            symbolsFailed += batch.length
+            addSkipReason('daily_prices_upsert_error', batch.length)
           } else {
-            console.log(`Upserted batch of ${batch.length} daily prices`)
+            rowsWritten += count ?? 0
+            console.log(`Upserted batch of ${batch.length} daily prices`) 
           }
         }
       }
-
-      // NOTE: WSP indicator calculation moved to a separate pass
-      // to avoid edge function timeout. The backfill must complete first.
-      console.log(`Daily sync complete: ${fetched} prices upserted, ${failed} missing from Polygon`)
     }
+
+    // NOTE: WSP indicator calculation moved to a separate pass
+    // to avoid edge function timeout. The backfill must complete first.
+    console.log(`Daily sync complete: selected=${symbols.length} rowsFetched=${rowsFetched} rowsAttempted=${rowsAttempted} rowsWritten=${rowsWritten} symbolsSkipped=${symbolsSkipped}`)
   } catch (err) {
     console.error('Daily sync error:', err)
-    failed = symbols.length
+    symbolsFailed = symbols.length
+    addSkipReason('grouped_endpoint_fetch_failed')
   }
-
 
   let broadScanRunId: number | null = null
   let broadScanError: string | null = null
@@ -145,13 +174,21 @@ Deno.serve(async (req: Request) => {
   await supabase
     .from('data_sync_log')
     .update({
-      status: failed === 0 ? 'success' : 'partial',
-      symbols_processed: fetched,
-      symbols_failed: failed,
+      status: symbolsFailed === 0 ? 'success' : 'partial',
+      symbols_processed: symbolsFetched,
+      symbols_failed: symbolsFailed,
       completed_at: new Date().toISOString(),
       metadata: {
         symbols_total: symbols.length,
+        symbols_selected: symbols.length,
+        symbols_fetched: symbolsFetched,
+        symbols_skipped: symbolsSkipped,
+        skip_reasons: skipReasons,
+        rows_fetched: rowsFetched,
+        rows_attempted: rowsAttempted,
+        rows_written: rowsWritten,
         target_date: targetDate,
+        symbol_selection: selection,
         broad_scan_run_id: broadScanRunId,
         broad_scan_error: broadScanError,
       },
@@ -161,12 +198,69 @@ Deno.serve(async (req: Request) => {
   return jsonRes({
     ok: true,
     date: targetDate,
-    fetched,
-    failed,
+    symbolsSelected: symbols.length,
+    symbolsFetched,
+    symbolsFailed,
+    symbolsSkipped,
+    skipReasons: skipReasons,
+    rowsFetched,
+    rowsAttempted,
+    rowsWritten,
+    selection,
     broadScanRunId,
     broadScanError,
   })
 })
+
+async function selectDailySyncSymbols(): Promise<SymbolSelection> {
+  const eligibleSymbols = await fetchSymbols({ eligibleOnly: true })
+  if (eligibleSymbols.length > 0) {
+    return {
+      symbols: eligibleSymbols,
+      selectedFrom: 'eligible_for_backfill',
+      eligibleCount: eligibleSymbols.length,
+      activeCount: eligibleSymbols.length,
+    }
+  }
+
+  const activeSymbols = await fetchSymbols({ eligibleOnly: false })
+  return {
+    symbols: activeSymbols,
+    selectedFrom: 'active_fallback',
+    eligibleCount: 0,
+    activeCount: activeSymbols.length,
+  }
+}
+
+async function fetchSymbols({ eligibleOnly }: { eligibleOnly: boolean }): Promise<string[]> {
+  const allSymbols: string[] = []
+  let from = 0
+  while (true) {
+    let query = supabase
+      .from('symbols')
+      .select('symbol')
+      .eq('is_active', true)
+
+    if (eligibleOnly) {
+      query = query.eq('eligible_for_backfill', true)
+    }
+
+    const { data: page } = await query.order('symbol').range(from, from + 999)
+
+    if (!page || page.length === 0) break
+
+    allSymbols.push(
+      ...page
+        .map((r: any) => String(r.symbol ?? '').toUpperCase().trim())
+        .filter((symbol: string) => symbol.length > 0 && symbol.length <= 8)
+    )
+
+    if (page.length < 1000) break
+    from += 1000
+  }
+
+  return Array.from(new Set(allSymbols))
+}
 
 function getLastTradingDay(): string {
   const now = new Date()
