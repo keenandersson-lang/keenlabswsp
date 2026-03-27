@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server, Zap, Shield, RotateCcw, GitBranchPlus,
+  XCircle, AlertTriangle, Clock, Server, Zap, Shield, RotateCcw, GitBranchPlus, Radar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner';
 import { SCANNER_ELIGIBLE_SYMBOLS, TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 
-type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | null;
+type RunningType = 'daily' | 'backfill' | 'seed' | 'enrich' | 'scan' | null;
 
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
@@ -170,6 +170,16 @@ export default function Admin() {
     },
   });
 
+  const { data: broadScannerOps } = useQuery({
+    queryKey: ['broad-scanner-ops'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('scanner_operator_snapshot');
+      if (error) throw error;
+      return data as { summary: any; sample_candidates: any[] } | null;
+    },
+    refetchInterval: 30000,
+  });
+
   // Tier 1 readiness query
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
@@ -287,6 +297,14 @@ export default function Admin() {
   const runDailySync = async () => {
     setRunning('daily');
     await invokeFunction('daily-sync');
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    setRunning(null);
+  };
+
+  const runBroadScan = async () => {
+    setRunning('scan');
+    await invokeFunction('scan-market', { runLabel: 'manual_admin' });
+    queryClient.invalidateQueries({ queryKey: ['broad-scanner-ops'] });
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     setRunning(null);
   };
@@ -581,6 +599,51 @@ export default function Admin() {
         </CardContent>
       </Card>
 
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-primary flex items-center gap-2">
+            <Radar className="h-4 w-4" />
+            PHASE 7 BROAD SCANNER OPS
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <StatBox label="Universe total" value={String(broadScannerOps?.summary?.universe_total_symbols ?? '—')} />
+            <StatBox label="Scanner eligible" value={String(broadScannerOps?.summary?.scanner_eligible_symbols ?? '—')} highlight />
+            <StatBox label="Scan results" value={String(broadScannerOps?.summary?.generated_scan_results ?? '—')} />
+            <StatBox label="Approved live" value={String(broadScannerOps?.summary?.approved_for_live_scanner ?? '—')} />
+            <StatBox label="Blocked quality" value={String(broadScannerOps?.summary?.blocked_low_quality ?? '—')} />
+          </div>
+          <div className="rounded border border-border p-2">
+            <p className="text-[10px] font-mono text-muted-foreground mb-1">Top exclusion reasons</p>
+            <div className="flex flex-wrap gap-2">
+              {(broadScannerOps?.summary?.top_exclusion_reasons ?? []).slice(0, 8).map((row: any) => (
+                <Badge key={row.reason} variant="outline" className="text-[10px] font-mono">
+                  {row.reason}:{row.count}
+                </Badge>
+              ))}
+              {!(broadScannerOps?.summary?.top_exclusion_reasons ?? []).length && (
+                <span className="text-[10px] font-mono text-muted-foreground">No exclusion stats yet. Run scan-market.</span>
+              )}
+            </div>
+          </div>
+          <div className="rounded border border-border p-2">
+            <p className="text-[10px] font-mono text-muted-foreground mb-2">Sample candidates</p>
+            <div className="max-h-48 overflow-auto space-y-1">
+              {(broadScannerOps?.sample_candidates ?? []).slice(0, 15).map((row: any) => (
+                <div key={row.symbol} className="text-[10px] font-mono bg-muted rounded px-2 py-1 flex items-center justify-between gap-2">
+                  <span className="text-foreground">{row.symbol} · {row.pattern} · {row.recommendation}</span>
+                  <span className="text-muted-foreground">score:{row.score} · {row.promotion_status}</span>
+                </div>
+              ))}
+              {!(broadScannerOps?.sample_candidates ?? []).length && (
+                <p className="text-[10px] font-mono text-muted-foreground">No samples available yet.</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Database Status */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
@@ -868,6 +931,11 @@ export default function Admin() {
             <Button onClick={runDailySync} disabled={running !== null} variant="outline" className="font-mono text-xs">
               <RefreshCw className={`h-4 w-4 mr-2 ${running === 'daily' ? 'animate-spin' : ''}`} />
               {running === 'daily' ? 'Synkar...' : 'Kör daglig sync'}
+            </Button>
+
+            <Button onClick={runBroadScan} disabled={running !== null} variant="outline" className="font-mono text-xs">
+              <Radar className={`h-4 w-4 mr-2 ${running === 'scan' ? 'animate-pulse' : ''}`} />
+              {running === 'scan' ? 'Skannar marknad...' : 'Kör broad market scan'}
             </Button>
 
             <AlertDialog>

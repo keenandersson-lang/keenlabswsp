@@ -123,6 +123,25 @@ Deno.serve(async (req: Request) => {
     failed = symbols.length
   }
 
+
+  let broadScanRunId: number | null = null
+  let broadScanError: string | null = null
+  try {
+    const { data: scanRunId, error: scanErr } = await supabase.rpc('run_broad_market_scan', {
+      p_as_of_date: targetDate,
+      p_run_label: 'daily_sync',
+    })
+    if (scanErr) {
+      broadScanError = scanErr.message
+      console.error('Broad market scan RPC error:', scanErr)
+    } else {
+      broadScanRunId = scanRunId ?? null
+    }
+  } catch (scanRuntimeErr) {
+    broadScanError = scanRuntimeErr instanceof Error ? scanRuntimeErr.message : String(scanRuntimeErr)
+    console.error('Broad market scan runtime error:', scanRuntimeErr)
+  }
+
   await supabase
     .from('data_sync_log')
     .update({
@@ -130,10 +149,23 @@ Deno.serve(async (req: Request) => {
       symbols_processed: fetched,
       symbols_failed: failed,
       completed_at: new Date().toISOString(),
+      metadata: {
+        symbols_total: symbols.length,
+        target_date: targetDate,
+        broad_scan_run_id: broadScanRunId,
+        broad_scan_error: broadScanError,
+      },
     })
     .eq('id', logRow?.id)
 
-  return jsonRes({ ok: true, date: targetDate, fetched, failed })
+  return jsonRes({
+    ok: true,
+    date: targetDate,
+    fetched,
+    failed,
+    broadScanRunId,
+    broadScanError,
+  })
 })
 
 function getLastTradingDay(): string {
