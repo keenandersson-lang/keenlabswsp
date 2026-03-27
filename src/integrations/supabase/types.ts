@@ -216,6 +216,212 @@ export type Database = {
         }
         Relationships: []
       }
+      industry_basket_memberships: {
+        Row: {
+          canonical_industry: string
+          confidence_level: string
+          created_at: string
+          created_by: string
+          exclusion_reason: string | null
+          id: string
+          inclusion_reason: string | null
+          membership_status: string
+          registry_version: number
+          source: string | null
+          symbol: string
+          updated_at: string
+          updated_by: string
+          weight_method: string | null
+          weight_value: number | null
+        }
+        Insert: {
+          canonical_industry: string
+          confidence_level?: string
+          created_at?: string
+          created_by?: string
+          exclusion_reason?: string | null
+          id?: string
+          inclusion_reason?: string | null
+          membership_status?: string
+          registry_version: number
+          source?: string | null
+          symbol: string
+          updated_at?: string
+          updated_by?: string
+          weight_method?: string | null
+          weight_value?: number | null
+        }
+        Update: {
+          canonical_industry?: string
+          confidence_level?: string
+          created_at?: string
+          created_by?: string
+          exclusion_reason?: string | null
+          id?: string
+          inclusion_reason?: string | null
+          membership_status?: string
+          registry_version?: number
+          source?: string | null
+          symbol?: string
+          updated_at?: string
+          updated_by?: string
+          weight_method?: string | null
+          weight_value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industry_basket_memberships_registry_version_fkey"
+            columns: ["registry_version"]
+            isOneToOne: false
+            referencedRelation: "industry_registry_versions"
+            referencedColumns: ["version"]
+          },
+          {
+            foreignKeyName: "industry_basket_memberships_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["symbol"]
+          },
+        ]
+      }
+      industry_proxy_registry: {
+        Row: {
+          basket_method: string | null
+          basket_name: string | null
+          basket_source: string | null
+          canonical_industry: string
+          canonical_sector: string | null
+          confidence_level: string
+          created_at: string
+          created_by: string
+          id: string
+          notes: string | null
+          proxy_symbol: string | null
+          proxy_type: string
+          registry_status: string
+          registry_version: number
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          basket_method?: string | null
+          basket_name?: string | null
+          basket_source?: string | null
+          canonical_industry: string
+          canonical_sector?: string | null
+          confidence_level?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          notes?: string | null
+          proxy_symbol?: string | null
+          proxy_type?: string
+          registry_status?: string
+          registry_version: number
+          updated_at?: string
+          updated_by?: string
+        }
+        Update: {
+          basket_method?: string | null
+          basket_name?: string | null
+          basket_source?: string | null
+          canonical_industry?: string
+          canonical_sector?: string | null
+          confidence_level?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          notes?: string | null
+          proxy_symbol?: string | null
+          proxy_type?: string
+          registry_status?: string
+          registry_version?: number
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industry_proxy_registry_registry_version_fkey"
+            columns: ["registry_version"]
+            isOneToOne: false
+            referencedRelation: "industry_registry_versions"
+            referencedColumns: ["version"]
+          },
+        ]
+      }
+      industry_registry_audit_log: {
+        Row: {
+          action: string
+          affected_industry: string | null
+          affected_symbols: string[] | null
+          change_source: string
+          changed_by: string
+          created_at: string
+          entity_type: string
+          id: number
+          new_value: Json | null
+          previous_value: Json | null
+          reason: string | null
+          registry_version: number | null
+        }
+        Insert: {
+          action: string
+          affected_industry?: string | null
+          affected_symbols?: string[] | null
+          change_source?: string
+          changed_by?: string
+          created_at?: string
+          entity_type: string
+          id?: never
+          new_value?: Json | null
+          previous_value?: Json | null
+          reason?: string | null
+          registry_version?: number | null
+        }
+        Update: {
+          action?: string
+          affected_industry?: string | null
+          affected_symbols?: string[] | null
+          change_source?: string
+          changed_by?: string
+          created_at?: string
+          entity_type?: string
+          id?: never
+          new_value?: Json | null
+          previous_value?: Json | null
+          reason?: string | null
+          registry_version?: number | null
+        }
+        Relationships: []
+      }
+      industry_registry_versions: {
+        Row: {
+          activated_at: string | null
+          created_at: string
+          created_by: string
+          is_active: boolean
+          notes: string | null
+          version: number
+        }
+        Insert: {
+          activated_at?: string | null
+          created_at?: string
+          created_by?: string
+          is_active?: boolean
+          notes?: string | null
+          version: number
+        }
+        Update: {
+          activated_at?: string | null
+          created_at?: string
+          created_by?: string
+          is_active?: boolean
+          notes?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -479,6 +685,70 @@ export type Database = {
       }
     }
     Views: {
+      industry_registry_active_version: {
+        Row: {
+          activated_at: string | null
+          created_at: string | null
+          created_by: string | null
+          is_active: boolean | null
+          notes: string | null
+          version: number | null
+        }
+        Relationships: []
+      }
+      industry_registry_pending_queue: {
+        Row: {
+          basket_method: string | null
+          basket_name: string | null
+          canonical_industry: string | null
+          canonical_sector: string | null
+          confidence_level: string | null
+          excluded_count: number | null
+          included_count: number | null
+          notes: string | null
+          proxy_symbol: string | null
+          proxy_type: string | null
+          registry_status: string | null
+          registry_version: number | null
+          updated_at: string | null
+          updated_by: string | null
+          watchlist_count: number | null
+        }
+        Relationships: []
+      }
+      industry_registry_proxy_type_counts: {
+        Row: {
+          industry_count: number | null
+          proxy_type: string | null
+          registry_version: number | null
+        }
+        Relationships: []
+      }
+      industry_registry_recent_audit: {
+        Row: {
+          action: string | null
+          affected_industry: string | null
+          affected_symbols: string[] | null
+          change_source: string | null
+          changed_by: string | null
+          created_at: string | null
+          entity_type: string | null
+          id: number | null
+          new_value: Json | null
+          previous_value: Json | null
+          reason: string | null
+          registry_version: number | null
+        }
+        Relationships: []
+      }
+      industry_registry_status_counts: {
+        Row: {
+          industry_count: number | null
+          registry_status: string | null
+          registry_version: number | null
+        }
+        Relationships: []
+      }
       symbol_classification_review_queue: {
         Row: {
           canonical_industry: string | null
@@ -506,6 +776,14 @@ export type Database = {
       }
     }
     Functions: {
+      create_industry_registry_version: {
+        Args: {
+          p_copy_from_version?: number
+          p_created_by?: string
+          p_notes?: string
+        }
+        Returns: number
+      }
       consume_credit: {
         Args: { p_amount?: number; p_description?: string; p_user_id: string }
         Returns: Json
@@ -527,6 +805,14 @@ export type Database = {
         }
         Returns: number
       }
+      refresh_industry_registry_from_symbols: {
+        Args: {
+          p_changed_by?: string
+          p_reason?: string
+          p_registry_version: number
+        }
+        Returns: Json
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
@@ -534,6 +820,14 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      rollback_industry_registry_version: {
+        Args: { p_changed_by?: string; p_reason?: string; p_target_version: number }
+        Returns: Json
+      }
+      set_active_industry_registry_version: {
+        Args: { p_changed_by?: string; p_reason?: string; p_target_version: number }
+        Returns: Json
       }
     }
     Enums: {

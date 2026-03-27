@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server, Zap, Shield,
+  XCircle, AlertTriangle, Clock, Server, Zap, Shield, RotateCcw, GitBranchPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +38,7 @@ const TIER1_SYMBOLS = [
 export default function Admin() {
   const [running, setRunning] = useState<RunningType>(null);
   const [syncKey, setSyncKey] = useState('');
+  const [registryReason, setRegistryReason] = useState('operator_update');
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, { sector: string; industry: string; notes: string }>>({});
   const queryClient = useQueryClient();
 
@@ -106,6 +107,56 @@ export default function Admin() {
       return data ?? [];
     },
     refetchInterval: 30000,
+  });
+
+  const { data: industryRegistryData } = useQuery({
+    queryKey: ['industry-registry-admin'],
+    queryFn: async () => {
+      const [
+        activeVersionRes,
+        versionsRes,
+        statusCountsRes,
+        proxyCountsRes,
+        pendingRes,
+        auditRes,
+      ] = await Promise.all([
+        supabase.from('industry_registry_active_version').select('*').limit(1),
+        supabase.from('industry_registry_versions').select('*').order('version', { ascending: false }).limit(10),
+        supabase.from('industry_registry_status_counts').select('*'),
+        supabase.from('industry_registry_proxy_type_counts').select('*'),
+        supabase.from('industry_registry_pending_queue').select('*').order('updated_at', { ascending: false }).limit(50),
+        supabase.from('industry_registry_recent_audit').select('*').limit(50),
+      ]);
+
+      const activeVersion = activeVersionRes.data?.[0]?.version ?? null;
+      const statusCounts = (statusCountsRes.data ?? []).filter((row) => row.registry_version === activeVersion);
+      const proxyTypeCounts = (proxyCountsRes.data ?? []).filter((row) => row.registry_version === activeVersion);
+      return {
+        activeVersion,
+        versions: versionsRes.data ?? [],
+        statusCounts,
+        proxyTypeCounts,
+        pending: pendingRes.data ?? [],
+        audit: auditRes.data ?? [],
+      };
+    },
+    refetchInterval: 30000,
+  });
+
+  const { data: activeVersionMembership } = useQuery({
+    queryKey: ['industry-registry-memberships', industryRegistryData?.activeVersion],
+    enabled: Boolean(industryRegistryData?.activeVersion),
+    queryFn: async () => {
+      if (!industryRegistryData?.activeVersion) return [];
+      const { data, error } = await supabase
+        .from('industry_basket_memberships')
+        .select('canonical_industry, symbol, membership_status, confidence_level, inclusion_reason, exclusion_reason, weight_method, weight_value')
+        .eq('registry_version', industryRegistryData.activeVersion)
+        .order('canonical_industry', { ascending: true })
+        .limit(200);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   // Tier 1 readiness query
@@ -383,6 +434,55 @@ export default function Admin() {
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
   };
 
+  const refreshRegistryVersion = async () => {
+    if (!industryRegistryData?.activeVersion) {
+      toast.error('Ingen aktiv registry-version hittades');
+      return;
+    }
+    const { error } = await supabase.rpc('refresh_industry_registry_from_symbols', {
+      p_registry_version: industryRegistryData.activeVersion,
+      p_changed_by: 'admin_operator',
+      p_reason: registryReason,
+    });
+    if (error) {
+      toast.error(`Registry refresh misslyckades: ${error.message}`);
+      return;
+    }
+    toast.success(`Registry v${industryRegistryData.activeVersion} uppdaterad.`);
+    queryClient.invalidateQueries({ queryKey: ['industry-registry-admin'] });
+    queryClient.invalidateQueries({ queryKey: ['industry-registry-memberships'] });
+  };
+
+  const createDraftVersion = async () => {
+    const { data, error } = await supabase.rpc('create_industry_registry_version', {
+      p_created_by: 'admin_operator',
+      p_notes: registryReason,
+      p_copy_from_version: industryRegistryData?.activeVersion ?? null,
+    });
+    if (error) {
+      toast.error(`Kunde inte skapa draft-version: ${error.message}`);
+      return;
+    }
+    toast.success(`Ny draft-version skapad: v${data}`);
+    queryClient.invalidateQueries({ queryKey: ['industry-registry-admin'] });
+  };
+
+  const setActiveVersion = async (targetVersion: number, rollback = false) => {
+    const fn = rollback ? 'rollback_industry_registry_version' : 'set_active_industry_registry_version';
+    const { error } = await supabase.rpc(fn, {
+      p_target_version: targetVersion,
+      p_changed_by: 'admin_operator',
+      p_reason: rollback ? `rollback:${registryReason}` : registryReason,
+    });
+    if (error) {
+      toast.error(`${rollback ? 'Rollback' : 'Aktivering'} misslyckades: ${error.message}`);
+      return;
+    }
+    toast.success(`${rollback ? 'Rollback' : 'Aktivering'} till v${targetVersion} utförd.`);
+    queryClient.invalidateQueries({ queryKey: ['industry-registry-admin'] });
+    queryClient.invalidateQueries({ queryKey: ['industry-registry-memberships'] });
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'success') return <CheckCircle2 className="h-4 w-4 text-primary" />;
     if (status === 'partial') return <AlertTriangle className="h-4 w-4 text-signal-caution" />;
@@ -506,6 +606,117 @@ export default function Admin() {
             <StatBox label="Proxy mapped" value={stats?.proxyMappedCount?.toLocaleString() ?? '—'} />
             <StatBox label="Manually reviewed" value={stats?.manuallyReviewedCount?.toLocaleString() ?? '—'} />
             <StatBox label="Blocked full WSP" value={stats?.blockedByClassificationCount?.toLocaleString() ?? '—'} highlight />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-primary">
+            PHASE 5 INDUSTRY PROXY / BASKET REGISTRY
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <StatBox label="Active version" value={industryRegistryData?.activeVersion ? `v${industryRegistryData.activeVersion}` : '—'} highlight />
+            <StatBox label="Draft" value={String(industryRegistryData?.statusCounts?.find((r: any) => r.registry_status === 'draft')?.industry_count ?? 0)} />
+            <StatBox label="Active industries" value={String(industryRegistryData?.statusCounts?.find((r: any) => r.registry_status === 'active')?.industry_count ?? 0)} />
+            <StatBox label="Unresolved" value={String(industryRegistryData?.proxyTypeCounts?.find((r: any) => r.proxy_type === 'unresolved')?.industry_count ?? 0)} />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <StatBox label="Direct proxy" value={String(industryRegistryData?.proxyTypeCounts?.find((r: any) => r.proxy_type === 'direct_proxy_symbol')?.industry_count ?? 0)} />
+            <StatBox label="Internal EW" value={String(industryRegistryData?.proxyTypeCounts?.find((r: any) => r.proxy_type === 'internal_equal_weight_basket')?.industry_count ?? 0)} />
+            <StatBox label="Internal weighted" value={String(industryRegistryData?.proxyTypeCounts?.find((r: any) => r.proxy_type === 'internal_weighted_basket')?.industry_count ?? 0)} />
+            <StatBox label="Pending queue" value={String(industryRegistryData?.pending?.length ?? 0)} />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-mono text-muted-foreground">Reason / change ticket</label>
+            <input
+              value={registryReason}
+              onChange={(e) => setRegistryReason(e.target.value)}
+              className="w-full bg-muted border border-border rounded px-2 py-1 text-xs font-mono"
+              placeholder="e.g. phase5_manual_adjustment"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="font-mono text-xs" onClick={refreshRegistryVersion}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              Refresh active version
+            </Button>
+            <Button variant="outline" className="font-mono text-xs" onClick={createDraftVersion}>
+              <GitBranchPlus className="h-3.5 w-3.5 mr-1.5" />
+              Create draft version
+            </Button>
+            {(industryRegistryData?.versions ?? []).slice(0, 3).map((v: any) => (
+              <Button key={v.version} variant="outline" className="font-mono text-xs" onClick={() => setActiveVersion(v.version, false)}>
+                Activate v{v.version}
+              </Button>
+            ))}
+            {industryRegistryData?.versions?.[1] && (
+              <Button variant="outline" className="font-mono text-xs" onClick={() => setActiveVersion(industryRegistryData.versions[1].version, true)}>
+                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                Rollback to v{industryRegistryData.versions[1].version}
+              </Button>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="rounded border border-border p-2">
+              <p className="text-[10px] font-mono text-muted-foreground mb-2">Pending / unresolved industries</p>
+              <div className="max-h-56 overflow-auto space-y-1">
+                {(industryRegistryData?.pending ?? []).slice(0, 20).map((row: any) => (
+                  <div key={`${row.registry_version}-${row.canonical_industry}`} className="text-[10px] font-mono bg-muted rounded px-2 py-1">
+                    <div className="text-foreground">{row.canonical_sector} / {row.canonical_industry}</div>
+                    <div className="text-muted-foreground">{row.proxy_type} · {row.registry_status} · conf:{row.confidence_level} · in:{row.included_count}</div>
+                  </div>
+                ))}
+                {(industryRegistryData?.pending ?? []).length === 0 && (
+                  <p className="text-[10px] font-mono text-muted-foreground">No pending industries.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded border border-border p-2">
+              <p className="text-[10px] font-mono text-muted-foreground mb-2">Recent audit changes</p>
+              <div className="max-h-56 overflow-auto space-y-1">
+                {(industryRegistryData?.audit ?? []).slice(0, 20).map((row: any) => (
+                  <div key={row.id} className="text-[10px] font-mono bg-muted rounded px-2 py-1">
+                    <div className="text-foreground">{row.entity_type}:{row.action} · v{row.registry_version ?? '—'}</div>
+                    <div className="text-muted-foreground">{row.affected_industry ?? 'global'} · by {row.changed_by}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded border border-border p-2">
+            <p className="text-[10px] font-mono text-muted-foreground mb-2">Basket membership (active version sample)</p>
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-[10px] font-mono">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left py-1 pr-2">Industry</th>
+                    <th className="text-left py-1 pr-2">Symbol</th>
+                    <th className="text-left py-1 pr-2">Status</th>
+                    <th className="text-left py-1 pr-2">Weight</th>
+                    <th className="text-left py-1">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(activeVersionMembership ?? []).slice(0, 80).map((row: any) => (
+                    <tr key={`${row.canonical_industry}-${row.symbol}`} className="border-b border-border/30">
+                      <td className="py-1 pr-2">{row.canonical_industry}</td>
+                      <td className="py-1 pr-2 text-foreground">{row.symbol}</td>
+                      <td className="py-1 pr-2">{row.membership_status}</td>
+                      <td className="py-1 pr-2">{row.weight_method ? `${row.weight_method}${row.weight_value ? `:${row.weight_value}` : ''}` : '—'}</td>
+                      <td className="py-1">{row.inclusion_reason || row.exclusion_reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
