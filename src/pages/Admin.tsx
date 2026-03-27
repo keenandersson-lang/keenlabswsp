@@ -184,25 +184,43 @@ export default function Admin() {
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
     queryFn: async () => {
-      // Get Tier 1 symbols metadata
-      const { data: symbols } = await supabase
-        .from('symbols')
-        .select('symbol, sector, industry, instrument_type, is_etf, is_adr, exchange, enriched_at, is_active')
-        .in('symbol', TIER1_SYMBOLS);
+      const { data: latestUniverseRunRow } = await supabase
+        .from('scanner_universe_runs')
+        .select('id')
+        .order('run_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      // Get price coverage for Tier 1
-      const { data: priceCoverage } = await supabase
-        .from('daily_prices')
-        .select('symbol')
-        .in('symbol', TIER1_SYMBOLS);
+      const latestUniverseRunId = latestUniverseRunRow?.id ?? null;
 
-      // Count unique symbols with prices
-      const symbolsWithPrices = new Set((priceCoverage ?? []).map((r: any) => r.symbol));
+      const [symbolsRes, tier1ResultsRes, snapshotRes] = await Promise.all([
+        supabase
+          .from('symbols')
+          .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
+          .in('symbol', TIER1_SYMBOLS),
+        supabase
+          .from('market_scan_results_latest')
+          .select('symbol, promotion_status')
+          .in('symbol', TIER1_SYMBOLS),
+        latestUniverseRunId
+          ? supabase
+            .from('scanner_universe_snapshot')
+            .select('symbol, history_bars, latest_price_date, latest_indicator_date, indicator_ready, support_level')
+            .eq('run_id', latestUniverseRunId)
+            .in('symbol', TIER1_SYMBOLS)
+          : Promise.resolve({ data: [], error: null } as any),
+      ]);
 
-      // Count bars per symbol
+      const symbols = symbolsRes.data ?? [];
+      const tier1Results = tier1ResultsRes.data ?? [];
+      const snapshotRows = snapshotRes.data ?? [];
+
       const barCounts: Record<string, number> = {};
-      (priceCoverage ?? []).forEach((r: any) => {
-        barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1;
+      const symbolsWithPrices = new Set<string>();
+      snapshotRows.forEach((row: any) => {
+        const historyBars = Number(row.history_bars ?? 0);
+        barCounts[row.symbol] = historyBars;
+        if (historyBars > 0 || row.latest_price_date) symbolsWithPrices.add(row.symbol);
       });
 
       // Classification
@@ -238,6 +256,10 @@ export default function Admin() {
         else if (bars > 0) backfilledButNotReady++;
       });
 
+      const tier1PromotionCount = tier1Results.filter((row: any) => row.promotion_status === 'tier1_default').length;
+      const latestScanCoverage = tier1Results.length;
+      const indicatorReadyCount = snapshotRows.filter((row: any) => row.indicator_ready === true).length;
+
       return {
         total: symbols?.length ?? 0,
         enriched,
@@ -249,6 +271,9 @@ export default function Admin() {
         withPrices: symbolsWithPrices.size,
         analysisReady,
         backfilledButNotReady,
+        indicatorReadyCount,
+        tier1PromotionCount,
+        latestScanCoverage,
         noPrices: TIER1_SYMBOLS.filter(s => !symbolsWithPrices.has(s)),
         missingIndustry,
         missingSector,
@@ -572,7 +597,10 @@ export default function Admin() {
               <StatBox label="Med prisdata" value={String(t1?.withPrices ?? '—')} highlight={t1 ? t1.withPrices >= t1.total : false} />
               <StatBox label="Analysredo (≥200 bars)" value={String(t1?.analysisReady ?? '—')} highlight={t1 ? t1.analysisReady >= t1.fullWsp : false} />
               <StatBox label="Backfill men <200" value={String(t1?.backfilledButNotReady ?? '—')} />
-              <StatBox label="Saknar prisdata" value={String(t1?.noPrices?.length ?? '—')} />
+              <StatBox label="Indicators ready" value={String(t1?.indicatorReadyCount ?? '—')} />
+              <StatBox label="Tier1 in latest scan" value={String(t1?.tier1PromotionCount ?? '—')} />
+              <StatBox label="Tier1 scan coverage" value={String(t1?.latestScanCoverage ?? '—')} />
+              <StatBox label="Saknar prisdata" value={String(t1?.noPrices?.length ?? '—')} highlight={t1 ? (t1.noPrices?.length ?? 0) === 0 : false} />
             </div>
           </div>
 
@@ -591,10 +619,9 @@ export default function Admin() {
             </div>
           )}
 
-          {/* Client-side classification */}
           <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2">
-            <span className="text-primary">Scanner-eligible (client):</span> {SCANNER_ELIGIBLE_SYMBOLS.length} symboler ·{' '}
-            <span className="text-primary">Tracked total:</span> {TRACKED_SYMBOLS.length} symboler
+            <span className="text-primary">Reference tier1 constants (client):</span> {SCANNER_ELIGIBLE_SYMBOLS.length} scanner-eligible · {TRACKED_SYMBOLS.length} tracked.
+            <span className="text-muted-foreground"> Live readiness metrics above are now read from scanner_universe_snapshot + market_scan_results_latest.</span>
           </div>
         </CardContent>
       </Card>
@@ -612,7 +639,7 @@ export default function Admin() {
             <StatBox label="Scanner eligible" value={String(broadScannerOps?.summary?.scanner_eligible_symbols ?? '—')} highlight />
             <StatBox label="Scan results" value={String(broadScannerOps?.summary?.generated_scan_results ?? '—')} />
             <StatBox label="Approved live" value={String(broadScannerOps?.summary?.approved_for_live_scanner ?? '—')} />
-            <StatBox label="Blocked quality" value={String(broadScannerOps?.summary?.blocked_low_quality ?? '—')} />
+            <StatBox label="Live cohort (tier1+approved)" value={String((Number(broadScannerOps?.summary?.tier1_default ?? 0) + Number(broadScannerOps?.summary?.approved_for_live_scanner ?? 0)) || '—')} highlight />
           </div>
           <div className="rounded border border-border p-2">
             <p className="text-[10px] font-mono text-muted-foreground mb-1">Top exclusion reasons</p>
