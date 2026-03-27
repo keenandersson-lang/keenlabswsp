@@ -338,6 +338,33 @@ export default function Admin() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  disabled={running !== null}
+                  variant="outline"
+                  className="font-mono text-xs"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {running === 'enrich' ? 'Enrichment pågår...' : 'Berika metadata'}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Berika symbol-metadata?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Hämtar sektor, bransch och instrumenttyp från Polygon ticker details
+                    för alla ej berikade symboler. Rate-limited till 5 req/min.
+                    Tar ~30 min per 100 symboler.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Avbryt</AlertDialogCancel>
+                  <AlertDialogAction onClick={runEnrich}>Starta enrichment</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           {/* Resume from offset */}
