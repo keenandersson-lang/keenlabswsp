@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,8 +26,8 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  const body = await req.json().catch(() => ({}))
-  const { yearsBack = 5, symbols: specificSymbols } = body
+  const body = await req.json().catch(() => ({})) as Record<string, any>
+  const { yearsBack = 5, symbols: specificSymbols, batchSize = 5, offset = 0 } = body
 
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
@@ -37,29 +37,42 @@ Deno.serve(async (req: Request) => {
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
   } else {
-    const { data } = await supabase
+    // Fetch ALL symbols using range to bypass 1000-row default
+    const allSymbols: string[] = []
+    let from = offset
+    const pageSize = batchSize
+    const { data, error: fetchErr } = await supabase
       .from('symbols')
       .select('symbol')
       .eq('is_active', true)
-    symbolsToProcess = data?.map((r: any) => r.symbol) ?? []
+      .order('symbol')
+      .range(from, from + pageSize - 1)
+    
+    if (fetchErr) {
+      return jsonRes({ error: `Symbol fetch error: ${fetchErr.message}` })
+    }
+    allSymbols.push(...(data?.map((r: any) => r.symbol) ?? []))
+    symbolsToProcess = allSymbols
   }
 
   if (symbolsToProcess.length === 0) {
-    return jsonRes({ error: 'No symbols to process. Seed symbols first.' })
+    return jsonRes({ ok: true, message: 'No more symbols at this offset.', offset, done: true })
   }
 
   // Log start
-  const { data: logRow } = await supabase
+  const { data: logRow, error: logErr } = await supabase
     .from('data_sync_log')
     .insert({
       sync_type: 'backfill',
       status: 'running',
       data_source: 'polygon',
-      metadata: { symbols_total: symbolsToProcess.length, years_back: yearsBack },
+      metadata: { symbols_total: symbolsToProcess.length, years_back: yearsBack, offset, batch_size: batchSize },
       started_at: new Date().toISOString(),
     })
     .select('id')
     .single()
+
+  if (logErr) console.error('Log insert error:', logErr.message)
 
   let fetched = 0
   let failed = 0
@@ -91,7 +104,7 @@ Deno.serve(async (req: Request) => {
       // Save in batches of 500
       const batches = chunkArray(bars, 500)
       for (const batch of batches) {
-        await supabase
+        const { error: upsertErr } = await supabase
           .from('daily_prices')
           .upsert(
             batch.map((b: any) => ({
@@ -105,14 +118,20 @@ Deno.serve(async (req: Request) => {
               data_source: 'polygon',
               has_full_volume: true,
             })),
-            { onConflict: 'symbol,date' }
+            { onConflict: 'symbol,date', ignoreDuplicates: false }
           )
+        if (upsertErr) {
+          console.error(`Upsert error for ${symbol}:`, upsertErr.message)
+          errors.push(`${symbol}: upsert failed: ${upsertErr.message}`)
+          failed++
+          continue
+        }
       }
 
       fetched++
 
-      // Rate limiting: 5 req/min on free tier = wait 12.5s
-      await sleep(12500)
+      // Rate limiting: 5 req/min on free tier
+      await sleep(13000)
     } catch (err) {
       failed++
       errors.push(`${symbol}: ${String(err).slice(0, 100)}`)
@@ -131,7 +150,8 @@ Deno.serve(async (req: Request) => {
     })
     .eq('id', logRow?.id)
 
-  return jsonRes({ ok: true, fetched, failed, errors: errors.slice(0, 5) })
+  const nextOffset = offset + batchSize
+  return jsonRes({ ok: true, fetched, failed, errors: errors.slice(0, 5), offset, nextOffset, hasMore: symbolsToProcess.length === batchSize })
 })
 
 async function fetchPolygonBars(symbol: string, start: string, end: string) {

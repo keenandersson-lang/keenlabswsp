@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -27,11 +27,22 @@ Deno.serve(async (req: Request) => {
 
   const targetDate = getLastTradingDay()
 
-  const { data: symbolRows } = await supabase
-    .from('symbols')
-    .select('symbol')
-    .eq('is_active', true)
-  const symbols = symbolRows?.map((r: any) => r.symbol) ?? []
+  // Fetch ALL symbols (bypass 1000-row default)
+  const allSymbols: string[] = []
+  let from = 0
+  while (true) {
+    const { data: page } = await supabase
+      .from('symbols')
+      .select('symbol')
+      .eq('is_active', true)
+      .order('symbol')
+      .range(from, from + 999)
+    if (!page || page.length === 0) break
+    allSymbols.push(...page.map((r: any) => r.symbol))
+    if (page.length < 1000) break
+    from += 1000
+  }
+  const symbols = allSymbols
 
   if (symbols.length === 0) {
     return jsonRes({ error: 'No symbols found. Seed symbols first.' })
@@ -89,19 +100,22 @@ Deno.serve(async (req: Request) => {
       if (upserts.length > 0) {
         const batches = chunkArray(upserts, 500)
         for (const batch of batches) {
-          await supabase.from('daily_prices').upsert(batch, { onConflict: 'symbol,date' })
+          const { error: upsertErr, count } = await supabase
+            .from('daily_prices')
+            .upsert(batch, { onConflict: 'symbol,date', ignoreDuplicates: false })
+          if (upsertErr) {
+            console.error('Daily prices upsert error:', upsertErr.message, upsertErr.details, upsertErr.hint)
+            failed += batch.length
+            fetched -= batch.length
+          } else {
+            console.log(`Upserted batch of ${batch.length} daily prices`)
+          }
         }
       }
 
-      // Calculate WSP indicators
-      for (const symbol of symbols) {
-        if (!polygonMap[symbol]) continue
-        try {
-          await calculateAndSaveWSP(symbol, targetDate)
-        } catch (err) {
-          console.error(`WSP calc error for ${symbol}:`, err)
-        }
-      }
+      // NOTE: WSP indicator calculation moved to a separate pass
+      // to avoid edge function timeout. The backfill must complete first.
+      console.log(`Daily sync complete: ${fetched} prices upserted, ${failed} missing from Polygon`)
     }
   } catch (err) {
     console.error('Daily sync error:', err)
@@ -120,112 +134,6 @@ Deno.serve(async (req: Request) => {
 
   return jsonRes({ ok: true, date: targetDate, fetched, failed })
 })
-
-async function calculateAndSaveWSP(symbol: string, calcDate: string) {
-  const { data: rows } = await supabase
-    .from('daily_prices')
-    .select('date, close, high, low, volume')
-    .eq('symbol', symbol)
-    .lte('date', calcDate)
-    .order('date', { ascending: true })
-    .limit(300)
-
-  if (!rows || rows.length < 20) return
-
-  const closes = rows.map((r: any) => Number(r.close))
-  const highs = rows.map((r: any) => Number(r.high))
-  const volumes = rows.map((r: any) => Number(r.volume))
-  const len = closes.length
-
-  const ma50 = len >= 50 ? avg(closes.slice(-50)) : null
-  const ma150 = len >= 150 ? avg(closes.slice(-150)) : null
-
-  const ma50_10ago = len >= 60 ? avg(closes.slice(-60, -10)) : null
-  let ma50Slope = 'flat'
-  if (ma50 && ma50_10ago) {
-    const slopePct = ((ma50 - ma50_10ago) / ma50_10ago) * 100
-    if (slopePct > 0.3) ma50Slope = 'up'
-    else if (slopePct < -0.3) ma50Slope = 'down'
-  }
-
-  const currentClose = closes[len - 1]
-  const prevClose = closes[len - 2] ?? currentClose
-  const pctChange1d = ((currentClose - prevClose) / prevClose) * 100
-
-  const avgVol5d = len >= 6 ? avg(volumes.slice(-6, -1)) : volumes[len - 1]
-  const volumeRatio = avgVol5d > 0 ? volumes[len - 1] / avgVol5d : 1
-
-  const barsFor52w = Math.min(252, len)
-  const high52w = Math.max(...highs.slice(-barsFor52w))
-  const pctFrom52wHigh = ((currentClose - high52w) / high52w) * 100
-
-  const above50 = ma50 ? currentClose > ma50 : false
-  const above150 = ma150 ? currentClose > ma150 : false
-
-  // Mansfield RS
-  let mansfieldRs: number | null = null
-  if (len >= 50) {
-    const { data: spyRows } = await supabase
-      .from('daily_prices')
-      .select('close')
-      .eq('symbol', 'SPY')
-      .lte('date', calcDate)
-      .order('date', { ascending: true })
-      .limit(300)
-
-    if (spyRows && spyRows.length >= 50) {
-      const spyCloses = spyRows.map((r: any) => Number(r.close))
-      const symMA = avg(closes.slice(-Math.min(252, len)))
-      const spyMA = avg(spyCloses.slice(-Math.min(252, spyCloses.length)))
-      if (symMA > 0 && spyMA > 0) {
-        const symRatio = currentClose / symMA
-        const spyRatio = spyCloses[spyCloses.length - 1] / spyMA
-        mansfieldRs = parseFloat(((symRatio / spyRatio - 1) * 100).toFixed(2))
-      }
-    }
-  }
-
-  let pattern: string
-  if (!above150) pattern = 'DOWNHILL'
-  else if (above50 && ma50Slope === 'up' && above150 && volumeRatio >= 2) pattern = 'CLIMBING'
-  else if (pctFrom52wHigh >= -5 && ma50Slope !== 'up') pattern = 'TIRED'
-  else if (above150) pattern = 'BASE'
-  else pattern = 'DOWNHILL'
-
-  let score = 0
-  if (above50) score += 20
-  if (ma50Slope === 'up') score += 15
-  if (above150) score += 15
-  if (volumeRatio >= 2) score += 20
-  else if (volumeRatio >= 1.5) score += 10
-  if (mansfieldRs !== null && mansfieldRs > 0) score += 15
-  if (pctFrom52wHigh >= -10) score += 15
-
-  await supabase.from('wsp_indicators').upsert(
-    {
-      symbol,
-      calc_date: calcDate,
-      close: currentClose,
-      ma50: ma50 ? parseFloat(ma50.toFixed(2)) : null,
-      ma150: ma150 ? parseFloat(ma150.toFixed(2)) : null,
-      ma50_slope: ma50Slope,
-      above_ma50: above50,
-      above_ma150: above150,
-      volume: volumes[len - 1],
-      avg_volume_5d: Math.round(avgVol5d),
-      volume_ratio: parseFloat(volumeRatio.toFixed(2)),
-      wsp_pattern: pattern,
-      wsp_score: score,
-      pct_change_1d: parseFloat(pctChange1d.toFixed(2)),
-      pct_from_52w_high: parseFloat(pctFrom52wHigh.toFixed(2)),
-      mansfield_rs: mansfieldRs,
-    },
-    { onConflict: 'symbol,calc_date' }
-  )
-}
-
-const avg = (arr: number[]) =>
-  arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length
 
 function getLastTradingDay(): string {
   const now = new Date()
