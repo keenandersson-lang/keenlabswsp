@@ -30,7 +30,7 @@ const TIER1_SYMBOLS = [
   'GLD','SLV','COPX','GDX','NEM','FCX','PPLT',
 ]
 
-// ── Failure categories (granular) ──
+// ── Failure categories ──
 type FailureCategory =
   | 'rate_limited'
   | 'provider_5xx'
@@ -41,21 +41,6 @@ type FailureCategory =
   | 'malformed_payload'
   | 'database_upsert_failure'
   | 'unknown_provider_error'
-
-type FailureDetail = {
-  symbol: string
-  category: FailureCategory
-  reason: string
-  retryable: boolean
-}
-
-type SelectionDiagnostics = {
-  requestedScope: string
-  resolvedScope: string
-  eligiblePoolCount: number
-  fallbackPoolCount: number
-  selectedFrom: 'eligible_for_backfill' | 'active_common_stock_fallback' | 'tier1' | 'specific_symbols'
-}
 
 const categoryMeta: Record<FailureCategory, { label: string; retryable: boolean; maxRetries: number; backoffMs: number }> = {
   rate_limited:           { label: 'Rate limited (429)',       retryable: true,  maxRetries: 3, backoffMs: 13000 },
@@ -83,33 +68,286 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
+
+  // ── Mode: date_backfill (Polygon grouped endpoint per date) ──
+  if (body.mode === 'date_backfill') {
+    return handleDateBackfill(body)
+  }
+
+  // ── Mode: per-symbol backfill (original) ──
+  return handleSymbolBackfill(body)
+})
+
+// ═══════════════════════════════════════════════════
+// DATE-BASED BACKFILL (Polygon grouped daily endpoint)
+// One API call per trading day, gets ALL symbols at once
+// ═══════════════════════════════════════════════════
+async function handleDateBackfill(body: Record<string, any>) {
+  const { action = 'run', daysPerBatch = 5, resumeFrom = null } = body
+
+  if (action === 'status') {
+    // Find the earliest date we have data for
+    const { data: earliest } = await supabase
+      .from('daily_prices')
+      .select('date')
+      .order('date', { ascending: true })
+      .limit(1)
+
+    const { data: latest } = await supabase
+      .from('daily_prices')
+      .select('date')
+      .order('date', { ascending: false })
+      .limit(1)
+
+    // Check the sync log for last date-backfill
+    const { data: lastLog } = await supabase
+      .from('data_sync_log')
+      .select('metadata')
+      .eq('sync_type', 'backfill_by_date')
+      .order('started_at', { ascending: false })
+      .limit(1)
+
+    const lastBackfilledDate = (lastLog?.[0]?.metadata as any)?.last_date ?? null
+
+    return jsonRes({
+      ok: true,
+      earliestDate: earliest?.[0]?.date ?? null,
+      latestDate: latest?.[0]?.date ?? null,
+      lastBackfilledDate,
+    })
+  }
+
+  // Generate trading days to backfill (going backwards from yesterday)
+  const endDate = getYesterdayNYT()
+  const twoYearsAgo = subtractYears(endDate, 2)
+
+  // Generate all trading days in range
+  const tradingDays = generateTradingDays(twoYearsAgo, endDate)
+
+  // If resuming, skip already-done days
+  let startIdx = 0
+  if (resumeFrom) {
+    const idx = tradingDays.indexOf(resumeFrom)
+    if (idx >= 0) startIdx = idx + 1
+  }
+
+  const batch = tradingDays.slice(startIdx, startIdx + daysPerBatch)
+
+  if (batch.length === 0) {
+    return jsonRes({ ok: true, message: 'All trading days backfilled.', completedDays: tradingDays.length, totalDays: tradingDays.length })
+  }
+
+  const { data: logRow } = await supabase
+    .from('data_sync_log')
+    .insert({
+      sync_type: 'backfill_by_date',
+      status: 'running',
+      data_source: 'polygon',
+      metadata: { batch_dates: batch, resume_from: resumeFrom, total_days: tradingDays.length },
+      started_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  let completedDays = 0
+  let totalRows = 0
+  let lastDate = ''
+  let lastError = ''
+
+  for (const date of batch) {
+    try {
+      const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${POLYGON_KEY}`
+      const res = await fetch(url)
+
+      if (res.status === 429) {
+        // Rate limited — wait and retry once
+        await sleep(15000)
+        const retry = await fetch(url)
+        if (!retry.ok) {
+          lastError = `Rate limited on ${date}, retry also failed: ${retry.status}`
+          console.error(lastError)
+          break
+        }
+        const retryData = await retry.json()
+        const rows = await upsertGroupedData(date, retryData)
+        totalRows += rows
+        completedDays++
+        lastDate = date
+      } else if (!res.ok) {
+        lastError = `Polygon grouped ${res.status} for ${date}`
+        console.error(lastError)
+        // Non-retryable for this date, skip it
+        completedDays++
+        lastDate = date
+      } else {
+        const data = await res.json()
+        const rows = await upsertGroupedData(date, data)
+        totalRows += rows
+        completedDays++
+        lastDate = date
+      }
+
+      // Respect Polygon free tier rate limit (5 req/min)
+      await sleep(13000)
+    } catch (err) {
+      lastError = `Error on ${date}: ${String(err)}`
+      console.error(lastError)
+      break
+    }
+  }
+
+  await supabase
+    .from('data_sync_log')
+    .update({
+      status: lastError ? 'partial' : 'success',
+      symbols_processed: totalRows,
+      completed_at: new Date().toISOString(),
+      error_message: lastError || null,
+      metadata: {
+        batch_dates: batch,
+        completed_days: completedDays,
+        total_rows: totalRows,
+        last_date: lastDate,
+        total_trading_days: tradingDays.length,
+        start_idx: startIdx,
+      },
+    })
+    .eq('id', logRow?.id)
+
+  return jsonRes({
+    ok: true,
+    completedDays: startIdx + completedDays,
+    totalDays: tradingDays.length,
+    totalRows,
+    lastDate,
+    hasMore: (startIdx + completedDays) < tradingDays.length,
+    error: lastError || undefined,
+  })
+}
+
+async function upsertGroupedData(date: string, data: any): Promise<number> {
+  if (!Array.isArray(data.results) || data.results.length === 0) return 0
+
+  const inserts = data.results
+    .filter((r: any) => {
+      const sym = String(r.T ?? '')
+      return sym.length > 0 && sym.length <= 5 && !/[^A-Z0-9]/.test(sym)
+    })
+    .map((r: any) => ({
+      symbol: r.T,
+      date,
+      open: r.o,
+      high: r.h,
+      low: r.l,
+      close: r.c,
+      volume: Math.round(r.v),
+      data_source: 'polygon',
+      has_full_volume: true,
+    }))
+
+  if (inserts.length === 0) return 0
+
+  let written = 0
+  const batches = chunkArray(inserts, 500)
+  for (const batch of batches) {
+    const { error, count } = await supabase
+      .from('daily_prices')
+      .upsert(batch, { onConflict: 'symbol,date', ignoreDuplicates: false, count: 'exact' })
+    if (error) {
+      console.error(`Grouped upsert error for ${date}:`, error.message)
+    } else {
+      written += count ?? 0
+    }
+  }
+
+  console.log(`[DATE_BACKFILL] ${date}: ${inserts.length} symbols, ${written} rows written`)
+  return written
+}
+
+function generateTradingDays(start: string, end: string): string[] {
+  const days: string[] = []
+  const d = new Date(start)
+  const endD = new Date(end)
+
+  while (d <= endD) {
+    const dow = d.getDay()
+    if (dow !== 0 && dow !== 6) {
+      days.push(d.toISOString().slice(0, 10))
+    }
+    d.setDate(d.getDate() + 1)
+  }
+
+  return days
+}
+
+// ═══════════════════════════════════════════════════
+// PER-SYMBOL BACKFILL (original logic, fixed for schema)
+// ═══════════════════════════════════════════════════
+async function handleSymbolBackfill(body: Record<string, any>) {
   const {
     yearsBack = 5,
     symbols: specificSymbols,
     batchSize = 20,
     offset = 0,
     tier1Only = false,
-    backfillScope = tier1Only ? 'tier1' : 'eligible_common_stock',
     sleepBetweenMs = 13000,
   } = body
 
   const endDate = getYesterdayNYT()
   const startDate = subtractYears(endDate, yearsBack)
   const expectedDays = yearsBack * 252
-  let selectionDiagnostics: SelectionDiagnostics = {
-    requestedScope: backfillScope,
-    resolvedScope: tier1Only ? 'tier1' : backfillScope,
-    eligiblePoolCount: 0,
-    fallbackPoolCount: 0,
-    selectedFrom: specificSymbols?.length ? 'specific_symbols' : (tier1Only ? 'tier1' : 'eligible_for_backfill'),
-  }
 
   // ── Determine symbols to process ──
   let symbolsToProcess: string[]
+
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
+  } else if (tier1Only) {
+    // Get existing bar counts for Tier 1
+    const { data: existingCoverage } = await supabase
+      .from('daily_prices')
+      .select('symbol')
+      .in('symbol', TIER1_SYMBOLS)
+
+    const barCounts: Record<string, number> = {}
+    ;(existingCoverage ?? []).forEach((r: any) => {
+      barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1
+    })
+
+    const BENCH_SET = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
+    const METALS_SET = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
+
+    symbolsToProcess = TIER1_SYMBOLS
+      .filter(s => (barCounts[s] ?? 0) < expectedDays * 0.8)
+      .sort((a, b) => {
+        const prioA = BENCH_SET.has(a) ? 0 : METALS_SET.has(a) ? 2 : 1
+        const prioB = BENCH_SET.has(b) ? 0 : METALS_SET.has(b) ? 2 : 1
+        return prioA - prioB || a.localeCompare(b)
+      })
   } else {
-    const resolvedScope = tier1Only ? 'tier1' : backfillScope
+    // Non-tier1: get all active symbols with valid tickers
+    const allSymbols: string[] = []
+    let from = 0
+    while (true) {
+      const { data: page } = await supabase
+        .from('symbols')
+        .select('symbol')
+        .eq('is_active', true)
+        .order('symbol')
+        .range(from, from + 999)
+
+      if (!page || page.length === 0) break
+      for (const r of page) {
+        const sym = String(r.symbol ?? '').toUpperCase().trim()
+        if (sym.length > 0 && sym.length <= 5 && !/[^A-Z0-9]/.test(sym)) {
+          allSymbols.push(sym)
+        }
+      }
+      if (page.length < 1000) break
+      from += 1000
+    }
+
+    // Check existing coverage
     const { data: existingCoverage } = await supabase
       .from('daily_prices')
       .select('symbol')
@@ -118,142 +356,38 @@ Deno.serve(async (req: Request) => {
     ;(existingCoverage ?? []).forEach((r: any) => {
       barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1
     })
-    if (resolvedScope === 'tier1') {
-      selectionDiagnostics = {
-        ...selectionDiagnostics,
-        resolvedScope,
-        selectedFrom: 'tier1',
-      }
-      symbolsToProcess = TIER1_SYMBOLS.filter(s => (barCounts[s] ?? 0) < expectedDays * 0.8)
-      const BENCHMARKS = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
-      const METALS = new Set(['GLD','SLV','COPX','GDX','NEM','FCX','PPLT'])
-      symbolsToProcess.sort((a, b) => {
-        const prioA = BENCHMARKS.has(a) ? 0 : METALS.has(a) ? 2 : 1
-        const prioB = BENCHMARKS.has(b) ? 0 : METALS.has(b) ? 2 : 1
-        return prioA - prioB || a.localeCompare(b)
-      })
-    } else {
-      const { data: eligiblePool, error: eligiblePoolErr } = await supabase
-        .from('symbols')
-        .select('symbol, support_level, eligible_for_backfill, is_common_stock')
-        .eq('is_active', true)
-        .eq('eligible_for_backfill', true)
 
-      if (eligiblePoolErr) {
-        return jsonRes({ error: `Symbol fetch error: ${eligiblePoolErr.message}` })
-      }
-
-      selectionDiagnostics.eligiblePoolCount = (eligiblePool ?? []).length
-      let scopePool = eligiblePool ?? []
-
-      if (scopePool.length === 0) {
-        const { data: fallbackPool, error: fallbackErr } = await supabase
-          .from('symbols')
-          .select('symbol, support_level, eligible_for_backfill, is_common_stock')
-          .eq('is_active', true)
-          .eq('is_common_stock', true)
-
-        if (fallbackErr) {
-          return jsonRes({ error: `Symbol fallback fetch error: ${fallbackErr.message}` })
-        }
-        selectionDiagnostics = {
-          ...selectionDiagnostics,
-          selectedFrom: 'active_common_stock_fallback',
-          fallbackPoolCount: (fallbackPool ?? []).length,
-        }
-        scopePool = fallbackPool ?? []
-      }
-
-      if (resolvedScope === 'tier2') {
-        scopePool = scopePool.filter((r: any) => r.support_level === 'limited_equity')
-      } else if (resolvedScope === 'full_wsp_only') {
-        scopePool = scopePool.filter((r: any) => r.support_level === 'full_wsp_equity')
-      } else if (resolvedScope === 'stored_all_eligible') {
-        // keep scope pool as-is
-      } else {
-        scopePool = scopePool.filter((r: any) => r.is_common_stock === true)
-      }
-
-      symbolsToProcess = scopePool
-        .map((r: any) => r.symbol)
-        .filter((sym: string) => {
-          const s = sym.toUpperCase()
-          return s.length > 0 && s.length <= 5 && !/[^A-Z0-9]/.test(s)
-        })
-        .filter((sym: string) => (barCounts[sym] ?? 0) < expectedDays * 0.8)
-    }
-
-    symbolsToProcess = symbolsToProcess.slice(offset, offset + batchSize)
+    symbolsToProcess = allSymbols.filter(sym => (barCounts[sym] ?? 0) < expectedDays * 0.8)
   }
+
+  symbolsToProcess = symbolsToProcess.slice(offset, offset + batchSize)
 
   if (symbolsToProcess.length === 0) {
-    return jsonRes({
-      ok: true,
-      message: 'No symbols need backfill at this offset.',
-      offset,
-      done: true,
-      tier1Only,
-      backfillScope,
-      selectionDiagnostics,
-      symbolsSelected: 0,
-      symbolsSkipped: 0,
-      rowsFetched: 0,
-      rowsAttempted: 0,
-      rowsWritten: 0,
-      skipReasons: {
-        no_symbols_selected_for_scope_or_coverage: 1,
-      },
-    })
+    return jsonRes({ ok: true, message: 'No symbols need backfill.', offset, done: true, hasMore: false })
   }
 
-  // Log start
-  const { data: logRow, error: logErr } = await supabase
+  const { data: logRow } = await supabase
     .from('data_sync_log')
     .insert({
-      sync_type: (tier1Only || backfillScope === 'tier1') ? 'backfill_tier1' : `backfill_${backfillScope}`,
+      sync_type: tier1Only ? 'backfill_tier1' : 'backfill',
       status: 'running',
       data_source: 'polygon',
-      metadata: {
-        symbols_total: symbolsToProcess.length,
-        symbols_list: symbolsToProcess,
-        years_back: yearsBack,
-        offset,
-        batch_size: batchSize,
-        tier1_only: tier1Only,
-        backfill_scope: backfillScope,
-        sleep_between_ms: sleepBetweenMs,
-        selection_diagnostics: selectionDiagnostics,
-      },
+      metadata: { symbols_total: symbolsToProcess.length, symbols_list: symbolsToProcess, years_back: yearsBack, offset },
       started_at: new Date().toISOString(),
     })
     .select('id')
     .single()
 
-  if (logErr) console.error('Log insert error:', logErr.message)
-
-  let fetched = 0
-  let failed = 0
-  let skipped = 0
-  let rowsFetched = 0
-  let rowsAttempted = 0
-  let rowsWritten = 0
-  const skipReasons: Record<string, number> = {}
-  const failureDetails: FailureDetail[] = []
-  const failureCounts: Record<FailureCategory, number> = Object.fromEntries(
-    Object.keys(categoryMeta).map(k => [k, 0])
-  ) as Record<FailureCategory, number>
+  let fetched = 0, failed = 0, skipped = 0
+  let rowsFetched = 0, rowsWritten = 0
+  const failureCounts: Record<string, number> = {}
+  const failureDetails: { symbol: string; category: string; reason: string; retryable: boolean }[] = []
 
   const recordFailure = (symbol: string, category: FailureCategory, rawReason: string) => {
     const reason = safeReason(rawReason)
-    const meta = categoryMeta[category]
     failed++
-    failureCounts[category]++
-    failureDetails.push({ symbol, category, reason, retryable: meta.retryable })
-    console.error(`[BACKFILL_FAILURE] symbol=${symbol} category=${category} retryable=${meta.retryable} reason=${reason}`)
-  }
-
-  const recordSkip = (reason: string) => {
-    skipReasons[reason] = (skipReasons[reason] ?? 0) + 1
+    failureCounts[category] = (failureCounts[category] ?? 0) + 1
+    failureDetails.push({ symbol, category, reason, retryable: categoryMeta[category].retryable })
   }
 
   for (const symbol of symbolsToProcess) {
@@ -265,36 +399,28 @@ Deno.serve(async (req: Request) => {
         .eq('symbol', symbol)
         .gte('date', startDate)
 
-      const expectedDays = yearsBack * 252
       if (count && count > expectedDays * 0.8) {
         fetched++
         skipped++
-        recordSkip('already_has_coverage')
-        console.log(`[BACKFILL_SKIP] symbol=${symbol} already has ${count} bars`)
         continue
       }
 
       const bars = await fetchPolygonBarsWithRetry(symbol, startDate, endDate)
-
       if (bars.length === 0) {
-        recordSkip('empty_provider_response')
-        recordFailure(symbol, 'empty_response', `No bars returned for ${symbol}`)
+        recordFailure(symbol, 'empty_response', `No bars for ${symbol}`)
         continue
       }
 
       rowsFetched += bars.length
-
-      // Save in batches of 500
       const batches = chunkArray(bars, 500)
       let symbolFailed = false
+
       for (const batch of batches) {
-        rowsAttempted += batch.length
-        const upsertResult = await upsertWithRetry(symbol, batch)
-        rowsWritten += upsertResult.written
-        if (!upsertResult.ok) {
+        const result = await upsertWithRetry(symbol, batch)
+        rowsWritten += result.written
+        if (!result.ok) {
           symbolFailed = true
-          recordSkip('daily_prices_upsert_failed')
-          recordFailure(symbol, 'database_upsert_failure', `Upsert failed after retries for ${symbol}`)
+          recordFailure(symbol, 'database_upsert_failure', `Upsert failed for ${symbol}`)
           break
         }
       }
@@ -304,32 +430,14 @@ Deno.serve(async (req: Request) => {
         console.log(`[BACKFILL_OK] symbol=${symbol} bars=${bars.length}`)
       }
 
-      // Rate limiting sleep between symbols
       await sleep(sleepBetweenMs)
     } catch (err) {
       const { category, reason } = classifyError(err)
       recordFailure(symbol, category, reason)
-      // Extra sleep after rate limit errors
-      if (category === 'rate_limited') {
-        await sleep(15000)
-      }
+      if (category === 'rate_limited') await sleep(15000)
     }
   }
 
-  const retryableFailures = failureDetails.filter(f => f.retryable).length
-  const permanentFailures = failureDetails.filter(f => !f.retryable).length
-
-  const topFailureCategories = Object.entries(failureCounts)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([category, count]) => ({
-      category,
-      label: categoryMeta[category as FailureCategory].label,
-      count,
-      retryable: categoryMeta[category as FailureCategory].retryable,
-    }))
-
-  // Update log
   await supabase
     .from('data_sync_log')
     .update({
@@ -337,81 +445,43 @@ Deno.serve(async (req: Request) => {
       symbols_processed: fetched,
       symbols_failed: failed,
       completed_at: new Date().toISOString(),
-      error_message: failureDetails.slice(0, 10).map(f => `${f.symbol}: ${f.category}: ${f.reason}`).join('\n') || null,
-      metadata: {
-        symbols_total: symbolsToProcess.length,
-        symbols_list: symbolsToProcess,
-        years_back: yearsBack,
-        offset,
-        batch_size: batchSize,
-        tier1_only: tier1Only,
-        backfill_scope: backfillScope,
-        failure_counts: failureCounts,
-        skip_reasons: skipReasons,
-        top_failure_categories: topFailureCategories.slice(0, 5),
-        retryable_failures: retryableFailures,
-        permanent_failures: permanentFailures,
-        skipped,
-        rows_fetched: rowsFetched,
-        rows_attempted: rowsAttempted,
-        rows_written: rowsWritten,
-        selection_diagnostics: selectionDiagnostics,
-      },
+      error_message: failureDetails.slice(0, 10).map(f => `${f.symbol}: ${f.category}`).join('\n') || null,
+      metadata: { symbols_total: symbolsToProcess.length, offset, failure_counts: failureCounts, rows_written: rowsWritten },
     })
     .eq('id', logRow?.id)
 
-  const nextOffset = offset + batchSize
-  const totalNeeded = tier1Only ? TIER1_SYMBOLS.length : undefined
   return jsonRes({
     ok: true,
     fetched,
     failed,
     skipped,
-    successRate: symbolsToProcess.length ? Number(((fetched / symbolsToProcess.length) * 100).toFixed(2)) : 0,
-    symbolsAttempted: symbolsToProcess.length,
-    symbolsSelected: symbolsToProcess.length,
-    symbolsSkipped: skipped,
-    symbolsList: symbolsToProcess,
     rowsFetched,
-    rowsAttempted,
     rowsWritten,
-    skipReasons,
-    selectionDiagnostics,
     offset,
-    nextOffset,
+    nextOffset: offset + batchSize,
     hasMore: symbolsToProcess.length === batchSize,
     tier1Only,
-    backfillScope,
-    tier1Total: totalNeeded,
     failureCounts,
-    topFailureCategories,
-    retryableFailures,
-    permanentFailures,
+    topFailureCategories: Object.entries(failureCounts)
+      .filter(([, c]) => c > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, count]) => ({ category: cat, count, retryable: categoryMeta[cat as FailureCategory]?.retryable ?? false })),
     failedSymbols: failureDetails,
   })
-})
+}
 
 // ── Polygon fetch with smart retry ──
 async function fetchPolygonBarsWithRetry(symbol: string, start: string, end: string) {
   let attempt = 0
-  let lastCategory: FailureCategory = 'unknown_provider_error'
-
   while (true) {
     try {
       return await fetchPolygonBars(symbol, start, end)
     } catch (err) {
-      const { category, reason } = classifyError(err)
-      lastCategory = category
+      const { category } = classifyError(err)
       const meta = categoryMeta[category]
-
-      if (!meta.retryable || attempt >= meta.maxRetries) {
-        throw err
-      }
-
+      if (!meta.retryable || attempt >= meta.maxRetries) throw err
       attempt++
-      const backoff = meta.backoffMs * attempt
-      console.warn(`[BACKFILL_RETRY] symbol=${symbol} category=${category} attempt=${attempt}/${meta.maxRetries} backoff=${backoff}ms reason=${safeReason(reason)}`)
-      await sleep(backoff)
+      await sleep(meta.backoffMs * attempt)
     }
   }
 }
@@ -422,69 +492,44 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
     `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`
 
   while (url) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
     let res: Response
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
       res = await fetch(url, { signal: controller.signal })
       clearTimeout(timeoutId)
     } catch (err) {
+      clearTimeout(timeoutId)
       if (err instanceof DOMException && err.name === 'AbortError') {
-        throw makeError('provider_timeout', `Request timed out for ${symbol}`)
+        throw makeError('provider_timeout', `Timeout for ${symbol}`)
       }
-      throw makeError('unknown_provider_error', `Network error for ${symbol}: ${String(err)}`)
+      throw makeError('unknown_provider_error', `Network error for ${symbol}`)
     }
 
     if (!res.ok) {
-      const rawText = await res.text().catch(() => '')
-      if (res.status === 429) {
-        throw makeError('rate_limited', `Polygon rate-limited (429) for ${symbol}`)
-      }
-      if (res.status === 400) {
-        throw makeError('invalid_symbol_format', `Polygon 400 for ${symbol}: ${safeReason(rawText)}`)
-      }
-      if (res.status === 404) {
-        throw makeError('symbol_not_found', `Polygon 404 for ${symbol}`)
-      }
-      if (res.status >= 500) {
-        throw makeError('provider_5xx', `Polygon ${res.status} for ${symbol}: ${safeReason(rawText)}`)
-      }
-      throw makeError('unknown_provider_error', `Polygon ${res.status} for ${symbol}: ${safeReason(rawText)}`)
+      const raw = await res.text().catch(() => '')
+      if (res.status === 429) throw makeError('rate_limited', `429 for ${symbol}`)
+      if (res.status === 404) throw makeError('symbol_not_found', `404 for ${symbol}`)
+      if (res.status === 400) throw makeError('invalid_symbol_format', `400 for ${symbol}`)
+      if (res.status >= 500) throw makeError('provider_5xx', `${res.status} for ${symbol}`)
+      throw makeError('unknown_provider_error', `${res.status} for ${symbol}: ${safeReason(raw)}`)
     }
 
     let data: any
-    try {
-      data = await res.json()
-    } catch (err) {
-      throw makeError('malformed_payload', `JSON parse error for ${symbol}: ${String(err)}`)
+    try { data = await res.json() } catch {
+      throw makeError('malformed_payload', `JSON parse error for ${symbol}`)
     }
 
-    if (data?.status === 'ERROR') {
-      throw makeError('unknown_provider_error', `Polygon error: ${safeReason(data?.error ?? data?.message ?? 'unknown')}`)
-    }
+    if (data?.status === 'NOT_FOUND') throw makeError('symbol_not_found', `NOT_FOUND for ${symbol}`)
+    if (data?.status === 'ERROR') throw makeError('unknown_provider_error', `Error for ${symbol}`)
 
-    if (data?.status === 'NOT_FOUND') {
-      throw makeError('symbol_not_found', `Polygon NOT_FOUND for ${symbol}`)
-    }
-
-    if (data?.status === 'OK' && (!Array.isArray(data.results) || data.results.length === 0)) {
-      // No data — not an error for pagination, just empty
-      break
-    }
+    if (data?.status === 'OK' && (!Array.isArray(data.results) || data.results.length === 0)) break
 
     if (data.results) {
       for (const r of data.results) {
         const date = new Date(r.t).toISOString().slice(0, 10)
-        const open = Number(r.o)
-        const high = Number(r.h)
-        const low = Number(r.l)
-        const close = Number(r.c)
-        const volume = Number(r.v)
-
-        if (!date || Number.isNaN(open) || Number.isNaN(close) || Number.isNaN(volume)) {
-          continue // skip bad bars instead of failing entire symbol
-        }
-
+        const open = Number(r.o), high = Number(r.h), low = Number(r.l), close = Number(r.c), volume = Number(r.v)
+        if (!date || Number.isNaN(open) || Number.isNaN(close) || Number.isNaN(volume)) continue
         bars.push({ date, open, high, low, close, volume: Math.round(volume) })
       }
     }
@@ -493,7 +538,6 @@ async function fetchPolygonBars(symbol: string, start: string, end: string) {
   return bars
 }
 
-// ── Upsert with retry ──
 async function upsertWithRetry(symbol: string, batch: any[]): Promise<{ ok: boolean; written: number }> {
   const meta = categoryMeta.database_upsert_failure
   for (let attempt = 0; attempt <= meta.maxRetries; attempt++) {
@@ -501,32 +545,18 @@ async function upsertWithRetry(symbol: string, batch: any[]): Promise<{ ok: bool
       .from('daily_prices')
       .upsert(
         batch.map((b: any) => ({
-          symbol,
-          date: b.date,
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          close: b.close,
-          volume: b.volume,
-          data_source: 'polygon',
-          has_full_volume: true,
+          symbol, date: b.date, open: b.open, high: b.high, low: b.low, close: b.close,
+          volume: b.volume, data_source: 'polygon', has_full_volume: true,
         })),
         { onConflict: 'symbol,date', ignoreDuplicates: false, count: 'exact' }
       )
-
     if (!error) return { ok: true, written: count ?? 0 }
-
-    if (attempt < meta.maxRetries) {
-      console.warn(`[BACKFILL_UPSERT_RETRY] symbol=${symbol} attempt=${attempt + 1}/${meta.maxRetries} error=${safeReason(error.message)}`)
-      await sleep(meta.backoffMs * (attempt + 1))
-    } else {
-      console.error(`[BACKFILL_UPSERT_FAIL] symbol=${symbol} error=${safeReason(error.message)}`)
-    }
+    if (attempt < meta.maxRetries) await sleep(meta.backoffMs * (attempt + 1))
+    else console.error(`[UPSERT_FAIL] ${symbol}: ${safeReason(error.message)}`)
   }
   return { ok: false, written: 0 }
 }
 
-// ── Error classification ──
 function makeError(category: FailureCategory, reason: string): Error {
   return new Error(JSON.stringify({ category, reason }))
 }
@@ -534,56 +564,37 @@ function makeError(category: FailureCategory, reason: string): Error {
 function classifyError(err: unknown): { category: FailureCategory; reason: string } {
   const fallback = { category: 'unknown_provider_error' as FailureCategory, reason: safeReason(String(err)) }
   if (!err) return fallback
-
   const message = typeof err === 'string' ? err : err instanceof Error ? err.message : JSON.stringify(err)
-
   try {
     const parsed = JSON.parse(message)
     if (parsed?.category && categoryMeta[parsed.category as FailureCategory]) {
       return { category: parsed.category as FailureCategory, reason: safeReason(String(parsed.reason)) }
     }
   } catch {}
-
   const lower = message.toLowerCase()
   if (lower.includes('429') || lower.includes('rate')) return { category: 'rate_limited', reason: safeReason(message) }
   if (lower.includes('timeout') || lower.includes('abort')) return { category: 'provider_timeout', reason: safeReason(message) }
   if (lower.includes('500') || lower.includes('502') || lower.includes('503')) return { category: 'provider_5xx', reason: safeReason(message) }
   if (lower.includes('404') || lower.includes('not found')) return { category: 'symbol_not_found', reason: safeReason(message) }
-  if (lower.includes('400') || lower.includes('invalid')) return { category: 'invalid_symbol_format', reason: safeReason(message) }
-  if (lower.includes('parse') || lower.includes('json')) return { category: 'malformed_payload', reason: safeReason(message) }
-  if (lower.includes('upsert') || lower.includes('insert') || lower.includes('constraint')) return { category: 'database_upsert_failure', reason: safeReason(message) }
   return fallback
 }
 
-function safeReason(raw: string) {
-  return raw.replace(/\s+/g, ' ').replace(/[^\x20-\x7E]/g, '').slice(0, 240)
-}
-
+function safeReason(raw: string) { return raw.replace(/\s+/g, ' ').replace(/[^\x20-\x7E]/g, '').slice(0, 240) }
 function getYesterdayNYT(): string {
   const now = new Date()
   const et = new Date(now.getTime() - 5 * 60 * 60 * 1000)
   et.setDate(et.getDate() - 1)
   return et.toISOString().slice(0, 10)
 }
-
 function subtractYears(date: string, years: number): string {
   const d = new Date(date)
   d.setFullYear(d.getFullYear() - years)
   return d.toISOString().slice(0, 10)
 }
-
 function chunkArray<T>(arr: T[], size: number): T[][] {
-  return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, (i + 1) * size)
-  )
+  return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, (i + 1) * size))
 }
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)) }
 function jsonRes(body: unknown) {
-  return new Response(JSON.stringify(body), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
+  return new Response(JSON.stringify(body), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 }
