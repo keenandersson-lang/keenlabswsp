@@ -46,7 +46,11 @@ export default function Admin() {
   const [polygonTestResult, setPolygonTestResult] = useState<Record<string, any> | null>(null);
 
   // ── Core stats ──
-  const { data: stats } = useQuery({
+  const {
+    data: stats,
+    error: statsError,
+    isLoading: isStatsLoading,
+  } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
       const [priceRes, symbolRes, earliestRes, latestRes, enrichedRes] = await Promise.all([
@@ -57,12 +61,22 @@ export default function Admin() {
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
       ]);
 
+      if (priceRes.error) throw priceRes.error;
+      if (symbolRes.error) throw symbolRes.error;
+      if (earliestRes.error) throw earliestRes.error;
+      if (latestRes.error) throw latestRes.error;
+      if (enrichedRes.error) throw enrichedRes.error;
+
+      if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
+      if (symbolRes.count === null) throw new Error('Kunde inte läsa count för symbols.');
+      if (enrichedRes.count === null) throw new Error('Kunde inte läsa count för enriched symbols.');
+
       return {
-        priceCount: priceRes.count ?? 0,
-        symbolCount: symbolRes.count ?? 0,
+        priceCount: priceRes.count,
+        symbolCount: symbolRes.count,
         earliest: earliestRes.data?.[0]?.date ?? null,
         latest: latestRes.data?.[0]?.date ?? null,
-        enrichedCount: enrichedRes.count ?? 0,
+        enrichedCount: enrichedRes.count,
       };
     },
     refetchInterval: 15000,
@@ -265,7 +279,8 @@ export default function Admin() {
     }
     if (!hasMore) toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader.`);
     setBackfillProgress(prev => ({ ...prev, running: false }));
-    queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['tier1-readiness'] });
     queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
@@ -275,6 +290,7 @@ export default function Admin() {
     currentDate: '', completedDays: 0, totalDays: 0, totalRows: 0, running: false, lastError: '',
     logId: '' as string,
   });
+  const [dateBackfillPollError, setDateBackfillPollError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll data_sync_log for real-time progress during date backfill
@@ -282,12 +298,18 @@ export default function Admin() {
     if (dateBackfillProgress.running && dateBackfillProgress.logId) {
       pollingRef.current = setInterval(async () => {
         // Get the latest running backfill_by_date log entry
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('data_sync_log')
           .select('*')
           .eq('sync_type', 'backfill_by_date')
           .order('started_at', { ascending: false })
           .limit(1);
+
+        if (error) {
+          setDateBackfillPollError(`Kunde inte läsa backfill-status: ${error.message}`);
+          return;
+        }
+        setDateBackfillPollError(null);
 
         if (data && data[0]) {
           const log = data[0];
@@ -351,7 +373,8 @@ export default function Admin() {
       setDateBackfillProgress(prev => ({ ...prev, running: false, lastError: 'Inget svar från servern' }));
     }
 
-    queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['tier1-readiness'] });
     queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
@@ -531,13 +554,21 @@ export default function Admin() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <StatBox label="Symboler" value={stats?.symbolCount?.toLocaleString() ?? '—'} />
-            <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
-            <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
-            <StatBox label="Latest" value={stats?.latest ?? '—'} />
-            <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
-          </div>
+          {statsError ? (
+            <p className="text-xs text-signal-danger font-mono">
+              Kunde inte läsa databasstatus: {(statsError as Error).message}
+            </p>
+          ) : isStatsLoading ? (
+            <p className="text-xs text-muted-foreground font-mono">Laddar databasstatus...</p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <StatBox label="Symboler" value={stats?.symbolCount?.toLocaleString() ?? '—'} />
+              <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
+              <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
+              <StatBox label="Latest" value={stats?.latest ?? '—'} />
+              <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -672,6 +703,11 @@ export default function Admin() {
               )}
             </div>
           )}
+          {dateBackfillPollError && (
+            <div className="text-xs font-mono text-signal-danger mt-2">
+              ⚠ {dateBackfillPollError}
+            </div>
+          )}
 
           {/* Stopped state */}
           {!running && backfillProgress.stopped && (
@@ -727,7 +763,7 @@ export default function Admin() {
                         </div>
                       </td>
                       <td className="py-2 pr-4 text-foreground">
-                        {log.symbols_processed ?? 0}
+                        {log.symbols_processed ?? '—'}
                         {log.symbols_failed ? <span className="text-signal-danger ml-1">({log.symbols_failed} ✗)</span> : null}
                       </td>
                       <td className="py-2 text-muted-foreground">
