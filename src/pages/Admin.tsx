@@ -61,10 +61,15 @@ export default function Admin() {
         supabase.from('daily_prices').select('date').order('date', { ascending: false }).limit(1),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
       ]);
+      if (logRes.error) {
+        console.error('Admin sync log fetch failed:', logRes.error);
+      }
+
       return {
         priceCount: priceRes.count ?? 0,
         symbolCount: symbolRes.count ?? 0,
         syncLog: logRes.data ?? [],
+        syncLogError: logRes.error?.message ?? null,
         earliest: earliestRes.data?.[0]?.date ?? null,
         latest: latestRes.data?.[0]?.date ?? null,
         enrichedCount: enrichedRes.count ?? 0,
@@ -670,7 +675,11 @@ export default function Admin() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {stats?.syncLog?.length === 0 ? (
+          {stats?.syncLogError ? (
+            <p className="text-xs text-signal-danger font-mono">
+              Kunde inte läsa sync-logg: {stats.syncLogError}
+            </p>
+          ) : stats?.syncLog?.length === 0 ? (
             <p className="text-xs text-muted-foreground font-mono">Inga synkningar ännu.</p>
           ) : (
             <div className="overflow-x-auto">
