@@ -77,61 +77,63 @@ export default function Admin() {
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
     queryFn: async () => {
-      const { data: symbols } = await supabase
-        .from('symbols')
-        .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
-        .in('symbol', TIER1_SYMBOLS);
+      const [{ data: symbols }, { data: priceCoverage, error: coverageError }] = await Promise.all([
+        supabase
+          .from('symbols')
+          .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
+          .in('symbol', TIER1_SYMBOLS),
+        supabase.rpc('admin_tier1_price_coverage', { p_symbols: TIER1_SYMBOLS }),
+      ]);
 
-      const { data: barData } = await supabase
-        .from('daily_prices')
-        .select('symbol, date')
-        .in('symbol', TIER1_SYMBOLS);
+      if (coverageError) throw coverageError;
 
+      const symbolByTicker = new Map((symbols ?? []).map((s) => [s.symbol, s]));
       const barCounts: Record<string, number> = {};
-      (barData ?? []).forEach((r) => {
-        barCounts[r.symbol] = (barCounts[r.symbol] ?? 0) + 1;
+      (priceCoverage ?? []).forEach((row: { symbol: string; bars: number | null }) => {
+        barCounts[row.symbol] = Number(row.bars ?? 0);
       });
 
       let fullWsp = 0, limited = 0, proxy = 0, metals = 0;
       let enriched = 0;
       const missingIndustry: string[] = [];
       const missingSector: string[] = [];
+      const withPrices = new Set<string>();
+      const analysisReadySymbols = new Set<string>();
+      const backfilledButNotReadySymbols = new Set<string>();
+      const noPrices: string[] = [];
 
-      (symbols ?? []).forEach((s) => {
-        if (s.enriched_at) enriched++;
-        if (BENCHMARKS.has(s.symbol)) { proxy++; return; }
-        if (METALS_ETFS.has(s.symbol) || s.symbol === 'NEM' || s.symbol === 'FCX') { metals++; return; }
-        if (s.instrument_type === 'CS' && s.sector && s.sector !== 'Unknown' && s.industry) {
+      TIER1_SYMBOLS.forEach((symbol) => {
+        const bars = barCounts[symbol] ?? 0;
+        if (bars > 0) withPrices.add(symbol);
+        if (bars >= 200) analysisReadySymbols.add(symbol);
+        else if (bars > 0) backfilledButNotReadySymbols.add(symbol);
+        else noPrices.push(symbol);
+
+        const s = symbolByTicker.get(symbol);
+        if (s?.enriched_at) enriched++;
+
+        if (BENCHMARKS.has(symbol)) { proxy++; return; }
+        if (METALS_ETFS.has(symbol) || symbol === 'NEM' || symbol === 'FCX') { metals++; return; }
+        if (s?.instrument_type === 'CS' && s.sector && s.sector !== 'Unknown' && s.industry) {
           fullWsp++;
         } else {
           limited++;
-          if (!s.industry) missingIndustry.push(s.symbol);
-          if (!s.sector || s.sector === 'Unknown') missingSector.push(s.symbol);
+          if (!s?.industry) missingIndustry.push(symbol);
+          if (!s?.sector || s.sector === 'Unknown') missingSector.push(symbol);
         }
       });
 
-      let analysisReady = 0;
-      let backfilledButNotReady = 0;
-      const withPrices = new Set<string>();
-
-      TIER1_SYMBOLS.forEach((sym) => {
-        const bars = barCounts[sym] ?? 0;
-        if (bars > 0) withPrices.add(sym);
-        if (bars >= 200) analysisReady++;
-        else if (bars > 0) backfilledButNotReady++;
-      });
-
       return {
-        total: symbols?.length ?? 0,
+        total: TIER1_SYMBOLS.length,
         enriched,
         fullWsp,
         limited,
         proxy,
         metals,
         withPrices: withPrices.size,
-        analysisReady,
-        backfilledButNotReady,
-        noPrices: TIER1_SYMBOLS.filter(s => !withPrices.has(s)),
+        analysisReady: analysisReadySymbols.size,
+        backfilledButNotReady: backfilledButNotReadySymbols.size,
+        noPrices,
         missingIndustry,
         missingSector,
         barCounts,
@@ -474,11 +476,12 @@ export default function Admin() {
 
           <div>
             <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Datareadiness</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
               <StatBox label="Med prisdata" value={String(t1?.withPrices ?? '—')} highlight={t1 ? t1.withPrices >= t1.total : false} />
               <StatBox label="Analysredo (≥200 bars)" value={String(t1?.analysisReady ?? '—')} highlight={t1 ? t1.analysisReady >= t1.fullWsp : false} />
               <StatBox label="Backfill men <200" value={String(t1?.backfilledButNotReady ?? '—')} />
               <StatBox label="Saknar prisdata" value={String(t1?.noPrices?.length ?? '—')} highlight={t1 ? (t1.noPrices?.length ?? 0) === 0 : false} />
+              <StatBox label="Saknar metadata (full WSP)" value={String(t1?.limited ?? '—')} />
             </div>
           </div>
 
