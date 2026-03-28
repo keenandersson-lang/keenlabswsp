@@ -10,7 +10,7 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
-const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
+const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY') ?? ''
 
 // ── Tier 1 curated universe ──
 const TIER1_SYMBOLS = [
@@ -69,6 +69,11 @@ Deno.serve(async (req: Request) => {
 
   const body = await req.json().catch(() => ({})) as Record<string, any>
 
+  // ── Mode: test_polygon — single diagnostic call ──
+  if (body.mode === 'test_polygon') {
+    return handleTestPolygon()
+  }
+
   // ── Mode: date_backfill (Polygon grouped endpoint per date) ──
   if (body.mode === 'date_backfill') {
     return handleDateBackfill(body)
@@ -79,14 +84,106 @@ Deno.serve(async (req: Request) => {
 })
 
 // ═══════════════════════════════════════════════════
+// TEST POLYGON — diagnostic single-date call
+// ═══════════════════════════════════════════════════
+async function handleTestPolygon() {
+  const diagnostics: Record<string, unknown> = {
+    polygon_key_set: !!POLYGON_KEY,
+    polygon_key_length: POLYGON_KEY.length,
+    polygon_key_prefix: POLYGON_KEY ? POLYGON_KEY.slice(0, 4) + '...' : '(empty)',
+    supabase_url_set: !!Deno.env.get('SUPABASE_URL'),
+    timestamp: new Date().toISOString(),
+  }
+
+  if (!POLYGON_KEY) {
+    return jsonRes({ ok: false, error: 'POLYGON_API_KEY is not set or empty', diagnostics })
+  }
+
+  // Use a known recent trading day (Friday March 21, 2025)
+  const testDate = getLastTradingDay()
+  const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${testDate}?adjusted=true&apiKey=${POLYGON_KEY}`
+
+  try {
+    const res = await fetch(url)
+    const httpStatus = res.status
+    const rawBody = await res.text()
+
+    diagnostics.test_date = testDate
+    diagnostics.http_status = httpStatus
+    diagnostics.response_length = rawBody.length
+
+    if (!res.ok) {
+      diagnostics.error_body = rawBody.slice(0, 500)
+      // Log to data_sync_log
+      await supabase.from('data_sync_log').insert({
+        sync_type: 'polygon_test',
+        status: 'failed',
+        data_source: 'polygon',
+        error_message: `HTTP ${httpStatus}: ${rawBody.slice(0, 300)}`,
+        metadata: diagnostics,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      })
+      return jsonRes({ ok: false, error: `Polygon returned HTTP ${httpStatus}`, diagnostics })
+    }
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      diagnostics.parse_error = true
+      return jsonRes({ ok: false, error: 'Failed to parse Polygon response as JSON', diagnostics })
+    }
+
+    const resultCount = Array.isArray(parsed.results) ? parsed.results.length : 0
+    const sampleTickers = (parsed.results ?? []).slice(0, 5).map((r: any) => r.T)
+    const tier1Matches = (parsed.results ?? []).filter((r: any) => TIER1_SYMBOLS.includes(r.T)).length
+
+    diagnostics.polygon_status = parsed.status
+    diagnostics.query_count = parsed.queryCount
+    diagnostics.result_count = resultCount
+    diagnostics.tier1_matches = tier1Matches
+    diagnostics.sample_tickers = sampleTickers
+
+    // Log success to data_sync_log
+    await supabase.from('data_sync_log').insert({
+      sync_type: 'polygon_test',
+      status: 'success',
+      data_source: 'polygon',
+      symbols_processed: resultCount,
+      metadata: diagnostics,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    })
+
+    return jsonRes({
+      ok: true,
+      testDate,
+      httpStatus,
+      resultCount,
+      tier1Matches,
+      sampleTickers,
+      polygonStatus: parsed.status,
+      diagnostics,
+    })
+  } catch (err) {
+    diagnostics.fetch_error = String(err)
+    return jsonRes({ ok: false, error: `Fetch failed: ${String(err)}`, diagnostics })
+  }
+}
+
+// ═══════════════════════════════════════════════════
 // DATE-BASED BACKFILL (Polygon grouped daily endpoint)
-// One API call per trading day, gets ALL symbols at once
 // ═══════════════════════════════════════════════════
 async function handleDateBackfill(body: Record<string, any>) {
   const { action = 'run', daysPerBatch = 5, resumeFrom = null } = body
 
+  // Pre-flight check
+  if (!POLYGON_KEY) {
+    return jsonRes({ ok: false, error: 'POLYGON_API_KEY is not set in edge function environment' })
+  }
+
   if (action === 'status') {
-    // Find the earliest date we have data for
     const { data: earliest } = await supabase
       .from('daily_prices')
       .select('date')
@@ -99,7 +196,6 @@ async function handleDateBackfill(body: Record<string, any>) {
       .order('date', { ascending: false })
       .limit(1)
 
-    // Check the sync log for last date-backfill
     const { data: lastLog } = await supabase
       .from('data_sync_log')
       .select('metadata')
@@ -117,14 +213,10 @@ async function handleDateBackfill(body: Record<string, any>) {
     })
   }
 
-  // Generate trading days to backfill (going backwards from yesterday)
   const endDate = getYesterdayNYT()
   const twoYearsAgo = subtractYears(endDate, 2)
-
-  // Generate all trading days in range
   const tradingDays = generateTradingDays(twoYearsAgo, endDate)
 
-  // If resuming, skip already-done days
   let startIdx = 0
   if (resumeFrom) {
     const idx = tradingDays.indexOf(resumeFrom)
@@ -143,7 +235,7 @@ async function handleDateBackfill(body: Record<string, any>) {
       sync_type: 'backfill_by_date',
       status: 'running',
       data_source: 'polygon',
-      metadata: { batch_dates: batch, resume_from: resumeFrom, total_days: tradingDays.length },
+      metadata: { batch_dates: batch, resume_from: resumeFrom, total_days: tradingDays.length, start_idx: startIdx },
       started_at: new Date().toISOString(),
     })
     .select('id')
@@ -153,66 +245,124 @@ async function handleDateBackfill(body: Record<string, any>) {
   let totalRows = 0
   let lastDate = ''
   let lastError = ''
+  const perDateLog: { date: string; status: string; rows: number; httpStatus?: number; error?: string }[] = []
 
   for (const date of batch) {
     try {
       const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${POLYGON_KEY}`
-      const res = await fetch(url)
+      console.log(`[DATE_BACKFILL] Fetching ${date}...`)
 
-      if (res.status === 429) {
-        // Rate limited — wait and retry once
+      const res = await fetch(url)
+      const httpStatus = res.status
+      const rawBody = await res.text()
+
+      console.log(`[DATE_BACKFILL] ${date} → HTTP ${httpStatus}, body length=${rawBody.length}`)
+
+      if (httpStatus === 429) {
+        console.warn(`[DATE_BACKFILL] Rate limited on ${date}, waiting 15s and retrying...`)
+        perDateLog.push({ date, status: 'rate_limited', rows: 0, httpStatus })
         await sleep(15000)
         const retry = await fetch(url)
-        if (!retry.ok) {
-          lastError = `Rate limited on ${date}, retry also failed: ${retry.status}`
+        const retryStatus = retry.status
+        const retryBody = await retry.text()
+        console.log(`[DATE_BACKFILL] Retry ${date} → HTTP ${retryStatus}, body length=${retryBody.length}`)
+
+        if (retryStatus !== 200) {
+          lastError = `Rate limited on ${date}, retry failed: HTTP ${retryStatus}`
+          perDateLog.push({ date, status: 'retry_failed', rows: 0, httpStatus: retryStatus, error: retryBody.slice(0, 200) })
           console.error(lastError)
           break
         }
-        const retryData = await retry.json()
+        let retryData: any
+        try { retryData = JSON.parse(retryBody) } catch { lastError = `JSON parse failed on retry for ${date}`; break }
         const rows = await upsertGroupedData(date, retryData)
         totalRows += rows
         completedDays++
         lastDate = date
-      } else if (!res.ok) {
-        lastError = `Polygon grouped ${res.status} for ${date}`
-        console.error(lastError)
-        // Non-retryable for this date, skip it
+        perDateLog.push({ date, status: 'ok_after_retry', rows, httpStatus: retryStatus })
+      } else if (httpStatus !== 200) {
+        lastError = `Polygon grouped HTTP ${httpStatus} for ${date}: ${rawBody.slice(0, 200)}`
+        console.error(`[DATE_BACKFILL] ${lastError}`)
+        perDateLog.push({ date, status: 'error', rows: 0, httpStatus, error: rawBody.slice(0, 200) })
         completedDays++
         lastDate = date
       } else {
-        const data = await res.json()
-        const rows = await upsertGroupedData(date, data)
-        totalRows += rows
-        completedDays++
-        lastDate = date
+        let data: any
+        try { data = JSON.parse(rawBody) } catch {
+          lastError = `JSON parse failed for ${date}`
+          perDateLog.push({ date, status: 'parse_error', rows: 0, httpStatus })
+          console.error(`[DATE_BACKFILL] ${lastError}`)
+          completedDays++
+          lastDate = date
+          continue
+        }
+
+        const resultCount = Array.isArray(data.results) ? data.results.length : 0
+        console.log(`[DATE_BACKFILL] ${date}: polygon status=${data.status}, resultsCount=${resultCount}`)
+
+        if (resultCount === 0) {
+          perDateLog.push({ date, status: 'empty', rows: 0, httpStatus, error: `status=${data.status}, queryCount=${data.queryCount}` })
+          completedDays++
+          lastDate = date
+        } else {
+          const rows = await upsertGroupedData(date, data)
+          totalRows += rows
+          completedDays++
+          lastDate = date
+          perDateLog.push({ date, status: 'ok', rows, httpStatus })
+        }
+      }
+
+      // Update progress in data_sync_log after each date
+      if (logRow?.id) {
+        await supabase
+          .from('data_sync_log')
+          .update({
+            symbols_processed: totalRows,
+            metadata: {
+              batch_dates: batch,
+              completed_days: completedDays,
+              total_rows: totalRows,
+              last_date: lastDate,
+              total_trading_days: tradingDays.length,
+              start_idx: startIdx,
+              per_date_log: perDateLog,
+            },
+          })
+          .eq('id', logRow.id)
       }
 
       // Respect Polygon free tier rate limit (5 req/min)
       await sleep(13000)
     } catch (err) {
       lastError = `Error on ${date}: ${String(err)}`
-      console.error(lastError)
+      console.error(`[DATE_BACKFILL] ${lastError}`)
+      perDateLog.push({ date, status: 'exception', rows: 0, error: String(err).slice(0, 200) })
       break
     }
   }
 
-  await supabase
-    .from('data_sync_log')
-    .update({
-      status: lastError ? 'partial' : 'success',
-      symbols_processed: totalRows,
-      completed_at: new Date().toISOString(),
-      error_message: lastError || null,
-      metadata: {
-        batch_dates: batch,
-        completed_days: completedDays,
-        total_rows: totalRows,
-        last_date: lastDate,
-        total_trading_days: tradingDays.length,
-        start_idx: startIdx,
-      },
-    })
-    .eq('id', logRow?.id)
+  // Final update
+  if (logRow?.id) {
+    await supabase
+      .from('data_sync_log')
+      .update({
+        status: lastError ? 'partial' : 'success',
+        symbols_processed: totalRows,
+        completed_at: new Date().toISOString(),
+        error_message: lastError || null,
+        metadata: {
+          batch_dates: batch,
+          completed_days: completedDays,
+          total_rows: totalRows,
+          last_date: lastDate,
+          total_trading_days: tradingDays.length,
+          start_idx: startIdx,
+          per_date_log: perDateLog,
+        },
+      })
+      .eq('id', logRow.id)
+  }
 
   return jsonRes({
     ok: true,
@@ -222,6 +372,7 @@ async function handleDateBackfill(body: Record<string, any>) {
     lastDate,
     hasMore: (startIdx + completedDays) < tradingDays.length,
     error: lastError || undefined,
+    perDateLog,
   })
 }
 
@@ -254,13 +405,13 @@ async function upsertGroupedData(date: string, data: any): Promise<number> {
       .from('daily_prices')
       .upsert(batch, { onConflict: 'symbol,date', ignoreDuplicates: false, count: 'exact' })
     if (error) {
-      console.error(`Grouped upsert error for ${date}:`, error.message)
+      console.error(`[DATE_BACKFILL] Upsert error for ${date}: ${error.message}`)
     } else {
       written += count ?? 0
     }
   }
 
-  console.log(`[DATE_BACKFILL] ${date}: ${inserts.length} symbols, ${written} rows written`)
+  console.log(`[DATE_BACKFILL] ${date}: ${inserts.length} symbols filtered, ${written} rows written`)
   return written
 }
 
@@ -281,9 +432,13 @@ function generateTradingDays(start: string, end: string): string[] {
 }
 
 // ═══════════════════════════════════════════════════
-// PER-SYMBOL BACKFILL (original logic, fixed for schema)
+// PER-SYMBOL BACKFILL (original logic)
 // ═══════════════════════════════════════════════════
 async function handleSymbolBackfill(body: Record<string, any>) {
+  if (!POLYGON_KEY) {
+    return jsonRes({ ok: false, error: 'POLYGON_API_KEY is not set in edge function environment' })
+  }
+
   const {
     yearsBack = 5,
     symbols: specificSymbols,
@@ -297,13 +452,11 @@ async function handleSymbolBackfill(body: Record<string, any>) {
   const startDate = subtractYears(endDate, yearsBack)
   const expectedDays = yearsBack * 252
 
-  // ── Determine symbols to process ──
   let symbolsToProcess: string[]
 
   if (specificSymbols?.length) {
     symbolsToProcess = specificSymbols
   } else if (tier1Only) {
-    // Get existing bar counts for Tier 1
     const { data: existingCoverage } = await supabase
       .from('daily_prices')
       .select('symbol')
@@ -325,7 +478,6 @@ async function handleSymbolBackfill(body: Record<string, any>) {
         return prioA - prioB || a.localeCompare(b)
       })
   } else {
-    // Non-tier1: get all active symbols with valid tickers
     const allSymbols: string[] = []
     let from = 0
     while (true) {
@@ -347,7 +499,6 @@ async function handleSymbolBackfill(body: Record<string, any>) {
       from += 1000
     }
 
-    // Check existing coverage
     const { data: existingCoverage } = await supabase
       .from('daily_prices')
       .select('symbol')
@@ -392,7 +543,6 @@ async function handleSymbolBackfill(body: Record<string, any>) {
 
   for (const symbol of symbolsToProcess) {
     try {
-      // Check existing coverage
       const { count } = await supabase
         .from('daily_prices')
         .select('*', { count: 'exact', head: true })
@@ -580,12 +730,28 @@ function classifyError(err: unknown): { category: FailureCategory; reason: strin
 }
 
 function safeReason(raw: string) { return raw.replace(/\s+/g, ' ').replace(/[^\x20-\x7E]/g, '').slice(0, 240) }
+
 function getYesterdayNYT(): string {
   const now = new Date()
   const et = new Date(now.getTime() - 5 * 60 * 60 * 1000)
   et.setDate(et.getDate() - 1)
   return et.toISOString().slice(0, 10)
 }
+
+function getLastTradingDay(): string {
+  const now = new Date()
+  const et = new Date(now.getTime() - 5 * 60 * 60 * 1000)
+  // Go back from today until we find a weekday
+  for (let i = 1; i <= 5; i++) {
+    const d = new Date(et)
+    d.setDate(d.getDate() - i)
+    const dow = d.getDay()
+    if (dow !== 0 && dow !== 6) return d.toISOString().slice(0, 10)
+  }
+  et.setDate(et.getDate() - 1)
+  return et.toISOString().slice(0, 10)
+}
+
 function subtractYears(date: string, years: number): string {
   const d = new Date(date)
   d.setFullYear(d.getFullYear() - years)
