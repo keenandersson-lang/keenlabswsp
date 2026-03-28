@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { WSP_CONFIG } from '../src/lib/wsp-config';
-import { TRACKED_SYMBOL_LOOKUP } from '../src/lib/tracked-symbols';
 import { normalizeBarsChronologically } from '../src/lib/wsp-indicators';
 import { aggregateBarsWeekly } from '../src/lib/charting';
 import type { StockDetailApiResponse } from '../src/lib/chart-types';
@@ -11,18 +10,24 @@ import { createMarketDataProvider } from './market-data-provider';
 
 const MAX_HISTORY_BARS = 756;
 
+function inferMetadataCompleteness(meta: {
+  sector?: string;
+  industry?: string;
+  exchange?: string;
+} | null): 'complete' | 'partial' | 'missing' {
+  if (!meta) return 'missing';
+  const fields = [meta.sector, meta.industry, meta.exchange].filter(Boolean);
+  if (fields.length === 3) return 'complete';
+  if (fields.length > 0) return 'partial';
+  return 'missing';
+}
+
 export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: ServerResponse) {
   const requestUrl = new URL(req.url ?? '/', 'http://localhost');
   const symbol = requestUrl.searchParams.get('symbol')?.toUpperCase().trim();
 
   if (!symbol) {
     return sendJson(res, 400, { ok: false, data: null, error: { code: 'MISSING_SYMBOL', message: 'Query param "symbol" is required.' } } satisfies StockDetailApiResponse);
-  }
-
-  const meta = TRACKED_SYMBOL_LOOKUP[symbol];
-  const benchmarkMeta = BENCHMARK_LOOKUP[symbol];
-  if (!meta && !benchmarkMeta) {
-    return sendJson(res, 404, { ok: false, data: null, error: { code: 'UNKNOWN_SYMBOL', message: `${symbol} is not configured in market universe.` } } satisfies StockDetailApiResponse);
   }
 
   const providerSelection = createMarketDataProvider();
@@ -40,17 +45,33 @@ export async function handleWspSymbolDetailRequest(req: IncomingMessage, res: Se
     const barsDaily = normalizeBarsChronologically(stockDailyResult.bars).bars.slice(-MAX_HISTORY_BARS);
     const benchmarkDaily = normalizeBarsChronologically(benchmarkDailyResult.bars).bars.slice(-MAX_HISTORY_BARS);
 
+    if (barsDaily.length === 0) {
+      return sendJson(res, 200, {
+        ok: false,
+        data: null,
+        error: { code: 'NO_PRICE_HISTORY', message: `No price data available for ${symbol}.` },
+      } satisfies StockDetailApiResponse);
+    }
+
+    const benchmarkMeta = BENCHMARK_LOOKUP[symbol];
+    const inferredMeta = benchmarkMeta
+      ? { name: benchmarkMeta.name, sector: 'Benchmarks', industry: 'Market Index ETF', exchange: undefined }
+      : { name: symbol, sector: 'Unknown', industry: 'Unknown', exchange: undefined };
+
     const payload: StockDetailApiResponse = {
       ok: true,
       data: {
         symbol,
-        name: meta?.name ?? benchmarkMeta.name,
-        sector: meta?.sector ?? 'Benchmarks',
-        industry: meta?.industry ?? 'Market Index ETF',
-        exchange: meta?.exchange,
-        assetClass: meta?.assetClass,
-        supportsFullWsp: meta?.supportsFullWsp,
-        wspSupport: meta?.wspSupport,
+        name: inferredMeta.name,
+        sector: inferredMeta.sector,
+        industry: inferredMeta.industry,
+        exchange: inferredMeta.exchange,
+        assetClass: benchmarkMeta ? 'commodity' : 'equity',
+        supportsFullWsp: false,
+        wspSupport: 'limited',
+        supportLevel: null,
+        isApprovedLiveCohort: false,
+        metadataCompleteness: inferMetadataCompleteness(inferredMeta),
         barsDaily,
         barsWeekly: aggregateBarsWeekly(barsDaily),
         benchmarkDaily,

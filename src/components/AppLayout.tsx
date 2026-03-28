@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, BarChart3, Scan, Layers, Star, Settings, Search, Menu, X } from 'lucide-react';
+import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X } from 'lucide-react';
+import { useSymbolSearch } from '@/hooks/use-symbol-search';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: Layers },
@@ -14,25 +15,40 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchValue, setSearchValue] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const searchQuery = useSymbolSearch(searchValue);
+  const searchResults = searchQuery.data ?? [];
+  const exactSymbolMatch = useMemo(() => {
+    const normalized = searchValue.trim().toUpperCase();
+    if (!normalized) return null;
+    return searchResults.find((item) => item.symbol === normalized) ?? null;
+  }, [searchValue, searchResults]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const q = searchValue.trim().toUpperCase();
-    if (q) {
-      navigate(`/stock/${q}`);
-      setSearchValue('');
-    }
+    const normalized = searchValue.trim().toUpperCase();
+    if (!normalized) return;
+
+    const targetSymbol = exactSymbolMatch?.symbol ?? searchResults[0]?.symbol ?? normalized;
+    navigate(`/stock/${targetSymbol}`);
+    setSearchValue('');
+    setSearchFocused(false);
+  };
+
+  const handleSymbolPick = (symbol: string) => {
+    navigate(`/stock/${symbol}`);
+    setSearchValue('');
+    setSearchFocused(false);
   };
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Desktop sidebar */}
       <aside
         className={`hidden md:flex flex-col border-r border-border bg-sidebar shrink-0 transition-all duration-200 ${
           sidebarOpen ? 'w-48' : 'w-14'
         }`}
       >
-        {/* Logo */}
         <div className="flex items-center gap-2 border-b border-border px-3 py-3">
           <div className="flex h-7 w-7 items-center justify-center rounded bg-primary/10 border border-primary/20 shrink-0">
             <Activity className="h-3.5 w-3.5 text-primary" />
@@ -51,7 +67,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Nav items */}
         <nav className="flex-1 py-2 space-y-0.5 px-2">
           {navItems.map((item) => {
             const active = location.pathname === item.path;
@@ -73,18 +88,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Global header */}
         <header className="border-b border-border bg-card/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3 px-4 py-2">
-            {/* Mobile menu (logo only on mobile) */}
             <div className="flex md:hidden items-center gap-2">
               <Activity className="h-4 w-4 text-primary" />
               <span className="text-xs font-bold tracking-widest text-foreground font-mono">WSP</span>
             </div>
 
-            {/* Search */}
             <form onSubmit={handleSearch} className="flex-1 max-w-sm mx-auto">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -92,24 +103,65 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   type="text"
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
-                  placeholder="Sök symbol... (Enter)"
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => setTimeout(() => setSearchFocused(false), 120)}
+                  placeholder="Sök symbol, bolag, sektor..."
                   className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
                 />
+
+                {searchFocused && searchValue.trim().length > 0 && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-md border border-border bg-card p-1 shadow-lg">
+                    {searchQuery.isLoading && (
+                      <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">Söker i symbolregistret...</div>
+                    )}
+
+                    {!searchQuery.isLoading && searchResults.length === 0 && (
+                      <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">
+                        Ingen träff i sökbar universumsökning. Tryck Enter för att försöka öppna symbolen direkt.
+                      </div>
+                    )}
+
+                    {!searchQuery.isLoading && searchResults.length > 0 && (
+                      <div className="max-h-72 overflow-y-auto">
+                        {searchResults.map((item) => (
+                          <button
+                            key={item.symbol}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => handleSymbolPick(item.symbol)}
+                            className="flex w-full items-start justify-between gap-3 rounded px-2 py-1.5 text-left hover:bg-muted"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-mono font-semibold text-foreground">{item.symbol}</div>
+                              <div className="truncate text-[10px] text-muted-foreground">{item.name}</div>
+                              <div className="truncate text-[9px] text-muted-foreground/90">
+                                {item.sector ?? 'Okänd sektor'} · {item.industry ?? 'Okänd industri'}
+                              </div>
+                            </div>
+                            <div className="mt-0.5 flex flex-col items-end gap-1">
+                              <span className="text-[9px] font-mono text-muted-foreground">{item.exchange ?? 'N/A'} · {item.instrumentType ?? 'N/A'}</span>
+                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-mono ${item.isApprovedLiveCohort ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-border text-muted-foreground'}`}>
+                                {item.isApprovedLiveCohort ? 'Live approved cohort' : 'Searchable universe'}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </form>
 
-            {/* Spacer for right side */}
             <div className="hidden md:block" />
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur-md z-20">
         <div className="flex items-center justify-around py-1.5">
           {navItems.map((item) => {

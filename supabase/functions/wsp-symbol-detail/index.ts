@@ -1,10 +1,12 @@
-// WSP Symbol Detail Edge Function — reads from daily_prices cache (Tier 1 source of truth)
+// WSP Symbol Detail Edge Function — reads from daily_prices cache
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const APPROVED_LIVE_COHORT_STATUSES = ['tier1_default', 'approved_for_live_scanner'];
 
 interface Bar {
   date: string;
@@ -49,10 +51,10 @@ function combineWeek(bars: Bar[]): Bar {
 }
 
 async function fetchBarsFromCache(supabase: any, symbol: string, limit = 756): Promise<Bar[]> {
-  // daily_prices may have >1000 rows, use pagination
   const allBars: Bar[] = [];
   let from = 0;
   const pageSize = 1000;
+
   while (true) {
     const { data, error } = await supabase
       .from('daily_prices')
@@ -60,8 +62,13 @@ async function fetchBarsFromCache(supabase: any, symbol: string, limit = 756): P
       .eq('symbol', symbol)
       .order('date', { ascending: true })
       .range(from, from + pageSize - 1);
-    if (error) { console.error(`Cache read error for ${symbol}:`, error.message); break; }
+
+    if (error) {
+      console.error(`Cache read error for ${symbol}:`, error.message);
+      break;
+    }
     if (!data || data.length === 0) break;
+
     allBars.push(...data.map((r: any) => ({
       date: r.date,
       open: Number(r.open),
@@ -70,26 +77,54 @@ async function fetchBarsFromCache(supabase: any, symbol: string, limit = 756): P
       close: Number(r.close),
       volume: Number(r.volume),
     })));
+
     if (data.length < pageSize) break;
     from += pageSize;
   }
-  // Return last `limit` bars
+
   return allBars.slice(-limit);
 }
 
-async function fetchSymbolMeta(supabase: any, symbol: string) {
+async function fetchSearchableSymbolMeta(supabase: any, symbol: string) {
   const { data } = await supabase
     .from('symbols')
-    .select('name, company_name, sector, industry, exchange, asset_class, instrument_type, is_etf, support_level')
+    .select('name, company_name, sector, industry, exchange, asset_class, instrument_type, is_active, is_etf, is_adr, support_level')
     .eq('symbol', symbol)
     .maybeSingle();
   return data;
 }
 
+function isSearchableSymbol(meta: any): boolean {
+  if (!meta) return false;
+  if (meta.is_active === false) return false;
+  if (meta.instrument_type && meta.instrument_type !== 'CS') return false;
+  if (meta.is_etf === true) return false;
+  if (meta.is_adr === true) return false;
+  return true;
+}
+
+function inferMetadataCompleteness(meta: any): 'complete' | 'partial' | 'missing' {
+  if (!meta) return 'missing';
+  const fields = [meta.sector, meta.industry, meta.exchange].filter(Boolean);
+  if (fields.length === 3) return 'complete';
+  if (fields.length > 0) return 'partial';
+  return 'missing';
+}
+
+async function isApprovedLiveCohort(supabase: any, symbol: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('market_scan_results_latest')
+    .select('symbol, promotion_status')
+    .eq('symbol', symbol)
+    .in('promotion_status', APPROVED_LIVE_COHORT_STATUSES)
+    .limit(1)
+    .maybeSingle();
+
+  return Boolean(data?.symbol);
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const url = new URL(req.url);
@@ -103,21 +138,19 @@ Deno.serve(async (req: Request) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Fetch bars for the symbol and benchmark (SPY) in parallel
     const benchmarkSymbol = 'SPY';
-    const [stockBars, benchmarkBars, symbolMeta] = await Promise.all([
+    const [stockBars, benchmarkBars, symbolMeta, approvedLive] = await Promise.all([
       fetchBarsFromCache(supabase, symbol),
       fetchBarsFromCache(supabase, benchmarkSymbol),
-      fetchSymbolMeta(supabase, symbol),
+      fetchSearchableSymbolMeta(supabase, symbol),
+      isApprovedLiveCohort(supabase, symbol),
     ]);
 
-    const allowedSupportLevels = new Set(['full_wsp_equity', 'limited_equity', 'sector_benchmark_proxy', 'metals_limited'])
-
-    if (symbolMeta?.support_level && !allowedSupportLevels.has(symbolMeta.support_level)) {
-      return json(403, {
+    if (!isSearchableSymbol(symbolMeta)) {
+      return json(404, {
         ok: false,
         data: null,
-        error: { code: 'SYMBOL_NOT_PROMOTED', message: `${symbol} is not promoted for visible WSP product flows.` },
+        error: { code: 'SYMBOL_NOT_IN_SEARCHABLE_UNIVERSE', message: `${symbol} is not in the current searchable universe.` },
       });
     }
 
@@ -125,31 +158,32 @@ Deno.serve(async (req: Request) => {
       return json(200, {
         ok: false,
         data: null,
-        error: { code: 'NO_CACHED_DATA', message: `No price data available for ${symbol}. Run Tier 1 backfill first.` },
+        error: { code: 'NO_CACHED_DATA', message: `No price data available for ${symbol}.` },
       });
     }
 
-    // Determine asset class from meta or symbol heuristics
-    const isBenchmark = symbol === 'SPY' || symbol === 'QQQ';
-    const isEtf = symbolMeta?.is_etf === true;
-    const assetClass = symbolMeta?.asset_class === 'metals' ? 'metals'
-      : symbolMeta?.asset_class === 'commodity' ? 'commodity' : 'equity';
+    const assetClass = symbolMeta?.asset_class === 'metals'
+      ? 'metals'
+      : symbolMeta?.asset_class === 'commodity'
+      ? 'commodity'
+      : 'equity';
 
-    // Determine WSP support level
-    const hasFullSupport = assetClass === 'equity' && !isEtf && !isBenchmark &&
-      symbolMeta?.sector && symbolMeta?.industry;
+    const hasFullSupport = assetClass === 'equity' && symbolMeta?.sector && symbolMeta?.industry;
 
-    const payload = {
+    return json(200, {
       ok: true,
       data: {
         symbol,
         name: symbolMeta?.company_name ?? symbolMeta?.name ?? symbol,
-        sector: symbolMeta?.sector ?? (isBenchmark ? 'Benchmarks' : 'Unknown'),
-        industry: symbolMeta?.industry ?? (isBenchmark ? 'Market Index ETF' : 'Unknown'),
+        sector: symbolMeta?.sector ?? 'Unknown',
+        industry: symbolMeta?.industry ?? 'Unknown',
         exchange: symbolMeta?.exchange ?? undefined,
         assetClass,
-        supportsFullWsp: hasFullSupport,
+        supportsFullWsp: Boolean(hasFullSupport),
         wspSupport: hasFullSupport ? 'full' : 'limited',
+        supportLevel: symbolMeta?.support_level ?? null,
+        isApprovedLiveCohort: approvedLive,
+        metadataCompleteness: inferMetadataCompleteness(symbolMeta),
         barsDaily: stockBars,
         barsWeekly: aggregateBarsWeekly(stockBars),
         benchmarkDaily: benchmarkBars,
@@ -157,9 +191,7 @@ Deno.serve(async (req: Request) => {
         fetchedAt: new Date().toISOString(),
       },
       error: null,
-    };
-
-    return json(200, payload);
+    });
   } catch (err) {
     console.error('wsp-symbol-detail error:', err);
     return json(500, {
