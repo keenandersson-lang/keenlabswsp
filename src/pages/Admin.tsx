@@ -49,31 +49,41 @@ export default function Admin() {
   const { data: stats } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [priceRes, symbolRes, logRes, earliestRes, latestRes, enrichedRes] = await Promise.all([
+      const [priceRes, symbolRes, earliestRes, latestRes, enrichedRes] = await Promise.all([
         supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
-        supabase
-          .from('data_sync_log')
-          .select('*')
-          .order('started_at', { ascending: false })
-          .limit(20),
         supabase.from('daily_prices').select('date').order('date', { ascending: true }).limit(1),
         supabase.from('daily_prices').select('date').order('date', { ascending: false }).limit(1),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
       ]);
-      if (logRes.error) {
-        console.error('Admin sync log fetch failed:', logRes.error);
-      }
 
       return {
         priceCount: priceRes.count ?? 0,
         symbolCount: symbolRes.count ?? 0,
-        syncLog: logRes.data ?? [],
-        syncLogError: logRes.error?.message ?? null,
         earliest: earliestRes.data?.[0]?.date ?? null,
         latest: latestRes.data?.[0]?.date ?? null,
         enrichedCount: enrichedRes.count ?? 0,
       };
+    },
+    refetchInterval: 15000,
+  });
+
+  const {
+    data: syncLogs = [],
+    error: syncLogError,
+    isLoading: isSyncLogLoading,
+  } = useQuery({
+    queryKey: ['admin-sync-log'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('data_sync_log')
+        .select('id, sync_type, status, symbols_processed, symbols_failed, started_at, completed_at')
+        .order('started_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+      if (!Array.isArray(data)) return [];
+      return data;
     },
     refetchInterval: 15000,
   });
@@ -186,6 +196,7 @@ export default function Admin() {
     setRunning('seed');
     await invokeFunction('seed-symbols');
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
 
@@ -193,6 +204,7 @@ export default function Admin() {
     setRunning('daily');
     await invokeFunction('daily-sync');
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
 
@@ -254,6 +266,7 @@ export default function Admin() {
     if (!hasMore) toast.success(`Backfill klart! ${totalFetched} symboler, ${totalRowsWritten} rader.`);
     setBackfillProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
 
@@ -289,6 +302,7 @@ export default function Admin() {
           }));
           // Also refresh stats
           queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+          queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
         }
       }, 5000);
 
@@ -338,6 +352,7 @@ export default function Admin() {
     }
 
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
 
@@ -373,6 +388,7 @@ export default function Admin() {
     if (!hasMore) toast.success(`Enrichment klart! ${totalEnriched} berikade.`);
     setEnrichProgress(prev => ({ ...prev, running: false }));
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
     setRunning(null);
   };
 
@@ -675,11 +691,13 @@ export default function Admin() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {stats?.syncLogError ? (
+          {syncLogError ? (
             <p className="text-xs text-signal-danger font-mono">
-              Kunde inte läsa sync-logg: {stats.syncLogError}
+              Kunde inte läsa sync-logg: {(syncLogError as Error).message}
             </p>
-          ) : stats?.syncLog?.length === 0 ? (
+          ) : isSyncLogLoading ? (
+            <p className="text-xs text-muted-foreground font-mono">Laddar sync-logg...</p>
+          ) : syncLogs.length === 0 ? (
             <p className="text-xs text-muted-foreground font-mono">Inga synkningar ännu.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -694,7 +712,7 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stats?.syncLog?.map((log: any) => (
+                  {syncLogs.map((log: any) => (
                     <tr key={log.id} className="border-b border-border/50">
                       <td className="py-2 pr-4 text-foreground">
                         {log.started_at ? new Date(log.started_at).toLocaleDateString('sv-SE') : '—'}
