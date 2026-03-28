@@ -44,6 +44,24 @@ interface LiveScannerFunnelSnapshot {
   } | null;
 }
 
+interface MarketScanFailureDebug {
+  id: number;
+  started_at: string;
+  completed_at: string | null;
+  scan_date: string;
+  run_label: string | null;
+  status: string;
+  symbols_targeted: number;
+  symbols_scanned: number;
+  symbols_failed: number;
+  metadata: {
+    failing_step?: string | null;
+    error_message?: string | null;
+    sqlstate?: string | null;
+    stage_counts?: Record<string, number>;
+  } | null;
+}
+
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
   'XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
@@ -139,6 +157,22 @@ export default function Admin() {
       const { data, error } = await supabase.rpc('admin_live_scanner_funnel_snapshot');
       if (error) throw error;
       return data as LiveScannerFunnelSnapshot;
+    },
+    refetchInterval: 30000,
+  });
+
+  const { data: latestBroadScanFailure } = useQuery({
+    queryKey: ['admin-latest-broad-scan-failure'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('market_scan_runs')
+        .select('id, started_at, completed_at, scan_date, run_label, status, symbols_targeted, symbols_scanned, symbols_failed, metadata')
+        .eq('status', 'failed')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as MarketScanFailureDebug | null;
     },
     refetchInterval: 30000,
   });
@@ -668,6 +702,34 @@ export default function Admin() {
                   Biggest drop-off: <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_from}</span> →{' '}
                   <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_to}</span>{' '}
                   ({liveScannerFunnel.biggest_dropoff.count_from} → {liveScannerFunnel.biggest_dropoff.count_to}, Δ {liveScannerFunnel.biggest_dropoff.drop_count})
+                </div>
+              )}
+
+              {latestBroadScanFailure && (
+                <div className="text-[10px] font-mono rounded p-2 border border-signal-danger/30 bg-signal-danger/10 text-foreground space-y-1">
+                  <div>
+                    Latest failed broad scan: <span className="text-signal-danger">#{latestBroadScanFailure.id}</span>{' '}
+                    ({latestBroadScanFailure.scan_date}, label: {latestBroadScanFailure.run_label ?? '—'})
+                  </div>
+                  <div>
+                    Step: <span className="text-signal-danger">{latestBroadScanFailure.metadata?.failing_step ?? 'unknown'}</span> · SQLSTATE:{' '}
+                    <span className="text-signal-danger">{latestBroadScanFailure.metadata?.sqlstate ?? 'n/a'}</span>
+                  </div>
+                  <div>
+                    Error: <span className="text-signal-danger">{latestBroadScanFailure.metadata?.error_message ?? 'no error_message in metadata'}</span>
+                  </div>
+                  <div>
+                    Targeted/Scanned/Failed:{' '}
+                    <span className="text-foreground">
+                      {latestBroadScanFailure.symbols_targeted} / {latestBroadScanFailure.symbols_scanned} / {latestBroadScanFailure.symbols_failed}
+                    </span>
+                  </div>
+                  <div className="break-all">
+                    Stage counts:{' '}
+                    <span className="text-foreground">
+                      {JSON.stringify(latestBroadScanFailure.metadata?.stage_counts ?? {})}
+                    </span>
+                  </div>
                 </div>
               )}
             </>
