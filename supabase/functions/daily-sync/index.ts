@@ -67,6 +67,7 @@ Deno.serve(async (req: Request) => {
   let symbolsFetched = 0
   let symbolsFailed = 0
   let rowsWritten = 0
+  let indicatorMaterialization: Record<string, unknown> | null = null
   const skipReasons: Record<string, number> = {}
 
   try {
@@ -127,6 +128,19 @@ Deno.serve(async (req: Request) => {
     skipReasons['grouped_endpoint_fetch_failed'] = 1
   }
 
+  const { data: materializationData, error: materializationError } = await supabase.rpc('materialize_wsp_indicators_from_prices', {
+    p_symbols: symbols,
+    p_as_of_date: targetDate,
+    p_min_bars: 200,
+  })
+
+  if (materializationError) {
+    indicatorMaterialization = { ok: false, error: materializationError.message }
+    console.error('Indicator materialization failed:', materializationError.message)
+  } else {
+    indicatorMaterialization = { ok: true, ...(materializationData as Record<string, unknown>) }
+  }
+
   await supabase
     .from('data_sync_log')
     .update({
@@ -140,6 +154,7 @@ Deno.serve(async (req: Request) => {
         rows_written: rowsWritten,
         target_date: targetDate,
         skip_reasons: skipReasons,
+        indicator_materialization: indicatorMaterialization,
       },
     })
     .eq('id', logRow?.id)
@@ -152,6 +167,7 @@ Deno.serve(async (req: Request) => {
     symbolsFailed,
     rowsWritten,
     skipReasons,
+    indicatorMaterialization,
   })
 })
 
