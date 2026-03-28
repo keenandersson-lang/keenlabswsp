@@ -17,6 +17,33 @@ import { toast } from 'sonner';
 
 type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | null;
 
+interface LiveScannerFunnelSnapshot {
+  generated_at: string;
+  funnel: {
+    active_symbols: number;
+    symbols_with_any_daily_prices: number;
+    symbols_with_200_plus_bars: number;
+    symbols_present_in_wsp_indicators: number;
+    symbols_passing_classification_support_alignment: number;
+    symbols_in_market_scan_results_latest: number;
+    symbols_matching_live_endpoint_statuses: number;
+    symbols_exposed_by_live_endpoint: number;
+  };
+  promotion_status_counts: Record<string, number>;
+  live_endpoint_details: {
+    source_view: string;
+    promotion_statuses_included: string[];
+    additional_symbol_filters: string[];
+  };
+  biggest_dropoff: {
+    stage_from: string;
+    stage_to: string;
+    count_from: number;
+    count_to: number;
+    drop_count: number;
+  } | null;
+}
+
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
   'XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU',
@@ -100,6 +127,20 @@ export default function Admin() {
       return data;
     },
     refetchInterval: 15000,
+  });
+
+  const {
+    data: liveScannerFunnel,
+    error: liveScannerFunnelError,
+    isLoading: isLiveScannerFunnelLoading,
+  } = useQuery({
+    queryKey: ['admin-live-scanner-funnel'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('admin_live_scanner_funnel_snapshot');
+      if (error) throw error;
+      return data as LiveScannerFunnelSnapshot;
+    },
+    refetchInterval: 30000,
   });
 
   // ── Tier 1 readiness ──
@@ -568,6 +609,68 @@ export default function Admin() {
               <StatBox label="Latest" value={stats?.latest ?? '—'} />
               <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            LIVE SCANNER FUNNEL (TRUTH COUNTS)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {liveScannerFunnelError ? (
+            <p className="text-xs text-signal-danger font-mono">
+              Kunde inte läsa funnel metrics: {(liveScannerFunnelError as Error).message}
+            </p>
+          ) : isLiveScannerFunnelLoading || !liveScannerFunnel ? (
+            <p className="text-xs text-muted-foreground font-mono">Laddar live scanner funnel...</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <StatBox label="Active symbols" value={String(liveScannerFunnel.funnel.active_symbols ?? '—')} />
+                <StatBox label="Any daily_prices" value={String(liveScannerFunnel.funnel.symbols_with_any_daily_prices ?? '—')} />
+                <StatBox label="≥200 bars" value={String(liveScannerFunnel.funnel.symbols_with_200_plus_bars ?? '—')} />
+                <StatBox label="In wsp_indicators" value={String(liveScannerFunnel.funnel.symbols_present_in_wsp_indicators ?? '—')} />
+                <StatBox label="Pass class/supp/align" value={String(liveScannerFunnel.funnel.symbols_passing_classification_support_alignment ?? '—')} />
+                <StatBox label="In market_scan_results_latest" value={String(liveScannerFunnel.funnel.symbols_in_market_scan_results_latest ?? '—')} />
+                <StatBox label="Endpoint statuses match" value={String(liveScannerFunnel.funnel.symbols_matching_live_endpoint_statuses ?? '—')} />
+                <StatBox label="Exposed by live endpoint" value={String(liveScannerFunnel.funnel.symbols_exposed_by_live_endpoint ?? '—')} highlight />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Promotion status breakdown</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(liveScannerFunnel.promotion_status_counts ?? {}).length === 0 ? (
+                    <span className="text-xs font-mono text-muted-foreground">Inga rows i market_scan_results_latest.</span>
+                  ) : (
+                    Object.entries(liveScannerFunnel.promotion_status_counts)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([status, count]) => (
+                        <Badge key={status} variant="outline" className="text-[10px] font-mono">
+                          {status}: {count}
+                        </Badge>
+                      ))
+                  )}
+                </div>
+              </div>
+
+              <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2 space-y-1">
+                <div>Live source: <span className="text-foreground">{liveScannerFunnel.live_endpoint_details?.source_view ?? '—'}</span></div>
+                <div>Included statuses: <span className="text-foreground">{(liveScannerFunnel.live_endpoint_details?.promotion_statuses_included ?? []).join(', ') || '—'}</span></div>
+                <div>Additional filters: <span className="text-foreground">{(liveScannerFunnel.live_endpoint_details?.additional_symbol_filters ?? []).join(' + ') || '—'}</span></div>
+              </div>
+
+              {liveScannerFunnel.biggest_dropoff && (
+                <div className="text-[10px] font-mono rounded p-2 border border-primary/20 bg-primary/10 text-foreground">
+                  Biggest drop-off: <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_from}</span> →{' '}
+                  <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_to}</span>{' '}
+                  ({liveScannerFunnel.biggest_dropoff.count_from} → {liveScannerFunnel.biggest_dropoff.count_to}, Δ {liveScannerFunnel.biggest_dropoff.drop_count})
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
