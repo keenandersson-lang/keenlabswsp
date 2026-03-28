@@ -11,6 +11,9 @@ export interface StockDetailPayload {
   assetClass?: 'equity' | 'metals' | 'commodity';
   supportsFullWsp?: boolean;
   wspSupport?: 'full' | 'limited';
+  supportLevel?: string | null;
+  isApprovedLiveCohort?: boolean;
+  metadataCompleteness?: 'complete' | 'partial' | 'missing';
   barsDaily: Bar[];
   barsWeekly: Bar[];
   benchmarkDaily: Bar[];

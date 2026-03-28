@@ -8,12 +8,11 @@ import { PositionSizer } from '@/components/PositionSizer';
 import type { ChartTimeframe } from '@/lib/chart-types';
 import { barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
 import { evaluateStock } from '@/lib/wsp-engine';
-import { ArrowLeft, Star, TrendingUp, TrendingDown, Minus, BarChart3 } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { PatternBadge } from '@/components/PatternBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { isBenchmarkSymbol } from '@/lib/benchmarks';
-import { TRACKED_SYMBOL_LOOKUP } from '@/lib/tracked-symbols';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { WSPPattern } from '@/lib/wsp-types';
 
@@ -35,47 +34,97 @@ export default function StockDetail() {
 
   const screenerQuery = useWspScreener();
   const detailQuery = useStockDetail(symbol);
-  const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === symbol?.toUpperCase());
   const requestedSymbol = symbol?.toUpperCase() ?? '';
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
-  const symbolMeta = TRACKED_SYMBOL_LOOKUP[requestedSymbol];
-  const isMetals = symbolMeta?.assetClass === 'metals';
 
+  const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
   const detailData = detailQuery.data?.data;
+  const isMetals = detailData?.assetClass === 'metals';
+
+  const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
+  const sectorAligned = liveStock?.gate.sectorAligned ?? false;
+
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
     return barsForTimeframe(timeframe, detailData.barsDaily, detailData.barsWeekly);
   }, [detailData, timeframe]);
 
+  const baseStock = useMemo(() => {
+    if (!detailData) return null;
+    if (detailData.barsDaily.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+
+    return evaluateStock(
+      detailData.symbol,
+      detailData.name,
+      detailData.sector,
+      detailData.industry,
+      detailData.barsDaily,
+      detailData.benchmarkDaily,
+      sectorAligned,
+      marketFavorable ?? true,
+      'live',
+      {
+        metadata: {
+          exchange: detailData.exchange,
+          assetClass: detailData.assetClass,
+          supportsFullWsp: detailData.supportsFullWsp,
+          wspSupport: detailData.wspSupport,
+        },
+        overrideAnalysis: { lastUpdated: detailData.fetchedAt },
+      },
+    );
+  }, [detailData, marketFavorable, sectorAligned]);
+
   const historicalStock = useMemo(() => {
-    if (!detailData || !liveStock || timeframeBars.bars.length === 0) return liveStock;
+    if (!detailData || timeframeBars.bars.length === 0) return baseStock;
+
     const idx = clampAsOfIndex(asOfIndex, timeframeBars.bars.length);
     const asOfBars = asOfEnabled ? timeframeBars.bars.slice(0, idx + 1) : timeframeBars.bars;
     const benchmarkSource = timeframeBars.cadence === 'weekly' ? detailData.benchmarkWeekly : detailData.benchmarkDaily;
     const benchmarkBars = benchmarkSource.filter((bar) => bar.date <= asOfBars[asOfBars.length - 1]?.date);
-    if (asOfBars.length === 0 || benchmarkBars.length === 0) return liveStock;
+
+    if (asOfBars.length === 0 || benchmarkBars.length === 0) return baseStock;
+
     return evaluateStock(
-      liveStock.symbol, liveStock.name, liveStock.sector, liveStock.industry,
-      asOfBars, benchmarkBars,
-      liveStock.gate.sectorAligned, liveStock.gate.marketFavorable,
-      liveStock.dataSource,
-      { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
+      detailData.symbol,
+      detailData.name,
+      detailData.sector,
+      detailData.industry,
+      asOfBars,
+      benchmarkBars,
+      sectorAligned,
+      marketFavorable ?? true,
+      'live',
+      {
+        metadata: {
+          exchange: detailData.exchange,
+          assetClass: detailData.assetClass,
+          supportsFullWsp: detailData.supportsFullWsp,
+          wspSupport: detailData.wspSupport,
+        },
+        overrideAnalysis: { lastUpdated: detailData.fetchedAt },
+      },
     );
-  }, [detailData, liveStock, asOfEnabled, asOfIndex, timeframeBars]);
+  }, [asOfEnabled, asOfIndex, baseStock, detailData, marketFavorable, sectorAligned, timeframeBars]);
 
   const benchmarkStock = useMemo(() => {
     if (!detailData || !isBenchmark) return null;
     if (detailData.barsDaily.length === 0 || detailData.benchmarkDaily.length === 0) return null;
     return evaluateStock(
-      detailData.symbol, detailData.name, detailData.sector, detailData.industry,
-      detailData.barsDaily, detailData.benchmarkDaily,
-      true, true, 'live',
+      detailData.symbol,
+      detailData.name,
+      detailData.sector,
+      detailData.industry,
+      detailData.barsDaily,
+      detailData.benchmarkDaily,
+      true,
+      true,
+      'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
   }, [detailData, isBenchmark]);
 
-  // Loading state with skeletons
-  if (screenerQuery.isLoading || detailQuery.isLoading) {
+  if (detailQuery.isLoading) {
     return (
       <div className="space-y-4 p-4">
         <Link to="/screener" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -96,34 +145,24 @@ export default function StockDetail() {
     );
   }
 
-  if (!liveStock && !isBenchmark) {
-    return (
-      <div className="p-6">
-        <Link to="/screener" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3 w-3" /> Tillbaka
-        </Link>
-        <div className="mt-8 rounded-lg border border-signal-sell/20 bg-signal-sell/5 p-4 text-sm text-signal-sell">
-          Symbol <span className="font-mono font-bold">{requestedSymbol}</span> hittades inte.{' '}
-          <Link to="/screener" className="underline">Tillbaka till Screener</Link>
-        </div>
-      </div>
-    );
-  }
-
   if (!detailQuery.data?.ok || !detailData) {
+    const symbolNotSearchable = detailQuery.data?.error?.code === 'SYMBOL_NOT_IN_SEARCHABLE_UNIVERSE';
+
     return (
       <div className="p-6">
         <Link to="/screener" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3 w-3" /> Tillbaka
         </Link>
-        <div className="mt-8 rounded-lg border border-signal-sell/20 bg-signal-sell/5 p-4 text-sm text-signal-sell">
-          Chart-data ej tillgänglig: {sanitizeClientErrorMessage(detailQuery.data?.error?.message)}
+        <div className={`mt-8 rounded-lg border p-4 text-sm ${symbolNotSearchable ? 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' : 'border-signal-sell/20 bg-signal-sell/5 text-signal-sell'}`}>
+          {symbolNotSearchable
+            ? `Symbol ${requestedSymbol} finns inte i sökbara universumregistret.`
+            : `Chart-data ej tillgänglig: ${sanitizeClientErrorMessage(detailQuery.data?.error?.message)}`}
         </div>
       </div>
     );
   }
 
-  const stock = historicalStock ?? liveStock ?? benchmarkStock;
+  const stock = historicalStock ?? baseStock ?? benchmarkStock;
   if (!stock) {
     return (
       <div className="p-6">
@@ -140,6 +179,17 @@ export default function StockDetail() {
   const slopeIcon = stock.audit.sma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : stock.audit.sma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const volMultiple = stock.audit.volumeMultiple;
 
+  const notices = [
+    !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
+    !detailData.supportsFullWsp ? 'Insufficient WSP readiness: symbol has limited WSP coverage.' : null,
+    detailData.metadataCompleteness !== 'complete'
+      ? `Metadata ${detailData.metadataCompleteness === 'missing' ? 'missing' : 'incomplete'} for one or more fields.`
+      : null,
+    detailData.barsDaily.length < 200 || detailData.benchmarkDaily.length < 200
+      ? 'Indicator coverage incomplete: less than 200 bars available for full MA context.'
+      : null,
+  ].filter((item): item is string => Boolean(item));
+
   const tabs: { id: DetailTab; label: string }[] = [
     { id: 'chart', label: 'Chart' },
     { id: 'checklist', label: 'WSP Checklist' },
@@ -148,12 +198,10 @@ export default function StockDetail() {
 
   return (
     <div className="space-y-4 p-4">
-      {/* Back link */}
       <Link to="/screener" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="h-3 w-3" /> Tillbaka till Screener
       </Link>
 
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
@@ -173,7 +221,6 @@ export default function StockDetail() {
             </span>
           </div>
 
-          {/* Info pills */}
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-mono text-muted-foreground">
               Vol: {volMultiple != null ? `${volMultiple.toFixed(1)}x snitt` : 'N/A'}
@@ -196,7 +243,14 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {/* Tab navigation */}
+      {notices.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-signal-caution/30 bg-signal-caution/10 p-3">
+          {notices.map((notice) => (
+            <div key={notice} className="text-xs font-mono text-signal-caution">• {notice}</div>
+          ))}
+        </div>
+      )}
+
       <div className="flex gap-1 border-b border-border">
         {tabs.map(tab => (
           <button
@@ -213,10 +267,8 @@ export default function StockDetail() {
         ))}
       </div>
 
-      {/* Tab content */}
       {activeTab === 'chart' && (
         <div className="space-y-3">
-          {/* Pattern banner */}
           <div className={`rounded-lg border-l-4 ${banner.border} ${banner.bg} px-4 py-2.5 text-sm text-foreground`}>
             {banner.text}
           </div>
