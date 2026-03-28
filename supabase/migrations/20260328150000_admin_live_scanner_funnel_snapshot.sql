@@ -8,7 +8,6 @@ AS $$
 WITH active_symbols AS (
   SELECT
     s.symbol,
-    s.support_level,
     COALESCE(s.classification_status, 'unresolved') AS classification_status,
     COALESCE(s.classification_confidence_level, 'low') AS classification_confidence_level,
     COALESCE(s.is_active, false) AS is_active,
@@ -38,8 +37,7 @@ stage_counts AS (
     COUNT(*) FILTER (WHERE COALESCE(pc.bar_count, 0) >= 200)::bigint AS symbols_with_200_plus_bars,
     COUNT(*) FILTER (WHERE ins.symbol IS NOT NULL)::bigint AS symbols_present_in_wsp_indicators,
     COUNT(*) FILTER (
-      WHERE a.support_level IN ('full_wsp_equity', 'limited_equity')
-        AND a.classification_status IN ('canonicalized', 'manually_reviewed')
+      WHERE a.classification_status IN ('canonicalized', 'manually_reviewed')
         AND a.classification_confidence_level IN ('high', 'medium')
         AND als.symbol IS NOT NULL
     )::bigint AS symbols_passing_classification_support_alignment
