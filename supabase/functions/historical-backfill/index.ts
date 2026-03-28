@@ -342,6 +342,20 @@ async function handleDateBackfill(body: Record<string, any>) {
     }
   }
 
+  const { data: materializationData, error: materializationError } = await supabase.rpc('materialize_wsp_indicators_from_prices', {
+    p_symbols: null,
+    p_as_of_date: (lastDate || endDate),
+    p_min_bars: 200,
+  })
+
+  const indicatorMaterialization = materializationError
+    ? { ok: false, error: materializationError.message }
+    : { ok: true, ...(materializationData as Record<string, unknown>) }
+
+  if (materializationError) {
+    console.error('Indicator materialization failed:', materializationError.message)
+  }
+
   // Final update
   if (logRow?.id) {
     await supabase
@@ -359,6 +373,7 @@ async function handleDateBackfill(body: Record<string, any>) {
           total_trading_days: tradingDays.length,
           start_idx: startIdx,
           per_date_log: perDateLog,
+          indicator_materialization: indicatorMaterialization,
         },
       })
       .eq('id', logRow.id)
@@ -373,6 +388,7 @@ async function handleDateBackfill(body: Record<string, any>) {
     hasMore: (startIdx + completedDays) < tradingDays.length,
     error: lastError || undefined,
     perDateLog,
+    indicatorMaterialization,
   })
 }
 
@@ -531,6 +547,7 @@ async function handleSymbolBackfill(body: Record<string, any>) {
 
   let fetched = 0, failed = 0, skipped = 0
   let rowsFetched = 0, rowsWritten = 0
+  let indicatorMaterialization: Record<string, unknown> | null = null
   const failureCounts: Record<string, number> = {}
   const failureDetails: { symbol: string; category: string; reason: string; retryable: boolean }[] = []
 
@@ -588,6 +605,19 @@ async function handleSymbolBackfill(body: Record<string, any>) {
     }
   }
 
+  const { data: materializationData, error: materializationError } = await supabase.rpc('materialize_wsp_indicators_from_prices', {
+    p_symbols: symbolsToProcess,
+    p_as_of_date: endDate,
+    p_min_bars: 200,
+  })
+
+  if (materializationError) {
+    indicatorMaterialization = { ok: false, error: materializationError.message }
+    console.error('Indicator materialization failed:', materializationError.message)
+  } else {
+    indicatorMaterialization = { ok: true, ...(materializationData as Record<string, unknown>) }
+  }
+
   await supabase
     .from('data_sync_log')
     .update({
@@ -596,7 +626,13 @@ async function handleSymbolBackfill(body: Record<string, any>) {
       symbols_failed: failed,
       completed_at: new Date().toISOString(),
       error_message: failureDetails.slice(0, 10).map(f => `${f.symbol}: ${f.category}`).join('\n') || null,
-      metadata: { symbols_total: symbolsToProcess.length, offset, failure_counts: failureCounts, rows_written: rowsWritten },
+      metadata: {
+        symbols_total: symbolsToProcess.length,
+        offset,
+        failure_counts: failureCounts,
+        rows_written: rowsWritten,
+        indicator_materialization: indicatorMaterialization,
+      },
     })
     .eq('id', logRow?.id)
 
@@ -607,6 +643,7 @@ async function handleSymbolBackfill(body: Record<string, any>) {
     skipped,
     rowsFetched,
     rowsWritten,
+    indicatorMaterialization,
     offset,
     nextOffset: offset + batchSize,
     hasMore: symbolsToProcess.length === batchSize,
