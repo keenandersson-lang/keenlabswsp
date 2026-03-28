@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Database, RefreshCw, Download, Sprout, CheckCircle2,
-  XCircle, AlertTriangle, Clock, Server, Zap, Shield, Calendar,
+  XCircle, AlertTriangle, Clock, Server, Zap, Shield, Calendar, Wifi,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
-type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | null;
+type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | null;
 
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
@@ -42,7 +42,10 @@ export default function Admin() {
   const [syncKey, setSyncKey] = useState('');
   const queryClient = useQueryClient();
 
-  // ── Core stats from existing tables ──
+  // ── Polygon test result ──
+  const [polygonTestResult, setPolygonTestResult] = useState<Record<string, any> | null>(null);
+
+  // ── Core stats ──
   const { data: stats } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
@@ -70,17 +73,15 @@ export default function Admin() {
     refetchInterval: 15000,
   });
 
-  // ── Tier 1 readiness (uses only existing tables) ──
+  // ── Tier 1 readiness ──
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
     queryFn: async () => {
-      // Get symbol metadata for Tier 1
       const { data: symbols } = await supabase
         .from('symbols')
         .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
         .in('symbol', TIER1_SYMBOLS);
 
-      // Get bar counts per Tier 1 symbol from daily_prices
       const { data: barData } = await supabase
         .from('daily_prices')
         .select('symbol, date')
@@ -188,7 +189,16 @@ export default function Admin() {
     setRunning(null);
   };
 
-  // ── Per-symbol backfill (existing) ──
+  // ── Test Polygon connection ──
+  const runTestPolygon = async () => {
+    setRunning('test_polygon');
+    setPolygonTestResult(null);
+    const data = await invokeFunction('historical-backfill', { mode: 'test_polygon' });
+    setPolygonTestResult(data);
+    setRunning(null);
+  };
+
+  // ── Per-symbol backfill ──
   const [backfillProgress, setBackfillProgress] = useState({
     offset: 0, total: 0, fetched: 0, failed: 0, running: false,
     rowsWritten: 0, failureCounts: {} as Record<string, number>,
@@ -240,23 +250,59 @@ export default function Admin() {
     setRunning(null);
   };
 
-  // ── Date-based backfill (Polygon grouped endpoint) ──
+  // ── Date-based backfill with real-time polling ──
   const [dateBackfillProgress, setDateBackfillProgress] = useState({
     currentDate: '', completedDays: 0, totalDays: 0, totalRows: 0, running: false, lastError: '',
+    logId: '' as string,
   });
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll data_sync_log for real-time progress during date backfill
+  useEffect(() => {
+    if (dateBackfillProgress.running && dateBackfillProgress.logId) {
+      pollingRef.current = setInterval(async () => {
+        // Get the latest running backfill_by_date log entry
+        const { data } = await supabase
+          .from('data_sync_log')
+          .select('*')
+          .eq('sync_type', 'backfill_by_date')
+          .order('started_at', { ascending: false })
+          .limit(1);
+
+        if (data && data[0]) {
+          const log = data[0];
+          const meta = log.metadata as any;
+          setDateBackfillProgress(prev => ({
+            ...prev,
+            completedDays: meta?.completed_days ?? prev.completedDays,
+            totalDays: meta?.total_trading_days ?? prev.totalDays,
+            totalRows: meta?.total_rows ?? prev.totalRows,
+            currentDate: meta?.last_date ?? prev.currentDate,
+            lastError: log.error_message ?? '',
+          }));
+          // Also refresh stats
+          queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+        }
+      }, 5000);
+
+      return () => {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+      };
+    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [dateBackfillProgress.running, dateBackfillProgress.logId, queryClient]);
 
   const runDateBackfill = async () => {
     setRunning('backfill_date');
-    const totalDays = 504; // ~2 years of trading days
-    let completedDays = 0;
-    let totalRows = 0;
+    setDateBackfillProgress({ currentDate: '', completedDays: 0, totalDays: 504, totalRows: 0, running: true, lastError: '', logId: 'pending' });
 
-    setDateBackfillProgress({ currentDate: '', completedDays: 0, totalDays, totalRows: 0, running: true, lastError: '' });
-
-    // Find the last backfilled date to resume from
+    // Get resume point
     const resumeData = await invokeFunction('historical-backfill', { mode: 'date_backfill', action: 'status' });
     const lastDate = resumeData?.lastBackfilledDate;
 
+    // Start the backfill — this will create a log entry we can poll
     const data = await invokeFunction('historical-backfill', {
       mode: 'date_backfill',
       action: 'run',
@@ -265,16 +311,23 @@ export default function Admin() {
     });
 
     if (data) {
-      completedDays = data.completedDays ?? 0;
-      totalRows = data.totalRows ?? 0;
       setDateBackfillProgress({
         currentDate: data.lastDate ?? '',
-        completedDays,
-        totalDays,
-        totalRows,
+        completedDays: data.completedDays ?? 0,
+        totalDays: data.totalDays ?? 504,
+        totalRows: data.totalRows ?? 0,
         running: false,
         lastError: data.error ?? '',
+        logId: '',
       });
+
+      if (data.hasMore) {
+        toast.info(`Batch klar: ${data.completedDays}/${data.totalDays} dagar, ${data.totalRows} rader. Kör igen för nästa batch.`);
+      } else {
+        toast.success(`Datum-backfill klart! ${data.totalRows} rader.`);
+      }
+    } else {
+      setDateBackfillProgress(prev => ({ ...prev, running: false, lastError: 'Inget svar från servern' }));
     }
 
     queryClient.invalidateQueries({ queryKey: ['admin-stats', 'tier1-readiness'] });
@@ -343,6 +396,59 @@ export default function Admin() {
             placeholder="Klistra in din SYNC_SECRET_KEY..."
             className="w-full bg-muted border border-border rounded px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
+        </CardContent>
+      </Card>
+
+      {/* ═══ POLYGON TEST ═══ */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground flex items-center gap-2">
+            <Wifi className="h-4 w-4" />
+            POLYGON API-TEST
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={runTestPolygon}
+            disabled={running !== null}
+            variant="outline"
+            className="font-mono text-xs"
+          >
+            <Wifi className={`h-4 w-4 mr-2 ${running === 'test_polygon' ? 'animate-pulse' : ''}`} />
+            {running === 'test_polygon' ? 'Testar...' : 'Testa Polygon-anslutning'}
+          </Button>
+
+          {polygonTestResult && (
+            <div className={`rounded-lg p-3 text-xs font-mono space-y-1 ${polygonTestResult.ok ? 'bg-primary/10 border border-primary/20' : 'bg-destructive/10 border border-destructive/20'}`}>
+              <div className="flex items-center gap-2">
+                {polygonTestResult.ok
+                  ? <CheckCircle2 className="h-4 w-4 text-primary" />
+                  : <XCircle className="h-4 w-4 text-destructive" />}
+                <span className={polygonTestResult.ok ? 'text-primary' : 'text-destructive'}>
+                  {polygonTestResult.ok ? 'Polygon OK!' : 'Polygon FAILED'}
+                </span>
+              </div>
+              {polygonTestResult.ok && (
+                <>
+                  <div className="text-foreground">Datum: {polygonTestResult.testDate} · HTTP {polygonTestResult.httpStatus}</div>
+                  <div className="text-foreground">Aktier returnerade: <span className="text-primary font-bold">{polygonTestResult.resultCount}</span></div>
+                  <div className="text-foreground">Tier 1-matcher: <span className="text-primary font-bold">{polygonTestResult.tier1Matches}</span></div>
+                  <div className="text-muted-foreground">Samples: {polygonTestResult.sampleTickers?.join(', ')}</div>
+                </>
+              )}
+              {!polygonTestResult.ok && (
+                <div className="text-destructive">{polygonTestResult.error}</div>
+              )}
+              {polygonTestResult.diagnostics && (
+                <details className="mt-2">
+                  <summary className="text-muted-foreground cursor-pointer">Diagnostik</summary>
+                  <pre className="text-[10px] text-muted-foreground mt-1 whitespace-pre-wrap break-all">
+                    {JSON.stringify(polygonTestResult.diagnostics, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -464,9 +570,8 @@ export default function Admin() {
                   <AlertDialogTitle>Backfill per datum (Polygon grouped)?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Hämtar ALLA aktier för ett datum i ett enda anrop via Polygon grouped endpoint.
-                    Kör detta för varje handelsdag bakåt i tiden (~504 dagar = 2 år).
-                    Med gratis-tier (5 anrop/min) tar det ~100 minuter totalt men utan timeout-problem.
-                    Kan stoppas och fortsätta.
+                    5 dagar per batch, ~65 sekunder per batch.
+                    Kör igen för nästa batch tills allt är klart.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -509,9 +614,11 @@ export default function Admin() {
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader · ${backfillProgress.failed} misslyckade`
                     : running === 'backfill_date'
-                    ? `Datum-backfill: ${dateBackfillProgress.currentDate} · ${dateBackfillProgress.completedDays}/${dateBackfillProgress.totalDays} dagar · ${dateBackfillProgress.totalRows} rader`
+                    ? `Datum-backfill: ${dateBackfillProgress.currentDate || '(startar...)'} · ${dateBackfillProgress.completedDays}/${dateBackfillProgress.totalDays} dagar · ${dateBackfillProgress.totalRows} rader`
                     : running === 'enrich'
                     ? `${enrichProgress.tier.toUpperCase()} · offset ${enrichProgress.offset} · ${enrichProgress.enriched} berikade · ${enrichProgress.failed} misslyckade`
+                    : running === 'test_polygon'
+                    ? 'Testar Polygon API...'
                     : 'Bearbetar...'}
                 </span>
               </div>
@@ -527,6 +634,17 @@ export default function Admin() {
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Date backfill result (after completion) */}
+          {!running && dateBackfillProgress.totalRows > 0 && (
+            <div className="text-xs font-mono mt-2 p-2 bg-muted rounded">
+              <span className="text-primary">📅 Senaste datum-backfill:</span>{' '}
+              {dateBackfillProgress.completedDays}/{dateBackfillProgress.totalDays} dagar · {dateBackfillProgress.totalRows} rader · senaste: {dateBackfillProgress.currentDate}
+              {dateBackfillProgress.lastError && (
+                <span className="text-signal-danger block mt-1">⚠ {dateBackfillProgress.lastError}</span>
               )}
             </div>
           )}
@@ -559,7 +677,7 @@ export default function Admin() {
                     <th className="text-left py-2 pr-4">Datum</th>
                     <th className="text-left py-2 pr-4">Typ</th>
                     <th className="text-left py-2 pr-4">Status</th>
-                    <th className="text-left py-2 pr-4">Symboler</th>
+                    <th className="text-left py-2 pr-4">Rader/Symboler</th>
                     <th className="text-left py-2">Tid</th>
                   </tr>
                 </thead>
@@ -579,7 +697,8 @@ export default function Admin() {
                         </div>
                       </td>
                       <td className="py-2 pr-4 text-foreground">
-                        {log.symbols_processed ?? 0}/{(log.metadata as any)?.symbols_total ?? '?'}
+                        {log.symbols_processed ?? 0}
+                        {log.symbols_failed ? <span className="text-signal-danger ml-1">({log.symbols_failed} ✗)</span> : null}
                       </td>
                       <td className="py-2 text-muted-foreground">
                         {log.started_at
