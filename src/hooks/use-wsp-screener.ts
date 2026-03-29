@@ -684,7 +684,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   while (true) {
     const { data, error } = await (supabase as any)
       .from('market_scan_results_latest')
-      .select('symbol, name, canonical_sector, sector, pattern, recommendation, score, payload, scan_date')
+      .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
       .in('pattern', ['climbing', 'base_or_climbing'])
       .range(from, from + PAGE_SIZE - 1);
 
@@ -702,6 +702,29 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     if (pageRows.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
+  const symbols = [...new Set(allRows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
+  if (symbols.length > 0) {
+    const { data: symbolMeta, error: symbolMetaError } = await (supabase as any)
+      .from('symbols')
+      .select('symbol, name, canonical_sector')
+      .in('symbol', symbols);
+
+    if (symbolMetaError) {
+      throw new Error(symbolMetaError.message);
+    }
+
+    const symbolMetaMap = Object.fromEntries(
+      ((symbolMeta ?? []) as Array<Pick<SymbolProfileRow, 'symbol' | 'name' | 'canonical_sector'>>)
+        .filter((row): row is { symbol: string; name: string | null; canonical_sector: string | null } => typeof row.symbol === 'string' && row.symbol.length > 0)
+        .map((row) => [row.symbol, row]),
+    );
+
+    allRows = allRows.map((row) => ({
+      ...row,
+      name: symbolMetaMap[row.symbol ?? '']?.name ?? '',
+      canonical_sector: symbolMetaMap[row.symbol ?? '']?.canonical_sector ?? row.sector ?? 'Unknown',
+    }));
+  }
   allRows.sort((a, b) => {
     const volA = Number((a.payload as ScannerPayload | null)?.volume_ratio ?? 0);
     const volB = Number((b.payload as ScannerPayload | null)?.volume_ratio ?? 0);
@@ -711,12 +734,12 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
   const validRows = allRows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
-  const symbols = [...new Set(validRows.map((row) => row.symbol))];
+  const profileSymbols = [...new Set(validRows.map((row) => row.symbol))];
   const symbolNames: Record<string, string> = {};
   const payloadBySymbol = new Map<string, ScannerPayload>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
-  if (symbols.length > 0) {
+  if (profileSymbols.length > 0) {
     const latestPayloadMetaBySymbol = new Map<string, { payload: ScannerPayload; scanDate: string }>();
     for (const row of allRows) {
       if (!row.symbol) continue;
@@ -738,7 +761,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     const { data: profileRows, error: profileError } = await (supabase as any)
       .from('symbols')
       .select('symbol, name, canonical_sector, canonical_industry, sector, industry')
-      .in('symbol', symbols);
+      .in('symbol', profileSymbols);
 
     if (profileError) {
       throw new Error(profileError.message);
