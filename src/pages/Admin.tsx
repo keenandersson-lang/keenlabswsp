@@ -378,6 +378,15 @@ export default function Admin() {
     currentDate: '', completedDays: 0, totalDays: 0, totalRows: 0, running: false, lastError: '',
     logId: '' as string,
   });
+  const [autoDateBackfill, setAutoDateBackfill] = useState({
+    running: false,
+    stopRequested: false,
+    currentDate: '',
+    totalRowsInserted: 0,
+    batchNumber: 0,
+    lastError: '',
+  });
+  const autoDateBackfillStopRef = useRef(false);
   const [dateBackfillPollError, setDateBackfillPollError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -460,6 +469,108 @@ export default function Admin() {
     } else {
       setDateBackfillProgress(prev => ({ ...prev, running: false, lastError: 'Inget svar från servern' }));
     }
+
+    queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['tier1-readiness'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
+    setRunning(null);
+  };
+
+  const stopAutoDateBackfill = () => {
+    autoDateBackfillStopRef.current = true;
+    setAutoDateBackfill(prev => ({ ...prev, stopRequested: true }));
+  };
+
+  const runDateBackfillAuto = async () => {
+    setRunning('backfill_date');
+    autoDateBackfillStopRef.current = false;
+    setAutoDateBackfill({
+      running: true,
+      stopRequested: false,
+      currentDate: '',
+      totalRowsInserted: 0,
+      batchNumber: 0,
+      lastError: '',
+    });
+    setDateBackfillProgress({ currentDate: '', completedDays: 0, totalDays: 504, totalRows: 0, running: true, lastError: '', logId: 'pending' });
+
+    const resumeData = await invokeFunction('historical-backfill', { mode: 'date_backfill', action: 'status' });
+    let resumeFrom = resumeData?.lastBackfilledDate ?? null;
+    const startInfo = resumeFrom
+      ? `från nästa datum efter ${resumeFrom}`
+      : 'från tidigaste saknade datum';
+    toast.info(`Auto-körning startad ${startInfo}.`);
+
+    let hasMore = true;
+    let batchNumber = 0;
+    let totalRowsInserted = 0;
+    let lastDate = '';
+    let totalDays = 504;
+    let completedDays = 0;
+    let autoError = '';
+
+    while (hasMore && !autoDateBackfillStopRef.current) {
+      const data = await invokeFunction('historical-backfill', {
+        mode: 'date_backfill',
+        action: 'run',
+        daysPerBatch: 5,
+        resumeFrom,
+      });
+
+      if (!data) {
+        autoError = 'Inget svar från servern';
+        break;
+      }
+      if (data.error) {
+        autoError = data.error;
+        break;
+      }
+
+      batchNumber += 1;
+      totalRowsInserted += Number(data.totalRows ?? 0);
+      lastDate = data.lastDate ?? lastDate;
+      completedDays = data.completedDays ?? completedDays;
+      totalDays = data.totalDays ?? totalDays;
+      hasMore = data.hasMore === true;
+      resumeFrom = data.lastDate ?? resumeFrom;
+
+      setDateBackfillProgress({
+        currentDate: lastDate,
+        completedDays,
+        totalDays,
+        totalRows: totalRowsInserted,
+        running: hasMore && !autoDateBackfillStopRef.current,
+        lastError: '',
+        logId: '',
+      });
+
+      setAutoDateBackfill({
+        running: hasMore && !autoDateBackfillStopRef.current,
+        stopRequested: autoDateBackfillStopRef.current,
+        currentDate: lastDate,
+        totalRowsInserted,
+        batchNumber,
+        lastError: '',
+      });
+    }
+
+    if (autoDateBackfillStopRef.current) {
+      toast.info('Auto-körning stoppad av användaren.');
+    } else if (autoError) {
+      toast.error(`Auto-körning stoppad: ${autoError}`);
+    } else {
+      toast.success(`Auto-körning klar! ${totalRowsInserted} rader inlagda på ${batchNumber} batcher.`);
+    }
+
+    setAutoDateBackfill({
+      running: false,
+      stopRequested: false,
+      currentDate: lastDate,
+      totalRowsInserted,
+      batchNumber,
+      lastError: autoError,
+    });
+    setDateBackfillProgress(prev => ({ ...prev, running: false, lastError: autoError || prev.lastError }));
 
     queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
     queryClient.invalidateQueries({ queryKey: ['tier1-readiness'] });
@@ -981,6 +1092,15 @@ export default function Admin() {
               </AlertDialogContent>
             </AlertDialog>
 
+            <Button
+              onClick={autoDateBackfill.running ? stopAutoDateBackfill : runDateBackfillAuto}
+              disabled={running !== null && !autoDateBackfill.running}
+              variant={autoDateBackfill.running ? 'destructive' : 'outline'}
+              className="font-mono text-xs border-primary/40 text-primary"
+            >
+              {autoDateBackfill.running ? '⏹ Stoppa' : '🔄 Auto-kör alla datum'}
+            </Button>
+
             <div className="flex flex-wrap gap-2 border-l border-border pl-3">
               <Button onClick={() => runEnrich('tier1')} disabled={running !== null} variant="outline" className="font-mono text-xs">
                 <Zap className="h-4 w-4 mr-2" />
@@ -1014,7 +1134,9 @@ export default function Admin() {
                   {running === 'backfill'
                     ? `Offset ${backfillProgress.offset} / ~${backfillProgress.total} · ${backfillProgress.fetched} hämtade · ${backfillProgress.rowsWritten} rader · ${backfillProgress.failed} misslyckade`
                     : running === 'backfill_date'
-                    ? `Datum-backfill: ${dateBackfillProgress.currentDate || '(startar...)'} · ${dateBackfillProgress.completedDays}/${dateBackfillProgress.totalDays} dagar · ${dateBackfillProgress.totalRows} rader`
+                    ? autoDateBackfill.running
+                      ? `Datum: ${autoDateBackfill.currentDate || '(startar...)'} · ${autoDateBackfill.totalRowsInserted} rader inlagda · Batch ${autoDateBackfill.batchNumber || 1}`
+                      : `Datum-backfill: ${dateBackfillProgress.currentDate || '(startar...)'} · ${dateBackfillProgress.completedDays}/${dateBackfillProgress.totalDays} dagar · ${dateBackfillProgress.totalRows} rader`
                     : running === 'enrich'
                     ? `${enrichProgress.tier.toUpperCase()} · offset ${enrichProgress.offset} · ${enrichProgress.enriched} berikade · ${enrichProgress.failed} misslyckade`
                     : running === 'test_polygon'
