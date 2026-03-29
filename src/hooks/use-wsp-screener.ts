@@ -189,7 +189,7 @@ interface DirectScannerRow {
 interface ScannerPayload {
   ma50?: number | null;
   ma150?: number | null;
-  ma50_slope?: number | null;
+  ma50_slope?: string | null;
   above_ma50?: boolean | null;
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
@@ -429,37 +429,38 @@ function buildDirectScannerStock(
   sectorTrends: Record<string, boolean>,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
-  const payloadScore = typeof payload?.wsp_score === 'number' && Number.isFinite(payload.wsp_score) ? payload.wsp_score : null;
+  const p = payload ?? {};
+  const payloadScore = typeof p.wsp_score === 'number' && Number.isFinite(p.wsp_score) ? p.wsp_score : null;
   const scannerScore = payloadScore ?? (typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null);
-  const ma50 = typeof payload?.ma50 === 'number' && Number.isFinite(payload.ma50) ? payload.ma50 : null;
-  const ma150 = typeof payload?.ma150 === 'number' && Number.isFinite(payload.ma150) ? payload.ma150 : null;
-  const mansfieldRs = typeof payload?.mansfield_rs === 'number' && Number.isFinite(payload.mansfield_rs)
-    ? payload.mansfield_rs
+  const ma50 = typeof p.ma50 === 'number' && Number.isFinite(p.ma50) ? p.ma50 : null;
+  const ma150 = typeof p.ma150 === 'number' && Number.isFinite(p.ma150) ? p.ma150 : null;
+  const mansfieldRs = typeof p.mansfield_rs === 'number' && Number.isFinite(p.mansfield_rs)
+    ? p.mansfield_rs
     : null;
-  const volumeMultiple = typeof payload?.volume_ratio === 'number' && Number.isFinite(payload.volume_ratio)
-    ? payload.volume_ratio
+  const volumeMultiple = typeof p.volume_ratio === 'number' && Number.isFinite(p.volume_ratio)
+    ? p.volume_ratio
     : null;
-  const ma50Slope = typeof payload?.ma50_slope === 'number' && Number.isFinite(payload.ma50_slope)
-    ? payload.ma50_slope
+  const ma50SlopeTrend = typeof p.ma50_slope === 'string'
+    ? p.ma50_slope
     : null;
-  const wspPattern = typeof payload?.wsp_pattern === 'string' ? payload.wsp_pattern.toLowerCase() : null;
+  const wspPattern = typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null;
   const hasWspIndicators = payload !== null;
-  const aboveMa50 = Boolean(payload?.above_ma50);
-  const aboveMa150 = Boolean(payload?.above_ma150);
-  const slope50Positive = ma50Slope !== null && ma50Slope > 0;
+  const aboveMa50 = p.above_ma50 === true;
+  const aboveMa150 = p.above_ma150 === true;
+  const slope50Positive = p.ma50_slope === 'rising';
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
-  const volumeValid = volumeMultiple !== null && volumeMultiple >= 2;
+  const volumeValid = Number(p.volume_ratio) >= 2;
   const sectorValue = row.canonical_sector ?? row.sector ?? 'Unknown';
   const normalizedSector = row.canonical_sector ?? row.sector ?? '';
   const normalizedIndustry = profile?.canonical_industry
     ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
     ?? profile?.industry
     ?? 'Unknown';
-  const rawPrice = row.symbol ? latestPriceBySymbol[row.symbol] ?? Number(payload?.ma50) ?? 0 : Number(payload?.ma50) ?? 0;
+  const rawPrice = row.symbol ? latestPriceBySymbol[row.symbol] ?? Number(p.ma50) ?? 0 : Number(p.ma50) ?? 0;
   const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
-  const changePercent = typeof payload?.pct_change_1d === 'number' && Number.isFinite(payload.pct_change_1d)
-    ? Number(payload.pct_change_1d.toFixed(2))
+  const changePercent = typeof p.pct_change_1d === 'number' && Number.isFinite(p.pct_change_1d)
+    ? Number(p.pct_change_1d.toFixed(2))
     : 0;
   const updatedAt = row.scan_date ?? nowIso;
   const companyName = row.name ?? profile?.name ?? symbolNames[row.symbol] ?? '';
@@ -479,8 +480,8 @@ function buildDirectScannerStock(
       sma50: ma50,
       sma150: ma150,
       sma200: null,
-      sma50Slope: ma50Slope,
-      sma50SlopeDirection: ma50Slope === null ? 'flat' : (ma50Slope > 0 ? 'up' : ma50Slope < 0 ? 'down' : 'flat'),
+      sma50Slope: null,
+      sma50SlopeDirection: ma50SlopeTrend === 'rising' ? 'up' : ma50SlopeTrend === 'falling' ? 'down' : 'flat',
       resistanceZone: null,
       resistanceUpperBound: null,
       resistanceTouches: 0,
@@ -535,8 +536,8 @@ function buildDirectScannerStock(
       sma50: ma50,
       sma150: ma150,
       sma200: null,
-      sma50SlopeValue: ma50Slope,
-      sma50SlopeDirection: ma50Slope === null ? 'flat' : (ma50Slope > 0 ? 'up' : ma50Slope < 0 ? 'down' : 'flat'),
+      sma50SlopeValue: null,
+      sma50SlopeDirection: ma50SlopeTrend === 'rising' ? 'up' : ma50SlopeTrend === 'falling' ? 'down' : 'flat',
       breakoutValid: hasBreakout,
       breakoutStale: false,
       breakoutQualityPass: false,
