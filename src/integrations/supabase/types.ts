@@ -789,16 +789,16 @@ export type Database = {
           alignment_eligible?: never
           alignment_reason?: never
           alignment_status?: never
-          canonical_industry?: never
-          canonical_sector?: never
+          canonical_industry?: string | null
+          canonical_sector?: string | null
           symbol?: string | null
         }
         Update: {
           alignment_eligible?: never
           alignment_reason?: never
           alignment_status?: never
-          canonical_industry?: never
-          canonical_sector?: never
+          canonical_industry?: string | null
+          canonical_sector?: string | null
           symbol?: string | null
         }
         Relationships: []
