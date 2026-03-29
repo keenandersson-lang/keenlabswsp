@@ -212,6 +212,20 @@ interface SymbolProfileRow {
   industry: string | null;
 }
 
+const MARKET_HEATMAP_SECTOR_ETFS: Record<string, string> = {
+  Technology: 'XLK',
+  Healthcare: 'XLV',
+  Financials: 'XLF',
+  Energy: 'XLE',
+  'Consumer Discretionary': 'XLY',
+  Industrials: 'XLI',
+  'Communication Services': 'XLC',
+  'Consumer Staples': 'XLP',
+  Materials: 'XLB',
+  'Real Estate': 'XLRE',
+  Utilities: 'XLU',
+};
+
 function buildEdgeFunctionUrl(): string {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   if (supabaseUrl) {
@@ -509,26 +523,55 @@ function buildDirectScannerStock(
   };
 }
 
-function buildSectorStatusesFromIndicators(stocks: EvaluatedStock[]): SectorStatus[] {
-  const grouped = new Map<string, EvaluatedStock[]>();
-  for (const stock of stocks) {
-    const bucket = grouped.get(stock.sector) ?? [];
-    bucket.push(stock);
-    grouped.set(stock.sector, bucket);
+function buildSectorStatusesFromDailyPriceRows(priceRows: DailyPriceRow[]): SectorStatus[] {
+  const grouped = new Map<string, DailyPriceRow[]>();
+  for (const sector of Object.keys(MARKET_HEATMAP_SECTOR_ETFS)) {
+    grouped.set(sector, []);
   }
 
-  return [...grouped.entries()].map(([sector, sectorStocks]) => {
-    const total = sectorStocks.length || 1;
-    const bullishCount = sectorStocks.filter((stock) => stock.gate.priceAboveMA50 && stock.gate.priceAboveMA150).length;
-    const bearishCount = sectorStocks.filter((stock) => !stock.gate.priceAboveMA50 && !stock.gate.priceAboveMA150).length;
-    const breadthScore = ((bullishCount - bearishCount) / total) * 3;
+  for (const row of priceRows) {
+    if (!row.symbol || !row.date) continue;
+    for (const [sector, etf] of Object.entries(MARKET_HEATMAP_SECTOR_ETFS)) {
+      if (row.symbol === etf) {
+        const bucket = grouped.get(sector) ?? [];
+        bucket.push(row);
+        grouped.set(sector, bucket);
+      }
+    }
+  }
+
+  return [...grouped.entries()].map(([sector, prices]) => {
+    const sorted = [...prices]
+      .filter((row) => typeof row.close === 'number' && Number.isFinite(row.close))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const previous = sorted[sorted.length - 2]?.close ?? null;
+    const latest = sorted[sorted.length - 1]?.close ?? null;
+    const changePercent = previous && latest
+      ? Number((((latest - previous) / previous) * 100).toFixed(2))
+      : 0;
     return {
       sector,
-      isBullish: bullishCount / total >= 0.55,
-      changePercent: Number(breadthScore.toFixed(2)),
-      sma50AboveSma200: bullishCount >= bearishCount,
+      isBullish: changePercent > 0,
+      changePercent,
+      sma50AboveSma200: changePercent >= 0,
     };
   });
+}
+
+async function buildSectorStatusesFromDailyPrices(): Promise<SectorStatus[]> {
+  const etfSymbols = Object.values(MARKET_HEATMAP_SECTOR_ETFS);
+  const { data, error } = await (supabase as any)
+    .from('daily_prices')
+    .select('symbol, close, date')
+    .in('symbol', etfSymbols)
+    .order('symbol', { ascending: true })
+    .order('date', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return buildSectorStatusesFromDailyPriceRows((data ?? []) as DailyPriceRow[]);
 }
 
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
@@ -721,8 +764,8 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
     };
 
   // Build sector statuses
-  const derivedSectorStatuses: SectorStatus[] = Object.entries(data.sectorMap).map(([sector, etfs]) => {
-    const etfBars = data.sectorEtfBars[etfs[0]] ?? [];
+  const derivedSectorStatuses: SectorStatus[] = Object.entries(MARKET_HEATMAP_SECTOR_ETFS).map(([sector, etf]) => {
+    const etfBars = data.sectorEtfBars[etf] ?? [];
     const sorted = normalizeBarsChronologically(etfBars).bars;
     const ind = computeIndicators(sorted, sorted);
     const changePercent = computeDailyChange(sorted);
@@ -734,7 +777,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       sma50AboveSma200: ind.sma50 !== null && ind.sma200 !== null ? ind.sma50 > ind.sma200 : false,
     };
   });
-  const sectorStatuses = edgeResp.sectorStatuses?.length ? edgeResp.sectorStatuses : derivedSectorStatuses;
+  const sectorStatuses = derivedSectorStatuses;
 
   const sectorStatusMap = Object.fromEntries(sectorStatuses.map(s => [s.sector, s]));
 
@@ -877,7 +920,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     const directStocks = await fetchDirectFromSupabase();
     if (directStocks.length > 100) {
       const now = new Date().toISOString();
-      const directSectorStatuses = buildSectorStatusesFromIndicators(directStocks);
+      const directSectorStatuses = await buildSectorStatusesFromDailyPrices();
       return {
         market: {
           ...demoMarket,
