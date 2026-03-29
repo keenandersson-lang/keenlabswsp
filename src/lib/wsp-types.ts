@@ -276,6 +276,7 @@ export interface EvaluatedStock {
   scannerRecommendation?: string | null;
   scannerScore?: number | null;
   trendState?: string | null;
+  sectorBullish?: boolean;
 }
 
 export interface MarketOverview {

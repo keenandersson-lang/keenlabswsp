@@ -336,7 +336,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                         {formatSignedNumber(mansfieldValue, 1)}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.sectorAligned} /></td>
+                    <td className="px-3 py-2.5 text-center"><BoolCell value={stock.sectorBullish ?? audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
                       <WSPScoreRing score={stock.scannerScore ?? stock.score} maxScore={stock.maxScore} size={36} />
                     </td>

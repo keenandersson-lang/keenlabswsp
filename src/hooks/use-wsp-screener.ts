@@ -203,6 +203,12 @@ interface DailyPriceRow {
   date: string | null;
 }
 
+interface WspIndicatorRow {
+  symbol: string | null;
+  above_ma50: boolean | null;
+  ma50_slope: number | null;
+}
+
 interface SymbolProfileRow {
   symbol: string | null;
   canonical_sector: string | null;
@@ -230,6 +236,21 @@ const MARKET_HEATMAP_SECTOR_ETFS: Record<string, string> = {
   Materials: 'XLB',
   'Real Estate': 'XLRE',
   Utilities: 'XLU',
+};
+
+const SECTOR_ETF_MAP: Record<string, string> = {
+  Technology: 'XLK',
+  Healthcare: 'XLV',
+  Financials: 'XLF',
+  Energy: 'XLE',
+  'Consumer Discretionary': 'XLY',
+  'Consumer Staples': 'XLP',
+  Industrials: 'XLI',
+  Materials: 'XLB',
+  'Real Estate': 'XLRE',
+  Utilities: 'XLU',
+  'Communication Services': 'XLC',
+  'Metals & Mining': 'XME',
 };
 
 function getScannerPatternPriority(stock: EvaluatedStock): number {
@@ -401,6 +422,7 @@ function buildDirectScannerStock(
   payload: ScannerPayload | null,
   profile: SymbolProfileRow | null,
   latestPriceBySymbol: Record<string, number>,
+  sectorTrends: Record<string, boolean>,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const payloadScore = typeof payload?.wsp_score === 'number' && Number.isFinite(payload.wsp_score) ? payload.wsp_score : null;
@@ -558,8 +580,35 @@ function buildDirectScannerStock(
     scannerRecommendation: row.recommendation,
     scannerScore,
     trendState: row.trend_state,
+    sectorBullish: sectorTrends[normalizedSector] ?? false,
     ...(hasWspIndicators ? { lastUpdated: updatedAt } : {}),
   };
+}
+
+async function fetchSectorTrends(): Promise<Record<string, boolean>> {
+  const etfSymbols = [...new Set(Object.values(SECTOR_ETF_MAP))];
+  const { data, error } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('symbol, above_ma50, ma50_slope')
+    .in('symbol', etfSymbols)
+    .order('calc_date', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const latestTrendByEtf = new Map<string, boolean>();
+  for (const row of (data ?? []) as WspIndicatorRow[]) {
+    const symbol = row.symbol ?? '';
+    if (!symbol || latestTrendByEtf.has(symbol)) continue;
+    const aboveMa50 = Boolean(row.above_ma50);
+    const ma50Slope = typeof row.ma50_slope === 'number' && Number.isFinite(row.ma50_slope) ? row.ma50_slope : null;
+    latestTrendByEtf.set(symbol, aboveMa50 && ma50Slope !== null && ma50Slope > 0);
+  }
+
+  return Object.fromEntries(
+    Object.entries(SECTOR_ETF_MAP).map(([sector, etf]) => [sector, latestTrendByEtf.get(etf) ?? false]),
+  );
 }
 
 function buildSectorStatusesFromDailyPriceRows(priceRows: DailyPriceRow[]): SectorStatus[] {
@@ -614,6 +663,7 @@ async function buildSectorStatusesFromDailyPrices(): Promise<SectorStatus[]> {
 }
 
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
+  const sectorTrends = await fetchSectorTrends();
   const { data, error } = await (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
@@ -716,6 +766,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
         rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
         row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
         latestPriceBySymbol,
+        sectorTrends,
       );
     })
     .filter((stock): stock is EvaluatedStock => stock !== null);
