@@ -23,6 +23,7 @@ interface StockChartModuleProps {
   asOfIndex: number;
   onAsOfIndexChange: (value: number) => void;
   dataState?: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
+  hideBlockers?: boolean;
 }
 
 const TIMEFRAMES: ChartTimeframe[] = ['1D', '1W', '1M', '3M', '6M', '1Y', '2Y'];
@@ -59,6 +60,7 @@ export const StockChartModule = memo(function StockChartModule({
   asOfIndex,
   onAsOfIndexChange,
   dataState = 'LIVE',
+  hideBlockers = false,
 }: StockChartModuleProps) {
   const [showBollinger, setShowBollinger] = useState(false);
 
@@ -198,7 +200,7 @@ export const StockChartModule = memo(function StockChartModule({
         <span className={`rounded border px-1.5 py-0.5 ${dataState === 'LIVE' ? 'border-signal-buy/25 bg-signal-buy/10 text-signal-buy' : 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution'}`}>
           {dataState}
         </span>
-        {stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-1.5 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
+        {!hideBlockers && stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-1.5 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
         {currentPrice !== null && (
           <span className="ml-auto rounded border border-primary/20 bg-primary/5 px-2 py-0.5 text-primary font-semibold">
             ${currentPrice.toFixed(2)}
