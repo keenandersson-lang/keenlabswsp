@@ -1083,132 +1083,112 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
       },
     };
   };
+
+  const now = new Date().toISOString();
   try {
     const directStocks = await fetchDirectFromSupabase();
-    if (directStocks.length > 100) {
-      const now = new Date().toISOString();
-      const directSectorStatuses = await buildSectorStatusesFromDailyPrices();
-      return {
-        market: {
-          ...demoMarket,
-          dataSource: 'live',
-          benchmarkState: 'stale',
-          benchmarkLastUpdated: now,
-          lastUpdated: now,
-          pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+    const directSectorStatuses = await buildSectorStatusesFromDailyPrices();
+    return {
+      market: {
+        ...demoMarket,
+        dataSource: 'live',
+        benchmarkState: 'stale',
+        benchmarkLastUpdated: now,
+        lastUpdated: now,
+        pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+      },
+      stocks: directStocks,
+      ...buildDiscoverySnapshot(directStocks, 'LIVE'),
+      sectorStatuses: directSectorStatuses,
+      providerStatus: {
+        provider: 'finnhub',
+        isLive: true,
+        uiState: 'LIVE',
+        lastFetch: now,
+        failedSymbols: [],
+        successCount: directStocks.length,
+        errorMessage: null,
+        isFallback: false,
+        fallbackActive: false,
+        symbolCount: qualifiedScanCount ?? directStocks.length,
+        benchmarkSymbol: WSP_CONFIG.benchmark,
+        benchmarkFetchStatus: 'stale',
+        refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+        readiness: {
+          envVarPresent: true,
+          routeReachable: true,
+          benchmarkSymbolConfigured: true,
+          trackedSymbolsCount: qualifiedScanCount ?? directStocks.length,
+          symbolsFetchedSuccessfully: directStocks.length,
+          symbolsFailed: 0,
+          lastSuccessfulLiveFetch: now,
         },
-        stocks: directStocks,
-        ...buildDiscoverySnapshot(directStocks, 'LIVE'),
-        sectorStatuses: directSectorStatuses,
-        providerStatus: {
-          provider: 'finnhub',
-          isLive: true,
-          uiState: 'LIVE',
-          lastFetch: now,
-          failedSymbols: [],
-          successCount: directStocks.length,
-          errorMessage: null,
-          isFallback: false,
-          fallbackActive: false,
-          symbolCount: qualifiedScanCount ?? directStocks.length,
-          benchmarkSymbol: WSP_CONFIG.benchmark,
-          benchmarkFetchStatus: 'stale',
-          refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
-          readiness: {
-            envVarPresent: true,
-            routeReachable: true,
-            benchmarkSymbolConfigured: true,
-            trackedSymbolsCount: qualifiedScanCount ?? directStocks.length,
-            symbolsFetchedSuccessfully: directStocks.length,
-            symbolsFailed: 0,
-            lastSuccessfulLiveFetch: now,
-          },
-          runtimeDiagnostics: {
-            envKeyPresent: true,
-            edgeFunctionReachable: false,
-            fetchTarget: 'supabase:market_scan_results_latest',
-            authOutcome: 'success',
-            benchmarkFetch: 'stale',
-            routeVersion: 'direct_supabase_query',
-            buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
-            finalModeReason: `Direct Supabase scanner snapshot used (${directStocks.length} rows > 100 threshold).`,
-            fallbackCause: 'none',
-          },
+        runtimeDiagnostics: {
+          envKeyPresent: true,
+          edgeFunctionReachable: false,
+          fetchTarget: 'supabase:market_scan_results_latest',
+          authOutcome: 'success',
+          benchmarkFetch: 'stale',
+          routeVersion: 'direct_supabase_query',
+          buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+          finalModeReason: `Direct Supabase scanner snapshot used (${directStocks.length} rows).`,
+          fallbackCause: 'none',
         },
-        debugSummary: buildScreenerDebugSummary(directStocks),
-      };
-    }
+      },
+      debugSummary: buildScreenerDebugSummary(directStocks),
+    };
   } catch {
-    // Intentionally ignored: if direct query fails, fall back to edge function path.
-  }
-
-  let edgeResp: EdgeFunctionResponse;
-  const edgeFunctionUrl = buildEdgeFunctionUrl();
-  let fetchDiagnostics: FetchDiagnostics = {
-    target: isDevMode() ? '/api/wsp-screener' : (edgeFunctionUrl || 'missing_supabase_function_url'),
-    reachable: false,
-    statusCode: null,
-    authOutcome: 'unknown',
-  };
-
-  if (isDevMode()) {
-    // In dev mode, prefer edge function (same source-of-truth as production), then fall back to Vite plugin.
-    const params = new URLSearchParams();
-    if (options?.intervalMs) params.set('intervalMs', String(options.intervalMs));
-    if (options?.forceRefresh) params.set('forceRefresh', '1');
-    const devUrl = `/api/wsp-screener${params.size > 0 ? `?${params.toString()}` : ''}`;
-
-    if (edgeFunctionUrl) {
-      const edgeFirst = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
-      edgeResp = edgeFirst.payload;
-      fetchDiagnostics = edgeFirst.diagnostics;
-      if (edgeResp.ok && edgeResp.data) {
-        return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
-      }
-    }
-
-    const devResp = await safeFetch(devUrl);
-    fetchDiagnostics = devResp.diagnostics;
-
-    // If dev server returned a full ScreenerApiResponse (not wrapped in edge payload), use it directly
-    if (!(devResp.payload as any)?.ok && (devResp.payload as any)?.providerStatus?.uiState) {
-      const raw = devResp.payload as any;
-      if (raw.market && raw.stocks && raw.providerStatus) {
-        return applyQualifiedScanCount(raw as ScreenerApiResponse);
-      }
-    }
-    edgeResp = devResp.payload;
-  } else {
-    // Production: always use edge function
-    if (!edgeFunctionUrl) {
-      edgeResp = {
-        ok: false,
-        mode: 'ERROR',
-        data: null,
-        error: { code: 'MISSING_EDGE_ENDPOINT', message: 'Supabase function endpoint is not configured in runtime environment.' },
-        providerStatus: {
-          provider: 'unknown',
-          isLive: false,
-          apiKeyPresent: false,
-          finalModeReason: 'Missing VITE_SUPABASE_URL (or project id fallback), cannot invoke wsp-screener edge function.',
-          fallbackCause: 'misconfiguration',
+    // If direct query fails, return a safe fallback payload without edge-function invocation.
+    const fallbackStocks = demoStocks.map((stock) => ({ ...stock, lastUpdated: now, dataSource: 'fallback' as const }));
+    return applyQualifiedScanCount({
+      market: {
+        ...demoMarket,
+        dataSource: 'fallback',
+        benchmarkState: 'stale',
+        benchmarkLastUpdated: now,
+        lastUpdated: now,
+      },
+      stocks: fallbackStocks,
+      ...buildDiscoverySnapshot(fallbackStocks, 'FALLBACK'),
+      sectorStatuses: [],
+      providerStatus: {
+        provider: 'supabase',
+        isLive: false,
+        uiState: 'FALLBACK',
+        lastFetch: now,
+        failedSymbols: [],
+        successCount: 0,
+        errorMessage: 'Direct Supabase query failed.',
+        isFallback: true,
+        fallbackActive: true,
+        symbolCount: qualifiedScanCount ?? 0,
+        benchmarkSymbol: WSP_CONFIG.benchmark,
+        benchmarkFetchStatus: 'failed',
+        refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+        readiness: {
+          envVarPresent: true,
+          routeReachable: false,
+          benchmarkSymbolConfigured: true,
+          trackedSymbolsCount: qualifiedScanCount ?? 0,
+          symbolsFetchedSuccessfully: 0,
+          symbolsFailed: qualifiedScanCount ?? 0,
+          lastSuccessfulLiveFetch: null,
         },
-      };
-      fetchDiagnostics = {
-        target: 'missing_supabase_function_url',
-        reachable: false,
-        statusCode: null,
-        authOutcome: 'missing_client_auth',
-      };
-      return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
-    }
-
-    const efResp = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
-    edgeResp = efResp.payload;
-    fetchDiagnostics = efResp.diagnostics;
+        runtimeDiagnostics: {
+          envKeyPresent: true,
+          edgeFunctionReachable: false,
+          fetchTarget: 'supabase:market_scan_results_latest',
+          authOutcome: 'failed',
+          benchmarkFetch: 'failed',
+          routeVersion: 'direct_supabase_query',
+          buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+          finalModeReason: 'Direct Supabase scanner query failed; using local fallback dataset.',
+          fallbackCause: 'necessary',
+        },
+      },
+      debugSummary: buildScreenerDebugSummary(fallbackStocks),
+    });
   }
-
-  return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
 }
 
 export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval) {
