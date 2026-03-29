@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const ROUTE_VERSION = 'supabase-wsp-scan-results@2026-03-27.1-phase7';
 
-type Scope = 'live_default' | 'tier1_default' | 'approved_for_live_scanner' | 'review_needed' | 'broader_candidate' | 'all';
+type Scope = 'live_default' | 'tier1_default' | 'approved_for_live_scanner' | 'review_needed' | 'blocked_low_quality' | 'all';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -21,7 +21,7 @@ Deno.serve(async (req: Request) => {
 
     const url = new URL(req.url);
     const scopeParam = (url.searchParams.get('scope') ?? 'live_default') as Scope;
-    const supportedScopes: Scope[] = ['live_default', 'tier1_default', 'approved_for_live_scanner', 'review_needed', 'broader_candidate', 'all'];
+    const supportedScopes: Scope[] = ['live_default', 'tier1_default', 'approved_for_live_scanner', 'review_needed', 'blocked_low_quality', 'all'];
     const scope: Scope = supportedScopes.includes(scopeParam) ? scopeParam : 'live_default';
 
     const limitParam = Number(url.searchParams.get('limit') ?? '250');
@@ -31,13 +31,16 @@ Deno.serve(async (req: Request) => {
       .from('market_scan_results_latest')
       .select('*')
       .order('score', { ascending: false })
-      .order('scan_timestamp', { ascending: false })
+      .order('symbol', { ascending: true })
       .limit(limit);
 
     if (scope === 'live_default') {
-      query = query.in('promotion_status', ['tier1_default', 'approved_for_live_scanner']);
+      query = query.or('is_tier1_default.eq.true,approved_for_live_scanner.eq.true');
     } else if (scope !== 'all') {
-      query = query.eq('promotion_status', scope);
+      if (scope === 'tier1_default') query = query.eq('is_tier1_default', true);
+      else if (scope === 'approved_for_live_scanner') query = query.eq('approved_for_live_scanner', true);
+      else if (scope === 'review_needed') query = query.eq('review_needed', true);
+      else if (scope === 'blocked_low_quality') query = query.eq('blocked_low_quality', true);
     }
 
     const { data, error } = await query;
@@ -49,13 +52,34 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    let results = data ?? [];
+    if (results.length === 0) {
+      const fallback = await supabase
+        .from('symbols')
+        .select('symbol, sector, industry')
+        .eq('is_active', true)
+        .order('symbol', { ascending: true })
+        .limit(limit);
+      if (!fallback.error && fallback.data) {
+        results = fallback.data.map((row: { symbol: string; sector?: string | null; industry?: string | null }) => ({
+          symbol: row.symbol,
+          sector: row.sector ?? null,
+          industry: row.industry ?? null,
+          pattern: null,
+          recommendation: null,
+          score: null,
+          trend_state: null,
+        }));
+      }
+    }
+
     const { data: operatorSnapshot, error: snapshotError } = await supabase.rpc('scanner_operator_snapshot');
 
     return jsonResponse(200, {
       ok: true,
       scope,
-      count: data?.length ?? 0,
-      results: data ?? [],
+      count: results.length,
+      results,
       operator: snapshotError ? null : operatorSnapshot,
       routeVersion: ROUTE_VERSION,
     });

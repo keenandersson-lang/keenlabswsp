@@ -13,7 +13,8 @@ interface StockTableProps {
   discoveryMeta?: DiscoveryMeta;
 }
 
-type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | 'all' | 'valid-wsp';
+type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base';
+type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
 type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
 const blockedReasonFilters: WSPBlockedReason[] = [
@@ -49,6 +50,10 @@ const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'BASE', label: 'Base' },
   { value: 'TIRED', label: 'Tired' },
   { value: 'DOWNHILL', label: 'Downhill' },
+  { value: 'climbing', label: 'climbing' },
+  { value: 'base_or_climbing', label: 'base_or_climbing' },
+  { value: 'base', label: 'base' },
+  { value: 'downhill', label: 'downhill' },
   { value: 'BEVAKA', label: 'Bevaka' },
   { value: 'SÄLJ', label: 'Sälj' },
   { value: 'UNDVIK', label: 'Undvik' },
@@ -102,9 +107,11 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
       }
       if (filter === 'all') return true;
       if (filter === 'valid-wsp') return stock.isValidWspEntry;
-      if (filter === 'KÖP' || filter === 'BEVAKA' || filter === 'SÄLJ' || filter === 'UNDVIK') return stock.finalRecommendation === filter;
+      if (filter === 'KÖP' || filter === 'BEVAKA' || filter === 'SÄLJ' || filter === 'UNDVIK') {
+        return (stock.scannerRecommendation ?? stock.finalRecommendation) === filter;
+      }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
-      return stock.pattern === filter;
+      return (stock.scannerPattern ?? stock.pattern) === filter;
     })
     .sort((a, b) => {
       const dir = sortDir === 'desc' ? -1 : 1;
@@ -216,6 +223,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                 <span className="flex items-center gap-1">Score <SortIcon col="score" /></span>
               </th>
               <th className="w-[120px] px-3 py-3">Signal</th>
+              <th className="w-[100px] px-3 py-3">Trend</th>
             </tr>
           </thead>
           <tbody>
@@ -261,7 +269,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                         {formatPercent(stock.changePercent)}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5"><PatternBadge pattern={stock.pattern} /></td>
+                    <td className="px-3 py-2.5">{renderScannerPattern(stock)}</td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.above50MA} /></td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.slope50Positive} /></td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.above150MA} /></td>
@@ -279,18 +287,21 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                     </td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
-                      <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={36} />
+                      <WSPScoreRing score={stock.scannerScore ?? stock.score} maxScore={stock.maxScore} size={36} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="space-y-1">
-                        <RecommendationBadge recommendation={stock.finalRecommendation} />
+                        {renderScannerRecommendation(stock)}
                         {hasPartialData && <span className="inline-flex rounded border border-signal-caution/30 bg-signal-caution/10 px-1.5 py-0.5 text-[10px] font-medium text-signal-caution">Partial data</span>}
                       </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="text-[10px] font-mono text-muted-foreground">{stock.trendState ?? '—'}</span>
                     </td>
                   </tr>
                   {expandedTicker === stock.symbol && (
                     <tr className="border-b border-border bg-muted/20">
-                      <td colSpan={13} className="px-4 py-4">
+                      <td colSpan={14} className="px-4 py-4">
                         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_1fr_1fr]">
                           <div className="space-y-4">
                             <div>
@@ -574,4 +585,35 @@ function formatIndicatorWarnings(warnings: IndicatorWarning[] | undefined) {
 function formatList(values: string[] | undefined, emptyText: string) {
   if (!values || values.length === 0) return emptyText;
   return values.join(', ');
+}
+
+function renderScannerPattern(stock: EvaluatedStock) {
+  const pattern = stock.scannerPattern;
+  if (!pattern) return <PatternBadge pattern={stock.pattern} />;
+  const colorClass = pattern === 'climbing'
+    ? 'border-signal-buy/40 bg-signal-buy/10 text-signal-buy'
+    : pattern === 'base_or_climbing'
+      ? 'border-blue-400/50 bg-blue-500/10 text-blue-300'
+      : pattern === 'downhill'
+        ? 'border-signal-sell/40 bg-signal-sell/10 text-signal-sell'
+        : 'border-muted-foreground/30 bg-muted/30 text-muted-foreground';
+
+  return (
+    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide ${colorClass}`}>
+      {pattern}
+    </span>
+  );
+}
+
+function renderScannerRecommendation(stock: EvaluatedStock) {
+  const recommendation = stock.scannerRecommendation;
+  if (!recommendation) return <RecommendationBadge recommendation={stock.finalRecommendation} />;
+  if (recommendation === 'KÖP' || recommendation === 'BEVAKA' || recommendation === 'UNDVIK' || recommendation === 'SÄLJ') {
+    return <RecommendationBadge recommendation={recommendation} />;
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-muted-foreground/40 bg-muted/30 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+      {recommendation}
+    </span>
+  );
 }

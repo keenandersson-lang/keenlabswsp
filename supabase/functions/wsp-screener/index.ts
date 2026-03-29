@@ -15,6 +15,10 @@ interface SymbolMeta {
   name: string;
   sector: string;
   industry: string;
+  pattern?: string;
+  recommendation?: string;
+  trendState?: string;
+  scannerScore?: number | null;
   assetClass?: string;
   exchange?: string;
   supportsFullWsp?: boolean;
@@ -36,8 +40,6 @@ interface Bar {
 // ── In-memory quote cache ──
 const quoteCache = new Map<string, { price: number; change: number; changePercent: number; high: number; low: number; open: number; prevClose: number; timestamp: number; fetchedAt: number }>();
 const QUOTE_CACHE_TTL_MS = 2 * 60 * 1000;
-const LIVE_SCANNER_PROMOTION_STATUSES = ['tier1_default', 'approved_for_live_scanner'] as const;
-
 function getCachedQuote(symbol: string) {
   const cached = quoteCache.get(symbol);
   if (!cached) return null;
@@ -114,11 +116,10 @@ const TRACKED_SYMBOLS: SymbolMeta[] = [
 async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
   const { data: latestRows, error } = await supabase
     .from('market_scan_results_latest')
-    .select('symbol, sector, industry, promotion_status, score')
-    .in('promotion_status', [...LIVE_SCANNER_PROMOTION_STATUSES])
+    .select('symbol, sector, industry, pattern, recommendation, trend_state, score, payload')
     .order('score', { ascending: false })
-    .order('scan_timestamp', { ascending: false })
-    .limit(1000);
+    .order('symbol', { ascending: true })
+    .limit(10000);
 
   if (error || !latestRows?.length) {
     console.warn('wsp-screener cohort fallback to TRACKED_SYMBOLS', error?.message ?? 'empty cohort');
@@ -142,6 +143,12 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
       name: meta?.name ?? symbol,
       sector: row?.sector ?? 'Unknown',
       industry: row?.industry ?? 'Unknown',
+      pattern: row?.pattern ?? null,
+      recommendation: row?.recommendation ?? null,
+      trendState: row?.trend_state ?? null,
+      scannerScore: Number.isFinite(Number(row?.score))
+        ? Number(row?.score)
+        : (Number.isFinite(Number(row?.payload?.wsp_score)) ? Number(row?.payload?.wsp_score) : null),
       assetClass: isEquity ? 'equity' : 'commodity',
       exchange: meta?.exchange ?? 'UNKNOWN',
       supportsFullWsp: isEquity,
