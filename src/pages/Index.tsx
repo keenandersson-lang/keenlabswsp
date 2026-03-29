@@ -88,9 +88,7 @@ const Index = () => {
       const { data: topSetupsData, error: topSetupsError } = await supabase
         .from('market_scan_results_latest')
         .select('symbol, pattern, recommendation, score, sector, industry, payload')
-        .eq('pattern', 'climbing')
-        .order('score', { ascending: false })
-        .limit(10);
+        .eq('pattern', 'climbing');
 
       console.log('TOP SETUPS DATA:', topSetupsData);
       console.log('TOP SETUPS ERROR:', topSetupsError);
@@ -107,7 +105,27 @@ const Index = () => {
         return;
       }
 
-      const mappedTopSetups = topSetupsData.flatMap((row) => {
+      const sortedTopSetups = (topSetupsData ?? [])
+        .filter((row) => {
+          const payload = (row.payload ?? {}) as Record<string, unknown>;
+          const price = typeof payload.price === 'number'
+            ? payload.price
+            : typeof payload.currentClose === 'number'
+              ? payload.currentClose
+              : typeof payload.current_close === 'number'
+                ? payload.current_close
+                : 0;
+          return price >= 5.0;
+        })
+        .sort((a, b) => {
+          if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+          const volA = Number((a.payload as Record<string, unknown> | null)?.volume_ratio ?? 0);
+          const volB = Number((b.payload as Record<string, unknown> | null)?.volume_ratio ?? 0);
+          return volB - volA;
+        })
+        .slice(0, 10);
+
+      const mappedTopSetups = sortedTopSetups.flatMap((row) => {
         if (!row.symbol) return [];
 
         const payload = (row.payload ?? {}) as Record<string, unknown>;
