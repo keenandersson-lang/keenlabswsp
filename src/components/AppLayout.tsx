@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X } from 'lucide-react';
 import { useSymbolSearch } from '@/hooks/use-symbol-search';
-import { MarketTickerStrip } from '@/components/MarketTickerStrip';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: Layers },
@@ -45,8 +44,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <MarketTickerStrip />
-
       <div className="flex flex-1 min-h-0">
       <aside
         className={`hidden md:flex flex-col border-r border-border bg-sidebar shrink-0 transition-all duration-200 ${
