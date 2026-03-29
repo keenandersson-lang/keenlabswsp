@@ -185,6 +185,8 @@ interface DirectScannerRow {
 }
 
 interface ScannerPayload {
+  current_close?: number | null;
+  close?: number | null;
   ma50?: number | null;
   ma150?: number | null;
   ma50_slope?: number | null;
@@ -398,7 +400,6 @@ function buildDirectScannerStock(
   row: DirectScannerRow,
   nowIso: string,
   payload: ScannerPayload | null,
-  latestPrice: DailyPriceRow | null,
   profile: SymbolProfileRow | null,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
@@ -429,13 +430,12 @@ function buildDirectScannerStock(
     ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
     ?? profile?.industry
     ?? 'Unknown';
-  const currentPrice = typeof latestPrice?.close === 'number' && Number.isFinite(latestPrice.close)
-    ? latestPrice.close
-    : 0;
+  const rawPrice = payload?.current_close ?? payload?.close ?? payload?.ma50 ?? 0;
+  const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
   const changePercent = typeof payload?.pct_change_1d === 'number' && Number.isFinite(payload.pct_change_1d)
     ? Number(payload.pct_change_1d.toFixed(2))
     : 0;
-  const updatedAt = latestPrice?.date ?? row.scan_date ?? nowIso;
+  const updatedAt = row.scan_date ?? nowIso;
 
   return {
     symbol: row.symbol,
@@ -627,7 +627,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const allRows = rows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
   const symbols = [...new Set(allRows.map((row) => row.symbol))];
   const payloadBySymbol = new Map<string, ScannerPayload>();
-  const latestPriceBySymbol = new Map<string, DailyPriceRow>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
   if (symbols.length > 0) {
@@ -647,29 +646,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
 
     for (const [symbol, meta] of latestPayloadMetaBySymbol.entries()) {
       payloadBySymbol.set(symbol, meta.payload);
-    }
-
-    const top50 = allRows.slice(0, 50).map((row) => row.symbol);
-    const priceResults = await Promise.all(
-      top50.map(async (sym) => {
-        try {
-          const { data } = await (supabase as any)
-            .from('daily_prices')
-            .select('symbol, close, date')
-            .eq('symbol', sym)
-            .order('date', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          return data as DailyPriceRow | null;
-        } catch {
-          return null;
-        }
-      })
-    );
-
-    for (const priceRow of priceResults) {
-      if (!priceRow?.symbol || latestPriceBySymbol.has(priceRow.symbol)) continue;
-      latestPriceBySymbol.set(priceRow.symbol, priceRow);
     }
 
     const { data: profileRows, error: profileError } = await (supabase as any)
@@ -710,7 +686,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
         row,
         nowIso,
         rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
-        row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
         row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
       );
     })
