@@ -154,9 +154,9 @@ export default function Admin() {
   } = useQuery({
     queryKey: ['admin-live-scanner-funnel'],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_live_scanner_funnel_snapshot');
+      const { data, error } = await supabase.rpc('scanner_operator_snapshot');
       if (error) throw error;
-      return data as LiveScannerFunnelSnapshot;
+      return data as unknown as LiveScannerFunnelSnapshot;
     },
     refetchInterval: 30000,
   });
