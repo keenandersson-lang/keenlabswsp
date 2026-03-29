@@ -68,13 +68,15 @@ export function buildSectorHeatmap(
 
   return [...bySector.entries()]
     .map(([sector, items]) => {
-      const avgChange = avg(items.map((s) => s.changePercent));
+      const status = statusMap.get(sector);
+      const avgChange = status && uiState !== 'FALLBACK'
+        ? status.changePercent
+        : avg(items.map((s) => s.changePercent));
       const bullishRatio = ratio(items.filter((s) => isConstructiveStock(s)).length, items.length);
       const breakoutRatio = ratio(items.filter((s) => isStrictBreakout(s)).length, items.length);
       const baseStrength = normalizeStrengthScore(avgChange, bullishRatio, breakoutRatio);
       const samplePenalty = items.length >= 4 ? 0 : (4 - items.length) * 6;
       const strengthScore = clamp(baseStrength - samplePenalty, 0, 100);
-      const status = statusMap.get(sector);
       const valueMode: RankValueMode = status && uiState !== 'FALLBACK' ? 'proxy_return' : 'tracked_strength';
       const displayValue = valueMode === 'proxy_return' ? status!.changePercent : strengthScore;
       const confidence = confidenceFromSample(items.length, uiState);
