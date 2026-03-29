@@ -631,13 +631,22 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
   if (symbols.length > 0) {
+    const latestPayloadMetaBySymbol = new Map<string, { payload: ScannerPayload; scanDate: string }>();
     for (const row of rows) {
-      if (!row.symbol || payloadBySymbol.has(row.symbol)) continue;
+      if (!row.symbol) continue;
       const payload = row.payload && typeof row.payload === 'object'
         ? row.payload as ScannerPayload
         : null;
       if (!payload) continue;
-      payloadBySymbol.set(row.symbol, payload);
+      const currentScanDate = row.scan_date ?? '';
+      const existing = latestPayloadMetaBySymbol.get(row.symbol);
+      if (!existing || currentScanDate > existing.scanDate) {
+        latestPayloadMetaBySymbol.set(row.symbol, { payload, scanDate: currentScanDate });
+      }
+    }
+
+    for (const [symbol, meta] of latestPayloadMetaBySymbol.entries()) {
+      payloadBySymbol.set(symbol, meta.payload);
     }
 
     const top50 = allRows.slice(0, 50).map((row) => row.symbol);
@@ -692,13 +701,18 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
       if (volumeDiff !== 0) return volumeDiff;
       return String(left.symbol ?? '').localeCompare(String(right.symbol ?? ''));
     })
-    .map((row) => buildDirectScannerStock(
-      row,
-      nowIso,
-      row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null,
-      row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
-      row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
-    ))
+    .map((row) => {
+      const rowPayload = row.payload && typeof row.payload === 'object'
+        ? row.payload as ScannerPayload
+        : null;
+      return buildDirectScannerStock(
+        row,
+        nowIso,
+        rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
+        row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
+        row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
+      );
+    })
     .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
