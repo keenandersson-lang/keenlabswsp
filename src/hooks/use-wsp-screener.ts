@@ -180,6 +180,7 @@ interface DirectScannerRow {
 }
 
 interface ScannerPayload {
+  close?: number | null;
   ma50?: number | null;
   ma150?: number | null;
   ma50_slope?: string | null;
@@ -190,21 +191,6 @@ interface ScannerPayload {
   wsp_pattern?: string | null;
   wsp_score?: number | null;
   pct_change_1d?: number | null;
-}
-
-interface DailyPriceRow {
-  symbol: string | null;
-  close: number | null;
-  date: string | null;
-}
-
-function chunkArray<T>(items: T[], size: number): T[][] {
-  if (size <= 0) return [items];
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 }
 
 interface WspIndicatorRow {
@@ -440,7 +426,6 @@ function buildDirectScannerStock(
   payload: ScannerPayload | null,
   profile: SymbolProfileRow | null,
   symbolNames: Record<string, string>,
-  latestPriceBySymbol: Record<string, number>,
   sectorTrends: Record<string, boolean>,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
@@ -473,7 +458,7 @@ function buildDirectScannerStock(
     ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
     ?? profile?.industry
     ?? 'Unknown';
-  const rawPrice = row.symbol ? latestPriceBySymbol[row.symbol] ?? Number(p.ma50) ?? 0 : Number(p.ma50) ?? 0;
+  const rawPrice = Number(p.close ?? p.ma50 ?? 0);
   const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
   const changePercent = typeof p.pct_change_1d === 'number' && Number.isFinite(p.pct_change_1d)
     ? Number(p.pct_change_1d.toFixed(2))
@@ -632,55 +617,17 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
   );
 }
 
-function buildSectorStatusesFromDailyPriceRows(priceRows: DailyPriceRow[]): SectorStatus[] {
-  const grouped = new Map<string, DailyPriceRow[]>();
-  for (const sector of Object.keys(MARKET_HEATMAP_SECTOR_ETFS)) {
-    grouped.set(sector, []);
-  }
-
-  for (const row of priceRows) {
-    if (!row.symbol || !row.date) continue;
-    for (const [sector, etf] of Object.entries(MARKET_HEATMAP_SECTOR_ETFS)) {
-      if (row.symbol === etf) {
-        const bucket = grouped.get(sector) ?? [];
-        bucket.push(row);
-        grouped.set(sector, bucket);
-      }
-    }
-  }
-
-  return [...grouped.entries()].map(([sector, prices]) => {
-    const sorted = [...prices]
-      .filter((row) => typeof row.close === 'number' && Number.isFinite(row.close))
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const previous = sorted[sorted.length - 2]?.close ?? null;
-    const latest = sorted[sorted.length - 1]?.close ?? null;
-    const changePercent = previous && latest
-      ? Number((((latest - previous) / previous) * 100).toFixed(2))
-      : 0;
+async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
+  const sectorTrends = await fetchSectorTrends();
+  return Object.keys(MARKET_HEATMAP_SECTOR_ETFS).map((sector) => {
+    const isBullish = sectorTrends[sector] ?? false;
     return {
       sector,
-      isBullish: changePercent > 0,
-      changePercent,
-      sma50AboveSma200: changePercent >= 0,
+      isBullish,
+      changePercent: 0,
+      sma50AboveSma200: isBullish,
     };
   });
-}
-
-async function buildSectorStatusesFromDailyPrices(): Promise<SectorStatus[]> {
-  const etfSymbols = Object.values(MARKET_HEATMAP_SECTOR_ETFS);
-  const { data, error } = await (supabase as any)
-    .from('daily_prices')
-    .select('symbol, close, date')
-    .in('symbol', etfSymbols)
-    .order('symbol', { ascending: true })
-    .order('date', { ascending: false });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return buildSectorStatusesFromDailyPriceRows((data ?? []) as DailyPriceRow[]);
 }
 
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
@@ -789,40 +736,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     }
   }
 
-  const top50Symbols = allRows
-    .slice(0, 50)
-    .map((row) => row.symbol)
-    .filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0);
-
-  const latestPriceBySymbol: Record<string, number> = {};
-  if (top50Symbols.length > 0) {
-    const PRICE_BATCH_SIZE = 20;
-    const symbolChunks = chunkArray(top50Symbols, PRICE_BATCH_SIZE);
-    for (const symbolChunk of symbolChunks) {
-      const { data: priceRows, error: priceError } = await (supabase as any)
-        .from('daily_prices')
-        .select('symbol, close, date')
-        .in('symbol', symbolChunk)
-        .order('date', { ascending: false });
-
-      if (priceError) {
-        console.warn(
-          `[WSP] Failed to fetch daily prices for ${symbolChunk.length} symbols: ${priceError.message}`,
-          { failedSymbols: symbolChunk },
-        );
-        continue;
-      }
-
-      for (const row of (priceRows ?? []) as DailyPriceRow[]) {
-        if (!row.symbol) continue;
-        if (latestPriceBySymbol[row.symbol] !== undefined) continue;
-        const close = Number(row.close);
-        if (!Number.isFinite(close)) continue;
-        latestPriceBySymbol[row.symbol] = close;
-      }
-    }
-  }
-
   const nowIso = new Date().toISOString();
   return allRows
     .sort((left, right) => {
@@ -848,7 +761,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
         rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
         row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
         symbolNames,
-        latestPriceBySymbol,
         sectorTrends,
       );
     })
@@ -1136,7 +1048,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   const now = new Date().toISOString();
   try {
     const directStocks = await fetchDirectFromSupabase();
-    const directSectorStatuses = await buildSectorStatusesFromDailyPrices();
+    const directSectorStatuses = await buildSectorStatusesFromIndicators();
     return {
       market: {
         ...demoMarket,
