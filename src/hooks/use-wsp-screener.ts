@@ -726,8 +726,12 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     }));
   }
   allRows.sort((a, b) => {
+    const scoreA = Number((a.payload as ScannerPayload | null)?.wsp_score ?? 0);
+    const scoreB = Number((b.payload as ScannerPayload | null)?.wsp_score ?? 0);
     const volA = Number((a.payload as ScannerPayload | null)?.volume_ratio ?? 0);
     const volB = Number((b.payload as ScannerPayload | null)?.volume_ratio ?? 0);
+
+    if (scoreB !== scoreA) return scoreB - scoreA;
     return volB - volA;
   });
   console.log(`[WSP] Supabase direct fetch total pages: ${totalPagesFetched}`);
