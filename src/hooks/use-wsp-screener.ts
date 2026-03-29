@@ -677,43 +677,44 @@ async function buildSectorStatusesFromDailyPrices(): Promise<SectorStatus[]> {
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const sectorTrends = await fetchSectorTrends();
   const PAGE_SIZE = 1000;
-  const rows: DirectScannerRow[] = [];
+  let allRows: DirectScannerRow[] = [];
   let from = 0;
-  let hasMore = true;
+  let totalPagesFetched = 0;
 
-  while (hasMore) {
-    const to = from + PAGE_SIZE - 1;
+  while (true) {
     const { data, error } = await (supabase as any)
       .from('market_scan_results_latest')
       .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
       .in('pattern', ['climbing', 'base_or_climbing'])
-      .order('score', { ascending: false, nullsFirst: false })
-      .order('symbol', { ascending: true })
-      .range(from, to);
+      .order('payload->volume_ratio', { ascending: false, nullsFirst: false })
+      .range(from, from + PAGE_SIZE - 1);
 
     if (error) {
       throw new Error(error.message);
     }
 
     const pageRows = (data ?? []) as DirectScannerRow[];
-    rows.push(...pageRows);
-
-    if (pageRows.length < PAGE_SIZE) {
-      hasMore = false;
-    } else {
-      from += PAGE_SIZE;
+    if (pageRows.length === 0) {
+      break;
     }
+    totalPagesFetched += 1;
+    console.log(`[WSP] Supabase direct fetch page ${totalPagesFetched}: ${pageRows.length} rows`);
+    allRows = [...allRows, ...pageRows];
+    if (pageRows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
+  console.log(`[WSP] Supabase direct fetch total pages: ${totalPagesFetched}`);
+  console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
-  const allRows = rows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
-  const symbols = [...new Set(allRows.map((row) => row.symbol))];
+  const validRows = allRows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
+  const symbols = [...new Set(validRows.map((row) => row.symbol))];
   const symbolNames: Record<string, string> = {};
   const payloadBySymbol = new Map<string, ScannerPayload>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
   if (symbols.length > 0) {
     const latestPayloadMetaBySymbol = new Map<string, { payload: ScannerPayload; scanDate: string }>();
-    for (const row of rows) {
+    for (const row of allRows) {
       if (!row.symbol) continue;
       const payload = row.payload && typeof row.payload === 'object'
         ? row.payload as ScannerPayload
@@ -748,7 +749,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     }
   }
 
-  const top50Symbols = rows
+  const top50Symbols = allRows
     .slice(0, 50)
     .map((row) => row.symbol)
     .filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0);
@@ -775,7 +776,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   }
 
   const nowIso = new Date().toISOString();
-  return rows
+  return allRows
     .sort((left, right) => {
       const leftPayload = left.payload && typeof left.payload === 'object' ? left.payload as ScannerPayload : null;
       const rightPayload = right.payload && typeof right.payload === 'object' ? right.payload as ScannerPayload : null;
