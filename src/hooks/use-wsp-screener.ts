@@ -9,6 +9,7 @@ import { TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { buildDiscoverySnapshot } from '@/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '@/lib/benchmarks';
+import { supabase } from '@/integrations/supabase/client';
 
 interface QuoteData {
   price: number;
@@ -167,6 +168,18 @@ interface SafeFetchResult {
   diagnostics: FetchDiagnostics;
 }
 
+interface DirectScannerRow {
+  symbol: string | null;
+  sector: string | null;
+  industry: string | null;
+  pattern: string | null;
+  recommendation: string | null;
+  trend_state: string | null;
+  score: number | null;
+  payload: unknown | null;
+  scan_date: string | null;
+}
+
 function buildEdgeFunctionUrl(): string {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   if (supabaseUrl) {
@@ -299,6 +312,151 @@ function isSeriesBullish(bars: Bar[]): boolean {
   const ind = computeIndicators(sorted, sorted);
   const latestClose = sorted[sorted.length - 1]?.close ?? 0;
   return ind.sma50 !== null && ind.sma200 !== null && latestClose > ind.sma50 && ind.sma50 > ind.sma200;
+}
+
+function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): EvaluatedStock | null {
+  if (!row.symbol) return null;
+  const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null;
+
+  return {
+    symbol: row.symbol,
+    name: row.symbol,
+    sector: row.sector ?? 'Unknown',
+    industry: row.industry ?? 'Unknown',
+    price: 0,
+    changePercent: 0,
+    volume: 0,
+    pattern: 'BASE',
+    indicators: {
+      sma20: null,
+      sma50: null,
+      sma150: null,
+      sma200: null,
+      sma50Slope: null,
+      sma50SlopeDirection: 'flat',
+      resistanceZone: null,
+      resistanceUpperBound: null,
+      resistanceTouches: 0,
+      resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+      resistanceTouchIndices: [],
+      resistanceMostRecentTouchDate: null,
+      breakoutLevel: null,
+      currentClose: null,
+      breakoutCloseDelta: null,
+      closeAboveResistancePct: null,
+      breakoutConfirmed: false,
+      breakoutQualityPass: false,
+      breakoutQualityReasons: [],
+      breakoutClv: null,
+      recentFalseBreakoutsCount: 0,
+      barsSinceBreakout: null,
+      breakoutStale: false,
+      averageVolumeReference: null,
+      volumeMultiple: null,
+      mansfieldRS: null,
+      mansfieldRSPrev: null,
+      mansfieldRSTrend: 'flat',
+      mansfieldTransition: false,
+      mansfieldUptrend: false,
+      mansfieldValid: false,
+      indicatorWarnings: [],
+      chronologyNormalized: false,
+    },
+    gate: {
+      isValidWspEntry: false,
+      priceAboveMA50: false,
+      ma50Rising: false,
+      priceAboveMA150: false,
+      breakoutValid: false,
+      breakoutFresh: false,
+      volumeSufficient: false,
+      mansfieldValid: false,
+      sectorAligned: false,
+      marketFavorable: false,
+      patternAllowsEntry: false,
+    },
+    isValidWspEntry: false,
+    finalRecommendation: 'BEVAKA',
+    audit: {
+      pattern: 'BASE',
+      finalRecommendation: 'BEVAKA',
+      isValidWspEntry: false,
+      above50MA: false,
+      above150MA: false,
+      slope50Positive: false,
+      sma20: null,
+      sma50: null,
+      sma150: null,
+      sma200: null,
+      sma50SlopeValue: null,
+      sma50SlopeDirection: 'flat',
+      breakoutValid: false,
+      breakoutStale: false,
+      breakoutQualityPass: false,
+      breakoutQualityReasons: [],
+      resistanceLevel: null,
+      resistanceUpperBound: null,
+      resistanceTouches: 0,
+      resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+      resistanceMostRecentTouchDate: null,
+      breakoutLevel: null,
+      currentClose: null,
+      breakoutCloseDelta: null,
+      closeAboveResistancePct: null,
+      breakoutClv: null,
+      recentFalseBreakoutsCount: 0,
+      breakoutAgeBars: null,
+      currentVolume: 0,
+      averageVolumeReference: null,
+      volumeMultiple: null,
+      volumeValid: false,
+      mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
+      mansfieldValue: null,
+      mansfieldValuePrev: null,
+      mansfieldTrend: 'flat',
+      mansfieldUptrend: false,
+      mansfieldRecentTransition: false,
+      mansfieldValid: false,
+      staleBreakoutBars: WSP_CONFIG.wsp.staleBreakoutBars,
+      sectorAligned: false,
+      marketAligned: false,
+      chronologyNormalized: false,
+      indicatorWarnings: [],
+      score: scannerScore ?? 0,
+      blockedReasons: [],
+      exitReasons: [],
+      wspSpec: { ...WSP_CONFIG.wsp },
+    },
+    blockedReasons: [],
+    logicViolations: [],
+    score: scannerScore ?? 0,
+    maxScore: 4,
+    dataSource: 'live',
+    lastUpdated: row.scan_date ?? nowIso,
+    scannerPattern: row.pattern,
+    scannerRecommendation: row.recommendation,
+    scannerScore,
+    trendState: row.trend_state,
+  };
+}
+
+async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
+  const { data, error } = await (supabase as any)
+    .from('market_scan_results_latest')
+    .select('symbol, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
+    .order('score', { ascending: false, nullsFirst: false })
+    .order('symbol', { ascending: true })
+    .limit(2000);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as DirectScannerRow[];
+  const nowIso = new Date().toISOString();
+  return rows
+    .map((row) => buildDirectScannerStock(row, nowIso))
+    .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
 function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: FetchDiagnostics): ScreenerApiResponse {
@@ -565,6 +723,64 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
 }
 
 export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean }): Promise<ScreenerApiResponse> {
+  try {
+    const directStocks = await fetchDirectFromSupabase();
+    if (directStocks.length > 100) {
+      const now = new Date().toISOString();
+      return {
+        market: {
+          ...demoMarket,
+          dataSource: 'live',
+          benchmarkState: 'stale',
+          benchmarkLastUpdated: now,
+          lastUpdated: now,
+          pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+        },
+        stocks: directStocks,
+        ...buildDiscoverySnapshot(directStocks, 'LIVE'),
+        sectorStatuses: [],
+        providerStatus: {
+          provider: 'finnhub',
+          isLive: true,
+          uiState: 'LIVE',
+          lastFetch: now,
+          failedSymbols: [],
+          successCount: directStocks.length,
+          errorMessage: null,
+          isFallback: false,
+          fallbackActive: false,
+          symbolCount: directStocks.length,
+          benchmarkSymbol: WSP_CONFIG.benchmark,
+          benchmarkFetchStatus: 'stale',
+          refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
+          readiness: {
+            envVarPresent: true,
+            routeReachable: true,
+            benchmarkSymbolConfigured: true,
+            trackedSymbolsCount: directStocks.length,
+            symbolsFetchedSuccessfully: directStocks.length,
+            symbolsFailed: 0,
+            lastSuccessfulLiveFetch: now,
+          },
+          runtimeDiagnostics: {
+            envKeyPresent: true,
+            edgeFunctionReachable: false,
+            fetchTarget: 'supabase:market_scan_results_latest',
+            authOutcome: 'success',
+            benchmarkFetch: 'stale',
+            routeVersion: 'direct_supabase_query',
+            buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+            finalModeReason: `Direct Supabase scanner snapshot used (${directStocks.length} rows > 100 threshold).`,
+            fallbackCause: 'none',
+          },
+        },
+        debugSummary: buildScreenerDebugSummary(directStocks),
+      };
+    }
+  } catch {
+    // Intentionally ignored: if direct query fails, fall back to edge function path.
+  }
+
   let edgeResp: EdgeFunctionResponse;
   const edgeFunctionUrl = buildEdgeFunctionUrl();
   let fetchDiagnostics: FetchDiagnostics = {
