@@ -184,18 +184,16 @@ interface DirectScannerRow {
   scan_date: string | null;
 }
 
-interface WspIndicatorRow {
-  symbol: string | null;
-  ma50: number | null;
-  ma150: number | null;
-  above_ma50: boolean | null;
-  above_ma150: boolean | null;
-  volume_ratio: number | null;
-  mansfield_rs: number | null;
-  wsp_score: number | null;
-  ma50_slope: number | null;
-  pct_change_1d: number | null;
-  calc_date: string | null;
+interface ScannerPayload {
+  ma50?: number | null;
+  ma150?: number | null;
+  ma50_slope?: number | null;
+  above_ma50?: boolean | null;
+  above_ma150?: boolean | null;
+  volume_ratio?: number | null;
+  mansfield_rs?: number | null;
+  wsp_score?: number | null;
+  pct_change_1d?: number | null;
 }
 
 interface DailyPriceRow {
@@ -399,26 +397,27 @@ function isSeriesBullish(bars: Bar[]): boolean {
 function buildDirectScannerStock(
   row: DirectScannerRow,
   nowIso: string,
-  indicator: WspIndicatorRow | null,
+  payload: ScannerPayload | null,
   latestPrice: DailyPriceRow | null,
   profile: SymbolProfileRow | null,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
-  const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null;
-  const ma50 = typeof indicator?.ma50 === 'number' && Number.isFinite(indicator.ma50) ? indicator.ma50 : null;
-  const ma150 = typeof indicator?.ma150 === 'number' && Number.isFinite(indicator.ma150) ? indicator.ma150 : null;
-  const mansfieldRs = typeof indicator?.mansfield_rs === 'number' && Number.isFinite(indicator.mansfield_rs)
-    ? indicator.mansfield_rs
+  const payloadScore = typeof payload?.wsp_score === 'number' && Number.isFinite(payload.wsp_score) ? payload.wsp_score : null;
+  const scannerScore = payloadScore ?? (typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null);
+  const ma50 = typeof payload?.ma50 === 'number' && Number.isFinite(payload.ma50) ? payload.ma50 : null;
+  const ma150 = typeof payload?.ma150 === 'number' && Number.isFinite(payload.ma150) ? payload.ma150 : null;
+  const mansfieldRs = typeof payload?.mansfield_rs === 'number' && Number.isFinite(payload.mansfield_rs)
+    ? payload.mansfield_rs
     : null;
-  const volumeMultiple = typeof indicator?.volume_ratio === 'number' && Number.isFinite(indicator.volume_ratio)
-    ? indicator.volume_ratio
+  const volumeMultiple = typeof payload?.volume_ratio === 'number' && Number.isFinite(payload.volume_ratio)
+    ? payload.volume_ratio
     : null;
-  const ma50Slope = typeof indicator?.ma50_slope === 'number' && Number.isFinite(indicator.ma50_slope)
-    ? indicator.ma50_slope
+  const ma50Slope = typeof payload?.ma50_slope === 'number' && Number.isFinite(payload.ma50_slope)
+    ? payload.ma50_slope
     : null;
-  const hasWspIndicators = indicator !== null;
-  const aboveMa50 = indicator?.above_ma50 === true;
-  const aboveMa150 = indicator?.above_ma150 === true;
+  const hasWspIndicators = payload !== null;
+  const aboveMa50 = payload?.above_ma50 === true;
+  const aboveMa150 = payload?.above_ma150 === true;
   const slope50Positive = ma50Slope !== null && ma50Slope > 0;
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
@@ -433,10 +432,10 @@ function buildDirectScannerStock(
   const currentPrice = typeof latestPrice?.close === 'number' && Number.isFinite(latestPrice.close)
     ? latestPrice.close
     : 0;
-  const changePercent = typeof indicator?.pct_change_1d === 'number' && Number.isFinite(indicator.pct_change_1d)
-    ? Number(indicator.pct_change_1d.toFixed(2))
+  const changePercent = typeof payload?.pct_change_1d === 'number' && Number.isFinite(payload.pct_change_1d)
+    ? Number(payload.pct_change_1d.toFixed(2))
     : 0;
-  const updatedAt = latestPrice?.date ?? indicator?.calc_date ?? row.scan_date ?? nowIso;
+  const updatedAt = latestPrice?.date ?? row.scan_date ?? nowIso;
 
   return {
     symbol: row.symbol,
@@ -626,25 +625,18 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
 
   const rows = (data ?? []) as DirectScannerRow[];
   const symbols = [...new Set(rows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
-  const indicatorsBySymbol = new Map<string, WspIndicatorRow>();
+  const payloadBySymbol = new Map<string, ScannerPayload>();
   const latestPriceBySymbol = new Map<string, DailyPriceRow>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
   if (symbols.length > 0) {
-    const { data: indicatorRows, error: indicatorError } = await (supabase as any)
-      .from('wsp_indicators')
-      .select('symbol, ma50, ma150, above_ma50, above_ma150, volume_ratio, mansfield_rs, wsp_score, ma50_slope, pct_change_1d, calc_date')
-      .in('symbol', symbols)
-      .order('symbol', { ascending: true })
-      .order('calc_date', { ascending: false });
-
-    if (indicatorError) {
-      throw new Error(indicatorError.message);
-    }
-
-    for (const indicatorRow of (indicatorRows ?? []) as WspIndicatorRow[]) {
-      if (!indicatorRow.symbol || indicatorsBySymbol.has(indicatorRow.symbol)) continue;
-      indicatorsBySymbol.set(indicatorRow.symbol, indicatorRow);
+    for (const row of rows) {
+      if (!row.symbol || payloadBySymbol.has(row.symbol)) continue;
+      const payload = row.payload && typeof row.payload === 'object'
+        ? row.payload as ScannerPayload
+        : null;
+      if (!payload) continue;
+      payloadBySymbol.set(row.symbol, payload);
     }
 
     const { data: priceRows, error: priceError } = await (supabase as any)
@@ -679,15 +671,28 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   }
 
   const nowIso = new Date().toISOString();
-  return sortStocksForDefaultView(rows
+  return rows
+    .sort((left, right) => {
+      const leftPayload = left.payload && typeof left.payload === 'object' ? left.payload as ScannerPayload : null;
+      const rightPayload = right.payload && typeof right.payload === 'object' ? right.payload as ScannerPayload : null;
+      const leftVolume = typeof leftPayload?.volume_ratio === 'number' && Number.isFinite(leftPayload.volume_ratio)
+        ? leftPayload.volume_ratio
+        : Number.NEGATIVE_INFINITY;
+      const rightVolume = typeof rightPayload?.volume_ratio === 'number' && Number.isFinite(rightPayload.volume_ratio)
+        ? rightPayload.volume_ratio
+        : Number.NEGATIVE_INFINITY;
+      const volumeDiff = rightVolume - leftVolume;
+      if (volumeDiff !== 0) return volumeDiff;
+      return String(left.symbol ?? '').localeCompare(String(right.symbol ?? ''));
+    })
     .map((row) => buildDirectScannerStock(
       row,
       nowIso,
-      row.symbol ? indicatorsBySymbol.get(row.symbol) ?? null : null,
+      row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null,
       row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
       row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
     ))
-    .filter((stock): stock is EvaluatedStock => stock !== null));
+    .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
 function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: FetchDiagnostics): ScreenerApiResponse {
