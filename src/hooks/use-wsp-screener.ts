@@ -94,13 +94,17 @@ interface EdgeFunctionResponse {
 }
 
 function toWspPattern(value: string | null | undefined): WSPPattern {
-  switch ((value ?? '').toUpperCase()) {
-    case 'CLIMBING':
+  switch ((value ?? '').toLowerCase()) {
+    case 'climbing':
       return 'CLIMBING';
-    case 'TIRED':
-      return 'TIRED';
-    case 'DOWNHILL':
+    case 'base_or_climbing':
+      return 'BASE';
+    case 'downhill':
       return 'DOWNHILL';
+    case 'base':
+      return 'BASE';
+    case 'tired':
+      return 'TIRED';
     default:
       return 'BASE';
   }

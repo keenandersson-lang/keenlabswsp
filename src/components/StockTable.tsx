@@ -79,6 +79,24 @@ const IMPORTANT_WARNING_SET = new Set<IndicatorWarning>([
   'benchmark_dates_misaligned',
 ]);
 
+function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPPattern | null {
+  switch ((pattern ?? '').toLowerCase()) {
+    case 'climbing':
+      return 'CLIMBING';
+    case 'base_or_climbing':
+    case 'base':
+      return 'BASE';
+    case 'downhill':
+      return 'DOWNHILL';
+    default:
+      return null;
+  }
+}
+
+function getEffectiveWspPattern(stock: EvaluatedStock): WSPPattern {
+  return mapScannerPatternToWspPattern(stock.scannerPattern) ?? stock.pattern;
+}
+
 function BoolCell({ value }: { value: boolean | null | undefined }) {
   if (value == null) {
     return <span className="font-mono text-[10px] text-muted-foreground">N/A</span>;
@@ -111,7 +129,10 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
         return (stock.scannerRecommendation ?? stock.finalRecommendation) === filter;
       }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
-      return (stock.scannerPattern ?? stock.pattern) === filter;
+      if (filter === 'CLIMBING' || filter === 'BASE' || filter === 'TIRED' || filter === 'DOWNHILL') {
+        return getEffectiveWspPattern(stock) === filter;
+      }
+      return stock.scannerPattern === filter;
     })
     .sort((a, b) => {
       const dir = sortDir === 'desc' ? -1 : 1;
@@ -588,21 +609,8 @@ function formatList(values: string[] | undefined, emptyText: string) {
 }
 
 function renderScannerPattern(stock: EvaluatedStock) {
-  const pattern = stock.scannerPattern;
-  if (!pattern) return <PatternBadge pattern={stock.pattern} />;
-  const colorClass = pattern === 'climbing'
-    ? 'border-signal-buy/40 bg-signal-buy/10 text-signal-buy'
-    : pattern === 'base_or_climbing'
-      ? 'border-blue-400/50 bg-blue-500/10 text-blue-300'
-      : pattern === 'downhill'
-        ? 'border-signal-sell/40 bg-signal-sell/10 text-signal-sell'
-        : 'border-muted-foreground/30 bg-muted/30 text-muted-foreground';
-
-  return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide ${colorClass}`}>
-      {pattern}
-    </span>
-  );
+  const mappedPattern = mapScannerPatternToWspPattern(stock.scannerPattern);
+  return <PatternBadge pattern={mappedPattern ?? stock.pattern} />;
 }
 
 function renderScannerRecommendation(stock: EvaluatedStock) {

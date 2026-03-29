@@ -23,11 +23,24 @@ const config: Record<WSPPattern, { label: string; color: string; bg: string; bor
 export function PatternSummary({ stocks }: PatternSummaryProps) {
   const patterns: WSPPattern[] = ['CLIMBING', 'BASE', 'TIRED', 'DOWNHILL'];
 
+  const getPatternCount = (pattern: WSPPattern) => {
+    if (pattern === 'CLIMBING') {
+      return stocks.filter((stock) => stock.scannerPattern === 'climbing').length;
+    }
+    if (pattern === 'BASE') {
+      return stocks.filter((stock) => stock.scannerPattern === 'base' || stock.scannerPattern === 'base_or_climbing').length;
+    }
+    if (pattern === 'DOWNHILL') {
+      return stocks.filter((stock) => stock.scannerPattern === 'downhill').length;
+    }
+    return 0;
+  };
+
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {patterns.map(pattern => {
         const c = config[pattern];
-        const count = stocks.filter(s => s.pattern === pattern).length;
+        const count = getPatternCount(pattern);
         return (
           <div
             key={pattern}
