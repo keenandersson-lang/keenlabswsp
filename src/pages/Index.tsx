@@ -13,8 +13,50 @@ import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { EvaluatedStock } from '@/lib/wsp-types';
+import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
+
+interface TopSetup {
+  symbol: string;
+  sector: string;
+  industry: string;
+  pattern: WSPPattern;
+  recommendation: WSPRecommendation;
+  score: number;
+  maxScore: number;
+  name: string;
+  price: number | null;
+  changePercent: number;
+  volumeMultiple: number | null;
+}
+
+function toWspPattern(value: string | null | undefined): WSPPattern {
+  switch ((value ?? '').toLowerCase()) {
+    case 'climbing':
+      return 'CLIMBING';
+    case 'base_or_climbing':
+    case 'base':
+      return 'BASE';
+    case 'downhill':
+      return 'DOWNHILL';
+    case 'tired':
+      return 'TIRED';
+    default:
+      return 'BASE';
+  }
+}
+
+function toWspRecommendation(value: string | null | undefined, pattern: WSPPattern): WSPRecommendation {
+  const normalized = (value ?? '').toUpperCase();
+  if (normalized === 'KÖP' || normalized === 'BEVAKA' || normalized === 'SÄLJ' || normalized === 'UNDVIK') {
+    return normalized;
+  }
+
+  if (pattern === 'CLIMBING') return 'KÖP';
+  if (pattern === 'TIRED') return 'SÄLJ';
+  if (pattern === 'DOWNHILL') return 'UNDVIK';
+  return 'BEVAKA';
+}
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
@@ -40,19 +82,63 @@ const Index = () => {
     avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
   }), [stocks]);
 
-  const topSetups = useMemo(() =>
-    {
-      const climbingOnly = equityStocks.filter((stock) => stock.scannerPattern === 'climbing' || stock.pattern === 'CLIMBING');
-      const primaryPool = climbingOnly.length > 0
-        ? climbingOnly
-        : equityStocks.filter((stock) => stock.scannerPattern === 'base_or_climbing');
+  const { data: topSetups = [] } = useQuery({
+    queryKey: ['dashboard-top-setups-climbing-direct'],
+    queryFn: async (): Promise<TopSetup[]> => {
+      const { data: rows, error } = await supabase
+        .from('market_scan_results_latest')
+        .select('symbol, pattern, recommendation, score, sector, industry, payload')
+        .eq('pattern', 'climbing')
+        .order('score', { ascending: false })
+        .limit(10);
 
-      return [...primaryPool]
-        .sort((a, b) => (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY))
-        .slice(0, 10);
+      if (error) throw error;
+
+      return (rows ?? []).flatMap((row) => {
+        if (!row.symbol) return [];
+
+        const payload = (row.payload ?? {}) as Record<string, unknown>;
+        const pattern = toWspPattern(row.pattern);
+        const recommendation = toWspRecommendation(row.recommendation, pattern);
+        const maxScore = typeof payload.maxScore === 'number'
+          ? payload.maxScore
+          : typeof payload.max_score === 'number'
+            ? payload.max_score
+            : 4;
+        const price = typeof payload.price === 'number'
+          ? payload.price
+          : typeof payload.currentClose === 'number'
+            ? payload.currentClose
+            : typeof payload.current_close === 'number'
+              ? payload.current_close
+              : null;
+        const changePercent = typeof payload.changePercent === 'number'
+          ? payload.changePercent
+          : typeof payload.pct_change_1d === 'number'
+            ? payload.pct_change_1d
+            : 0;
+        const volumeMultiple = typeof payload.volumeMultiple === 'number'
+          ? payload.volumeMultiple
+          : typeof payload.volume_ratio === 'number'
+            ? payload.volume_ratio
+            : null;
+
+        return {
+          symbol: row.symbol,
+          sector: row.sector ?? 'Unknown',
+          industry: row.industry ?? 'Unknown',
+          pattern,
+          recommendation,
+          score: row.score ?? 0,
+          maxScore,
+          name: typeof payload.name === 'string' ? payload.name : row.symbol,
+          price,
+          changePercent,
+          volumeMultiple,
+        };
+      });
     },
-    [equityStocks]
-  );
+  });
 
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
@@ -164,7 +250,7 @@ const Index = () => {
             <Link key={stock.symbol} to={`/stock/${stock.symbol}`} className="rounded border border-border bg-background p-2 hover:border-primary/30 transition-colors">
               <div className="flex items-center justify-between gap-1">
                 <span className="font-mono text-[10px] font-bold text-foreground">{stock.symbol}</span>
-                <RecommendationBadge recommendation={stock.finalRecommendation} />
+                <RecommendationBadge recommendation={stock.recommendation} />
               </div>
               <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
               <div className="mt-1 flex items-center justify-between">
@@ -210,7 +296,7 @@ const Index = () => {
   );
 };
 
-function getDisplayPrice(stock: EvaluatedStock, fallbackCloseMap: Record<string, number>) {
+function getDisplayPrice(stock: TopSetup, fallbackCloseMap: Record<string, number>) {
   const candidate = typeof stock.price === 'number' && Number.isFinite(stock.price) && stock.price > 0
     ? stock.price
     : fallbackCloseMap[stock.symbol];
@@ -218,9 +304,9 @@ function getDisplayPrice(stock: EvaluatedStock, fallbackCloseMap: Record<string,
   return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function TopSetupRow({ stock, fallbackCloseMap }: { stock: EvaluatedStock; fallbackCloseMap: Record<string, number> }) {
+function TopSetupRow({ stock, fallbackCloseMap }: { stock: TopSetup; fallbackCloseMap: Record<string, number> }) {
   const positive = stock.changePercent >= 0;
-  const volumeMultiple = stock.audit?.volumeMultiple;
+  const volumeMultiple = stock.volumeMultiple;
   const displayPrice = getDisplayPrice(stock, fallbackCloseMap);
 
   return (
@@ -250,7 +336,7 @@ function TopSetupRow({ stock, fallbackCloseMap }: { stock: EvaluatedStock; fallb
         </span>
       </td>
       <td className="px-2 py-2 text-[9px] text-muted-foreground truncate max-w-[70px]">{stock.sector}</td>
-      <td className="px-2 py-2"><RecommendationBadge recommendation={stock.finalRecommendation} /></td>
+      <td className="px-2 py-2"><RecommendationBadge recommendation={stock.recommendation} /></td>
     </tr>
   );
 }
