@@ -165,7 +165,7 @@ export default function Admin() {
     queryKey: ['admin-latest-broad-scan-failure'],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
-        .from('market_scan_runs')
+        .from('market_scan_runs_safe')
         .select('id, started_at, completed_at, scan_date, run_label, status, symbols_targeted, symbols_scanned, symbols_failed, metadata')
         .eq('status', 'failed')
         .order('started_at', { ascending: false })
