@@ -8,7 +8,10 @@ const corsHeaders = {
 };
 
 const ALPACA_DATA_URL = 'https://data.alpaca.markets/v2';
-const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-27.1-cache-first';
+const ROUTE_VERSION = 'supabase-wsp-screener@2026-03-29.1-daily-prices-batched';
+const MAX_SCANNER_SYMBOLS = 5000;
+const BAR_FETCH_SYMBOL_LIMIT = 200;
+const BARS_PER_SYMBOL = 200;
 
 interface SymbolMeta {
   symbol: string;
@@ -35,6 +38,23 @@ interface Bar {
   low: number;
   close: number;
   volume: number;
+}
+
+interface WspIndicatorSnapshot {
+  symbol: string;
+  calc_date: string;
+  close: number | null;
+  ma50: number | null;
+  ma150: number | null;
+  ma50_slope: number | null;
+  above_ma50: boolean | null;
+  above_ma150: boolean | null;
+  volume: number | null;
+  volume_ratio: number | null;
+  mansfield_rs: number | null;
+  wsp_pattern: string | null;
+  wsp_score: number | null;
+  pct_change_1d: number | null;
 }
 
 // ── In-memory quote cache ──
@@ -119,7 +139,7 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
     .select('symbol, sector, industry, pattern, recommendation, trend_state, score, payload')
     .order('score', { ascending: false })
     .order('symbol', { ascending: true })
-    .limit(10000);
+    .limit(MAX_SCANNER_SYMBOLS);
 
   if (error || !latestRows?.length) {
     console.warn('wsp-screener cohort fallback to TRACKED_SYMBOLS', error?.message ?? 'empty cohort');
@@ -238,37 +258,74 @@ async function fetchAlpacaSnapshots(
 // ── Read bars from daily_prices cache ──
 async function fetchBarsFromCache(supabase: any, symbols: string[]): Promise<Record<string, Bar[]>> {
   const result: Record<string, Bar[]> = {};
-  // Fetch last 550 calendar days of data for all symbols
-  const cutoffDate = new Date();
-  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 550);
-  const cutoff = cutoffDate.toISOString().slice(0, 10);
 
-  // Batch query - daily_prices may be large, paginate
-  for (const sym of symbols) {
-    const allBars: Bar[] = [];
-    let from = 0;
-    const pageSize = 1000;
-    while (true) {
-      const { data, error } = await supabase
-        .from('daily_prices')
-        .select('date, open, high, low, close, volume')
-        .eq('symbol', sym)
-        .gte('date', cutoff)
-        .order('date', { ascending: true })
-        .range(from, from + pageSize - 1);
-      if (error || !data || data.length === 0) break;
-      allBars.push(...data.map((r: any) => ({
+  const fetchOne = async (sym: string) => {
+    const { data, error } = await supabase
+      .from('daily_prices')
+      .select('date, open, high, low, close, volume')
+      .eq('symbol', sym)
+      .order('date', { ascending: false })
+      .limit(BARS_PER_SYMBOL);
+    if (error || !data || data.length === 0) return;
+    result[sym] = data
+      .map((r: any) => ({
         date: r.date,
-        open: Number(r.open), high: Number(r.high),
-        low: Number(r.low), close: Number(r.close),
+        open: Number(r.open),
+        high: Number(r.high),
+        low: Number(r.low),
+        close: Number(r.close),
         volume: Number(r.volume),
-      })));
-      if (data.length < pageSize) break;
-      from += pageSize;
-    }
-    if (allBars.length > 0) result[sym] = allBars;
+      }))
+      .reverse();
+  };
+
+  const concurrency = 20;
+  for (let i = 0; i < symbols.length; i += concurrency) {
+    const chunk = symbols.slice(i, i + concurrency);
+    await Promise.all(chunk.map((sym) => fetchOne(sym)));
   }
+
   return result;
+}
+
+async function fetchLatestWspIndicators(supabase: any, symbols: string[]): Promise<Record<string, WspIndicatorSnapshot>> {
+  const indicatorMap: Record<string, WspIndicatorSnapshot> = {};
+  if (!symbols.length) return indicatorMap;
+
+  const chunkSize = 500;
+  for (let i = 0; i < symbols.length; i += chunkSize) {
+    const chunk = symbols.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('wsp_indicators')
+      .select('symbol, calc_date, close, ma50, ma150, ma50_slope, above_ma50, above_ma150, volume, volume_ratio, mansfield_rs, wsp_pattern, wsp_score, pct_change_1d')
+      .in('symbol', chunk)
+      .order('symbol', { ascending: true })
+      .order('calc_date', { ascending: false });
+
+    if (error || !data?.length) continue;
+
+    for (const row of data) {
+      if (indicatorMap[row.symbol]) continue;
+      indicatorMap[row.symbol] = {
+        symbol: row.symbol,
+        calc_date: row.calc_date,
+        close: row.close === null ? null : Number(row.close),
+        ma50: row.ma50 === null ? null : Number(row.ma50),
+        ma150: row.ma150 === null ? null : Number(row.ma150),
+        ma50_slope: row.ma50_slope === null ? null : Number(row.ma50_slope),
+        above_ma50: row.above_ma50,
+        above_ma150: row.above_ma150,
+        volume: row.volume === null ? null : Number(row.volume),
+        volume_ratio: row.volume_ratio === null ? null : Number(row.volume_ratio),
+        mansfield_rs: row.mansfield_rs === null ? null : Number(row.mansfield_rs),
+        wsp_pattern: row.wsp_pattern,
+        wsp_score: row.wsp_score === null ? null : Number(row.wsp_score),
+        pct_change_1d: row.pct_change_1d === null ? null : Number(row.pct_change_1d),
+      };
+    }
+  }
+
+  return indicatorMap;
 }
 
 function isDateStale(dateStr?: string): boolean {
@@ -296,17 +353,21 @@ Deno.serve(async (req: Request) => {
 
     const trackedSymbols = await fetchLiveScannerCohort(supabase);
 
-    // Collect all symbols we need bars for
+    const topSymbolsForBars = trackedSymbols.slice(0, BAR_FETCH_SYMBOL_LIMIT).map((s) => s.symbol);
+    const symbolsForIndicatorFallback = trackedSymbols.slice(BAR_FETCH_SYMBOL_LIMIT).map((s) => s.symbol);
+
+    // Collect symbols we need bars for (benchmarks + sector ETFs + top-ranked scanner symbols)
     const allEtfs = [...new Set(Object.values(SECTOR_ETFS).flat())];
     const allBarSymbols = [...new Set([
       ...MARKET_REGIME_SYMBOLS,
       ...allEtfs,
-      ...trackedSymbols.map(s => s.symbol),
+      ...topSymbolsForBars,
     ])];
 
-    // 1. Read bars from daily_prices cache (primary source)
+    // 1. Read bars from daily_prices (primary source)
     const cachedBars = await fetchBarsFromCache(supabase, allBarSymbols);
     const cachedSymbolCount = Object.keys(cachedBars).length;
+    const fallbackIndicatorMap = await fetchLatestWspIndicators(supabase, symbolsForIndicatorFallback);
 
     // 2. Fetch live quotes from Alpaca (overlay for freshness)
     let quotesMap: Record<string, any> = {};
@@ -314,7 +375,7 @@ Deno.serve(async (req: Request) => {
       const allQuoteSymbols = [...new Set([
         ...MARKET_REGIME_SYMBOLS,
         ...allEtfs,
-        ...trackedSymbols.map(s => s.symbol),
+        ...topSymbolsForBars,
       ])];
       const snapshots = await fetchAlpacaSnapshots(allQuoteSymbols, keyId, secret);
       for (const [sym, snap] of Object.entries(snapshots)) {
@@ -336,7 +397,7 @@ Deno.serve(async (req: Request) => {
     for (const sym of allEtfs) {
       if (cachedBars[sym]?.length > 0) sectorEtfBars[sym] = cachedBars[sym];
     }
-    for (const meta of trackedSymbols) {
+    for (const meta of trackedSymbols.slice(0, BAR_FETCH_SYMBOL_LIMIT)) {
       const bars = cachedBars[meta.symbol];
       if (!bars || bars.length === 0) {
         failedSymbols.push(meta.symbol);
@@ -370,6 +431,7 @@ Deno.serve(async (req: Request) => {
         trackedSymbols,
         liveScannerCohort: trackedSymbols.map((symbol) => symbol.symbol),
         stockBars: stockBarData,
+        indicatorFallback: fallbackIndicatorMap,
         benchmarkBars,
         benchmarkSymbol: BENCHMARK,
         marketBars,
@@ -392,13 +454,16 @@ Deno.serve(async (req: Request) => {
         symbolsFetched: Object.keys(stockBarData).length,
         symbolsFailed: failedSymbols.length,
         totalSymbols: trackedSymbols.length,
+        barFetchLimit: BAR_FETCH_SYMBOL_LIMIT,
+        barsPerSymbol: BARS_PER_SYMBOL,
+        fallbackIndicatorCount: Object.keys(fallbackIndicatorMap).length,
         quotesAvailable: Object.keys(quotesMap).length,
         fetchedAt: new Date().toISOString(),
         cachedSymbols: cachedSymbolCount,
         routeVersion: ROUTE_VERSION,
         benchmarkSuccessCount: MARKET_REGIME_SYMBOLS.filter(s => (cachedBars[s]?.length ?? 0) > 0).length,
         benchmarkFailureCount: MARKET_REGIME_SYMBOLS.filter(s => !(cachedBars[s]?.length > 0)).length,
-        finalModeReason: `Cache-first live cohort: ${Object.keys(stockBarData).length}/${trackedSymbols.length} symbols from daily_prices. ${Object.keys(quotesMap).length} live quotes.`,
+        finalModeReason: `Cache-first scanner cohort: ${Object.keys(stockBarData).length}/${BAR_FETCH_SYMBOL_LIMIT} top symbols with ${BARS_PER_SYMBOL} bars from daily_prices, ${Object.keys(fallbackIndicatorMap).length} indicator fallbacks, ${Object.keys(quotesMap).length} live quotes.`,
         fallbackCause: mode === 'LIVE' ? 'none' : 'necessary',
         cacheInvalidated: false,
         activeProvider: 'cache+alpaca',
