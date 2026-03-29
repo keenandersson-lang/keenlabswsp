@@ -60,6 +60,20 @@ export default function StockDetail() {
       return scannerData;
     },
   });
+  const symbolMetaQuery = useQuery({
+    queryKey: ['stock-detail-symbol-meta', requestedSymbol],
+    enabled: Boolean(requestedSymbol),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data: symbolMeta, error } = await supabase
+        .from('symbols')
+        .select('symbol, name, canonical_sector, sector')
+        .eq('symbol', requestedSymbol)
+        .single();
+      if (error) throw error;
+      return symbolMeta;
+    },
+  });
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
   const dailyPricesQuery = useQuery({
     queryKey: ['stock-detail-daily-prices', requestedSymbol],
@@ -134,6 +148,11 @@ export default function StockDetail() {
 
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
   const detailData = detailQuery.data?.data;
+  const symbolMeta = symbolMetaQuery.data;
+  const scannerData = scannerDataQuery.data;
+  const hasScannerData = Boolean(scannerData);
+  const resolvedCompanyName = scannerData?.name ?? symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
+  const resolvedSector = scannerData?.canonical_sector ?? scannerData?.sector ?? symbolMeta?.canonical_sector ?? symbolMeta?.sector ?? detailData?.sector ?? 'Unknown';
   const resolvedDailyBars = useMemo(() => {
     if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
     return detailData?.barsDaily ?? [];
@@ -178,8 +197,6 @@ export default function StockDetail() {
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
   const sectorAligned = liveStock?.gate.sectorAligned ?? false;
-  const scannerData = scannerDataQuery.data;
-  const hasScannerData = Boolean(scannerData);
   const scannerPayload = (scannerData?.payload && typeof scannerData.payload === 'object' && !Array.isArray(scannerData.payload))
     ? (scannerData.payload as ScannerPayload)
     : null;
@@ -196,8 +213,8 @@ export default function StockDetail() {
 
     return evaluateStock(
       detailData.symbol,
-      detailData.name,
-      detailData.sector,
+      resolvedCompanyName,
+      resolvedSector,
       detailData.industry,
       resolvedDailyBars,
       resolvedBenchmarkDailyBars,
@@ -214,7 +231,7 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedDailyBars, sectorAligned]);
+  }, [detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector, sectorAligned]);
 
   const historicalStock = useMemo(() => {
     if (hasScannerData) return null;
@@ -229,8 +246,8 @@ export default function StockDetail() {
 
     return evaluateStock(
       detailData.symbol,
-      detailData.name,
-      detailData.sector,
+      resolvedCompanyName,
+      resolvedSector,
       detailData.industry,
       asOfBars,
       benchmarkBars,
@@ -247,7 +264,7 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, sectorAligned, timeframeBars]);
+  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, resolvedCompanyName, resolvedSector, sectorAligned, timeframeBars]);
 
   const benchmarkStock = useMemo(() => {
     if (hasScannerData) return null;
@@ -255,8 +272,8 @@ export default function StockDetail() {
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
     return evaluateStock(
       detailData.symbol,
-      detailData.name,
-      detailData.sector,
+      resolvedCompanyName,
+      resolvedSector,
       detailData.industry,
       resolvedDailyBars,
       resolvedBenchmarkDailyBars,
@@ -265,7 +282,7 @@ export default function StockDetail() {
       'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
-  }, [detailData, hasScannerData, isBenchmark, resolvedBenchmarkDailyBars, resolvedDailyBars]);
+  }, [detailData, hasScannerData, isBenchmark, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector]);
 
   if (detailQuery.isLoading) {
     return (
@@ -316,6 +333,11 @@ export default function StockDetail() {
       </div>
     );
   }
+  const stockWithMeta = {
+    ...stock,
+    name: stock.name === stock.symbol ? resolvedCompanyName : (stock.name ?? resolvedCompanyName),
+    sector: stock.sector === 'Unknown' ? resolvedSector : (stock.sector ?? resolvedSector),
+  };
 
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
   const scannerPattern = (scannerData?.pattern?.toUpperCase() as WSPPattern | undefined);
@@ -327,31 +349,31 @@ export default function StockDetail() {
     : stock.audit.sma50SlopeDirection;
   const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const banner = patternBanners[displayPattern];
-  const volMultiple = stock.audit.volumeMultiple;
-  const indicatorVolumeRatio = scannerPayload?.volume_ratio ?? indicatorQuery.data?.volume_ratio ?? stock.audit.volumeMultiple ?? null;
-  const indicatorMansfieldRs = scannerPayload?.mansfield_rs ?? indicatorQuery.data?.mansfield_rs ?? stock.audit.mansfieldValue ?? null;
+  const volMultiple = stockWithMeta.audit.volumeMultiple;
+  const indicatorVolumeRatio = scannerPayload?.volume_ratio ?? indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null;
+  const indicatorMansfieldRs = scannerPayload?.mansfield_rs ?? indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null;
   const sectorEtfBars = sectorEtfDailyPricesQuery.data ?? [];
   const sectorEtfClose = sectorEtfBars.length > 0 ? sectorEtfBars[sectorEtfBars.length - 1].close : null;
   const sectorEtfMa50 = sectorEtfBars.length > 0 ? sma(sectorEtfBars, 50) : null;
   const sectorEtfAbove50MA = sectorEtfClose != null && sectorEtfMa50 != null ? sectorEtfClose > sectorEtfMa50 : null;
   const priorLow = resolvedDailyBars.length >= 2 ? resolvedDailyBars[resolvedDailyBars.length - 2].low : null;
-  const stopLossFourPct = stock.price * 0.96;
-  const stopLossSixPct = stock.price * 0.94;
+  const stopLossFourPct = stockWithMeta.price * 0.96;
+  const stopLossSixPct = stockWithMeta.price * 0.94;
   const stopLossRecommended = priorLow != null ? Math.min(stopLossFourPct, priorLow) : stopLossFourPct;
   const checklistStock = hasScannerData
     ? {
-        ...stock,
+        ...stockWithMeta,
         gate: {
-          ...stock.gate,
-          priceAboveMA50: scannerPayload?.above_ma50 ?? stock.gate.priceAboveMA50,
-          priceAboveMA150: scannerPayload?.above_ma150 ?? stock.gate.priceAboveMA150,
+          ...stockWithMeta.gate,
+          priceAboveMA50: scannerPayload?.above_ma50 ?? stockWithMeta.gate.priceAboveMA50,
+          priceAboveMA150: scannerPayload?.above_ma150 ?? stockWithMeta.gate.priceAboveMA150,
         },
         audit: {
-          ...stock.audit,
+          ...stockWithMeta.audit,
           sma50SlopeDirection: ma50SlopeDirection,
         },
       }
-    : stock;
+    : stockWithMeta;
 
   const notices = [
     !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
@@ -380,18 +402,18 @@ export default function StockDetail() {
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-xs font-mono font-bold text-primary">
-              {stock.symbol.slice(0, 2)}
+              {stockWithMeta.symbol.slice(0, 2)}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">{stock.symbol}</h1>
-              <p className="text-sm text-muted-foreground">{stock.name}</p>
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">{stockWithMeta.symbol}</h1>
+              <p className="text-sm text-muted-foreground">{stockWithMeta.name}</p>
             </div>
           </div>
 
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl font-bold font-mono text-foreground">${stock.price.toFixed(2)}</span>
-            <span className={`text-lg font-mono font-semibold ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-              {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+            <span className="text-3xl font-bold font-mono text-foreground">${stockWithMeta.price.toFixed(2)}</span>
+            <span className={`text-lg font-mono font-semibold ${stockWithMeta.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+              {stockWithMeta.changePercent >= 0 ? '+' : ''}{stockWithMeta.changePercent.toFixed(2)}%
             </span>
           </div>
 
@@ -403,7 +425,7 @@ export default function StockDetail() {
               MA50: {slopeIcon}
             </span>
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-mono text-muted-foreground">
-              Sektor: {stock.sector}
+              Sektor: {stockWithMeta.sector}
             </span>
             {isMetals && (
               <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] font-mono text-accent">METAL</span>
@@ -413,7 +435,7 @@ export default function StockDetail() {
 
         <div className="flex items-center gap-4">
           <PatternBadge pattern={displayPattern} size="md" />
-          <WSPScoreRing score={displayScore} maxScore={stock.maxScore} size={80} />
+          <WSPScoreRing score={displayScore} maxScore={stockWithMeta.maxScore} size={80} />
           {hasScannerData && (
             <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-primary">
               Source: Scanner
@@ -458,7 +480,7 @@ export default function StockDetail() {
           </div>
 
           <StockChartModule
-            stock={stock}
+            stock={stockWithMeta}
             dailyBars={resolvedDailyBars}
             weeklyBars={detailData.barsWeekly}
             dailyBenchmark={resolvedBenchmarkDailyBars}
@@ -470,7 +492,7 @@ export default function StockDetail() {
             asOfIndex={asOfIndex}
             onAsOfIndexChange={setAsOfIndex}
             dataState={contextState}
-            hideBlockers={hasScannerData}
+            hideBlockers={!scannerData || !liveStock}
           />
         </div>
       )}
@@ -495,7 +517,7 @@ export default function StockDetail() {
       )}
 
       {activeTab === 'sizer' && (
-        <PositionSizer stock={stock} />
+        <PositionSizer stock={stockWithMeta} />
       )}
     </div>
   );
