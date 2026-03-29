@@ -11,7 +11,6 @@ const corsHeaders = {
 const ALPACA_DATA_URL = "https://data.alpaca.markets/v2";
 const ROUTE_VERSION = "supabase-wsp-screener@2026-03-29.1-daily-prices-batched";
 const MAX_SCANNER_SYMBOLS = 5000;
-const PAGE_SIZE = 1000;
 const BARS_PER_SYMBOL = 200;
 
 interface SymbolMeta {
@@ -28,8 +27,6 @@ interface SymbolMeta {
   supportsFullWsp?: boolean;
   wspSupport?: string;
   symbolClass?: string;
-  scannerEligible?: boolean;
-  discoveryEligible?: boolean;
 }
 
 interface Bar {
@@ -85,79 +82,48 @@ function getCachedQuote(symbol: string) {
 }
 
 async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
-  const latestRows: any[] = [];
-  let from = 0;
-  let hasMore = true;
+  const from = 0;
+  const to = MAX_SCANNER_SYMBOLS - 1;
+  const { data, error } = await supabase
+    .from("market_scan_results_latest")
+    .select("symbol, pattern, recommendation, score, sector, canonical_sector, name, payload")
+    .in("pattern", ["climbing", "base_or_climbing"])
+    .order("payload->volume_ratio", { ascending: false })
+    .range(from, to);
 
-  while (hasMore && latestRows.length < MAX_SCANNER_SYMBOLS) {
-    const to = Math.min(from + PAGE_SIZE - 1, MAX_SCANNER_SYMBOLS - 1);
-    const { data, error } = await supabase
-      .from("market_scan_results_latest")
-      .select("symbol, sector, industry, pattern, recommendation, trend_state, score, payload")
-      .in("pattern", ["climbing", "base_or_climbing"])
-      .order("score", { ascending: false })
-      .order("symbol", { ascending: true })
-      .range(from, to);
-
-    if (error) {
-      console.warn("wsp-screener live cohort query failed", error.message);
-      break;
-    }
-
-    const pageRows = (data ?? []) as any[];
-    latestRows.push(...pageRows);
-    if (pageRows.length < PAGE_SIZE) {
-      hasMore = false;
-    } else {
-      from += PAGE_SIZE;
-    }
+  if (error) {
+    console.warn("wsp-screener live cohort query failed", error.message);
+    return [];
   }
 
+  const latestRows = (data ?? []) as any[];
   if (latestRows.length === 0) {
     console.warn("wsp-screener no rows from market_scan_results_latest for climbing/base_or_climbing cohort");
     return [];
   }
 
-  const symbols = [...new Set(latestRows.map((row: any) => row.symbol).filter(Boolean))];
-  const { data: symbolRows } = await supabase
-    .from("symbols")
-    .select("symbol, name, exchange, instrument_type, is_etf, canonical_sector, canonical_industry, sector, industry")
-    .in("symbol", symbols);
-
-  const symbolMetaMap = new Map((symbolRows ?? []).map((row: any) => [row.symbol, row]));
-
-  return symbols.map((symbol) => {
-    const row = latestRows.find((item: any) => item.symbol === symbol);
-    const meta = symbolMetaMap.get(symbol);
-    const isEquity = !meta?.is_etf && meta?.instrument_type === "CS";
-    const resolvedSector = meta?.canonical_sector
+  const uniqueRows = latestRows.filter((row, index, arr) => arr.findIndex((item) => item.symbol === row.symbol) === index);
+  return uniqueRows.map((row: any) => {
+    const resolvedSector = row?.canonical_sector
       ?? (row?.sector && row.sector !== "Unknown" ? row.sector : null)
-      ?? meta?.sector
-      ?? "Unknown";
-    const resolvedIndustry = meta?.canonical_industry
-      ?? (row?.industry && row.industry !== "Unknown" ? row.industry : null)
-      ?? meta?.industry
       ?? "Unknown";
     return {
-      symbol,
-      name: meta?.name ?? symbol,
+      symbol: row.symbol,
+      name: row?.name ?? row.symbol,
       sector: resolvedSector,
-      industry: resolvedIndustry,
+      industry: "Unknown",
       pattern: row?.pattern ?? null,
       recommendation: row?.recommendation ?? null,
-      trendState: row?.trend_state ?? null,
       scannerScore: Number.isFinite(Number(row?.score))
         ? Number(row?.score)
         : Number.isFinite(Number(row?.payload?.wsp_score))
           ? Number(row?.payload?.wsp_score)
           : null,
-      assetClass: isEquity ? "equity" : "commodity",
-      exchange: meta?.exchange ?? "UNKNOWN",
-      supportsFullWsp: isEquity,
-      wspSupport: isEquity ? "full" : "limited",
-      symbolClass: isEquity ? "full_wsp_equity" : "limited_equity",
-      scannerEligible: isEquity,
-      discoveryEligible: isEquity,
+      assetClass: "equity",
+      exchange: "UNKNOWN",
+      supportsFullWsp: true,
+      wspSupport: "full",
+      symbolClass: "full_wsp_equity",
     };
   });
 }
