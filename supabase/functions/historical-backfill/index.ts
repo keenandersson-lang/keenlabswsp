@@ -151,6 +151,10 @@ Deno.serve(async (req: Request) => {
     return handleYahooBackfill(body);
   }
 
+  if (body.mode === "finnhub_backfill") {
+    return handleFinnhubBackfill(body);
+  }
+
   // ── Mode: per-symbol backfill (original) ──
   return handleSymbolBackfill(body);
 });
@@ -915,6 +919,86 @@ async function handleYahooBackfill(body: Record<string, any>) {
     failedSymbols,
     nextOffset,
     hasMore: nextOffset < total,
+  });
+}
+
+
+async function handleFinnhubBackfill(body: Record<string, any>) {
+  const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY") ?? "";
+  const { symbols, batchSize = 50, offset = 0 } = body;
+
+  let symbolsToProcess: string[] = [];
+  if (Array.isArray(symbols) && symbols.length > 0) {
+    symbolsToProcess = symbols;
+  } else {
+    const { data } = await supabase.rpc("get_symbols_needing_backfill", {
+      p_limit: batchSize,
+      p_offset: offset,
+    });
+    symbolsToProcess = (data ?? []).map((r: any) => String(r.symbol));
+  }
+
+  let fetched = 0;
+  let failed = 0;
+  const failedSymbols: string[] = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const fromTs = Math.floor(new Date(twoYearsAgo).getTime() / 1000);
+  const toTs = Math.floor(new Date(today).getTime() / 1000);
+
+  const chunks = chunkArray(symbolsToProcess, 5);
+
+  for (const chunk of chunks) {
+    for (const symbol of chunk) {
+      try {
+        const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${fromTs}&to=${toTs}&token=${FINNHUB_KEY}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.s !== "ok" || !data.t?.length) {
+          failedSymbols.push(symbol);
+          failed++;
+          continue;
+        }
+
+        const bars = data.t.map((ts: number, i: number) => ({
+          symbol,
+          date: new Date(ts * 1000).toISOString().slice(0, 10),
+          open: Number(data.o[i].toFixed(4)),
+          high: Number(data.h[i].toFixed(4)),
+          low: Number(data.l[i].toFixed(4)),
+          close: Number(data.c[i].toFixed(4)),
+          volume: Math.round(data.v[i]),
+          data_source: "finnhub",
+          has_full_volume: true,
+        }));
+
+        const { error } = await supabase
+          .from("daily_prices")
+          .upsert(bars, { onConflict: "symbol,date", ignoreDuplicates: false });
+
+        if (error) {
+          failedSymbols.push(symbol);
+          failed++;
+        } else {
+          fetched++;
+        }
+      } catch {
+        failedSymbols.push(symbol);
+        failed++;
+      }
+    }
+    await sleep(1000);
+  }
+
+  return jsonRes({
+    ok: true,
+    fetched,
+    failed,
+    total: symbolsToProcess.length,
+    failedSymbols,
+    nextOffset: offset + symbolsToProcess.length,
+    hasMore: symbolsToProcess.length === batchSize,
   });
 }
 
