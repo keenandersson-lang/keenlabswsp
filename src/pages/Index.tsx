@@ -86,9 +86,7 @@ const Index = () => {
   useEffect(() => {
     const fetchTopSetups = async () => {
       const { data: topSetupsData, error: topSetupsError } = await supabase
-        .from('market_scan_results_latest')
-        .select('symbol, pattern, recommendation, score, sector, industry, payload')
-        .eq('pattern', 'climbing');
+        .rpc('get_top_wsp_setups');
 
       console.log('TOP SETUPS DATA:', topSetupsData);
       console.log('TOP SETUPS ERROR:', topSetupsError);
@@ -105,31 +103,12 @@ const Index = () => {
         return;
       }
 
-      const sortedTopSetups = (topSetupsData ?? [])
-        .filter((row) => {
-          const payload = (row.payload ?? {}) as Record<string, unknown>;
-          const price = typeof payload.price === 'number'
-            ? payload.price
-            : typeof payload.currentClose === 'number'
-              ? payload.currentClose
-              : typeof payload.current_close === 'number'
-                ? payload.current_close
-                : 0;
-          return price >= 5.0;
-        })
-        .sort((a, b) => {
-          if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
-          const volA = Number((a.payload as Record<string, unknown> | null)?.volume_ratio ?? 0);
-          const volB = Number((b.payload as Record<string, unknown> | null)?.volume_ratio ?? 0);
-          return volB - volA;
-        })
-        .slice(0, 10);
-
-      const mappedTopSetups = sortedTopSetups.flatMap((row) => {
+      const mappedTopSetups = (topSetupsData ?? []).flatMap((row) => {
         if (!row.symbol) return [];
 
         const payload = (row.payload ?? {}) as Record<string, unknown>;
-        const pattern = toWspPattern(row.pattern);
+        const scannerPattern = toWspPattern(row.pattern);
+        const pattern = scannerPattern;
         const recommendation = toWspRecommendation(row.recommendation, pattern);
         const maxScore = typeof payload.maxScore === 'number'
           ? payload.maxScore
@@ -148,11 +127,6 @@ const Index = () => {
           : typeof payload.pct_change_1d === 'number'
             ? payload.pct_change_1d
             : 0;
-        const volumeMultiple =
-          (typeof payload.volume_ratio === 'number' ? payload.volume_ratio : null) ??
-          (typeof payload.volumeRatio === 'number' ? payload.volumeRatio : null) ??
-          null;
-
         return {
           symbol: row.symbol,
           sector: row.sector ?? 'Unknown',
@@ -164,7 +138,7 @@ const Index = () => {
           name: typeof payload.name === 'string' ? payload.name : row.symbol,
           price,
           changePercent,
-          volumeMultiple,
+          volumeMultiple: row.vol_ratio ?? null,
         };
       });
 
