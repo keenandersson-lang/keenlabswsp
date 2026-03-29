@@ -87,10 +87,9 @@ const Index = () => {
     const fetchTopSetups = async () => {
       const { data: topSetupsData, error: topSetupsError } = await supabase
         .from('market_scan_results_latest')
-        .select('symbol, pattern, recommendation, score, sector, industry, volume_ratio, payload')
+        .select('symbol, pattern, recommendation, score, sector, industry, payload')
         .eq('pattern', 'climbing')
         .order('score', { ascending: false })
-        .order('volume_ratio', { ascending: false })
         .limit(10);
 
       console.log('TOP SETUPS DATA:', topSetupsData);
@@ -131,15 +130,10 @@ const Index = () => {
           : typeof payload.pct_change_1d === 'number'
             ? payload.pct_change_1d
             : 0;
-        const volumeMultiple = typeof row.volume_ratio === 'number'
-          ? row.volume_ratio
-          : typeof payload.volume_ratio === 'number'
-            ? payload.volume_ratio
-            : typeof payload.volumeRatio === 'number'
-              ? payload.volumeRatio
-              : typeof payload.volumeMultiple === 'number'
-                ? payload.volumeMultiple
-                : null;
+        const volumeMultiple =
+          (typeof payload.volume_ratio === 'number' ? payload.volume_ratio : null) ??
+          (typeof payload.volumeRatio === 'number' ? payload.volumeRatio : null) ??
+          null;
 
         return {
           symbol: row.symbol,
