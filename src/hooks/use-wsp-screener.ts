@@ -686,7 +686,6 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
       .from('market_scan_results_latest')
       .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
       .in('pattern', ['climbing', 'base_or_climbing'])
-      .order('payload->volume_ratio', { ascending: false, nullsFirst: false })
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) {
@@ -703,6 +702,11 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     if (pageRows.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
+  allRows.sort((a, b) => {
+    const volA = Number((a.payload as ScannerPayload | null)?.volume_ratio ?? 0);
+    const volB = Number((b.payload as ScannerPayload | null)?.volume_ratio ?? 0);
+    return volB - volA;
+  });
   console.log(`[WSP] Supabase direct fetch total pages: ${totalPagesFetched}`);
   console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
