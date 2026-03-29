@@ -1,5 +1,5 @@
 import { memo, type ReactNode, useMemo, useState } from 'react';
-import { BarChart, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, Brush, Cell, Customized } from 'recharts';
+import { CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, Brush, Cell, Customized } from 'recharts';
 import type { Bar as PriceBar, EvaluatedStock } from '@/lib/wsp-types';
 import type { ChartTimeframe } from '@/lib/chart-types';
 import { barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
@@ -233,17 +233,21 @@ export const StockChartModule = memo(function StockChartModule({
         </div>
       )}
 
-      {/* Main price chart */}
-      <div className="h-[480px] w-full">
+      {/* Main price chart + RSI sub-panel */}
+      <div className="grid h-[600px] w-full grid-rows-[1fr_120px] gap-2">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} syncId="stock-detail-sync" margin={{ left: 0, right: 8, top: 8, bottom: 24 }}>
+          <ComposedChart data={chartData} syncId="stock-detail-sync" margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
             <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: 'hsl(215 15% 50%)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }} minTickGap={40} axisLine={{ stroke: 'hsl(220 14% 18%)' }} tickLine={false} />
+            <XAxis dataKey="date" hide />
             <YAxis yAxisId="price" domain={[(v: number) => Math.max(0, v * 0.985), (v: number) => v * 1.015]} tick={{ fill: 'hsl(215 15% 50%)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }} width={68} orientation="right" axisLine={{ stroke: 'hsl(220 14% 18%)' }} tickLine={false} />
+            <YAxis yAxisId="volume" hide domain={[0, 'dataMax']} />
             <Tooltip content={<PriceTooltip />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
 
             {/* Invisible bar for Customized alignment */}
             <Bar yAxisId="price" dataKey="close" fill="transparent" stroke="transparent" isAnimationActive={false} legendType="none" />
+            <Bar yAxisId="volume" dataKey="volume" isAnimationActive={false} legendType="none" barSize={4}>
+              {chartData.map((entry) => <Cell key={`vol-overlay-${entry.date}`} fill={entry.isBull ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)'} />)}
+            </Bar>
             <Customized component={(customProps: any) => <CandlestickLayer {...customProps} />} />
 
             {/* Bollinger Bands */}
@@ -278,29 +282,26 @@ export const StockChartModule = memo(function StockChartModule({
             }} />
           </ComposedChart>
         </ResponsiveContainer>
-      </div>
 
-      {/* Volume + Indicators */}
-      <div className="grid gap-2 xl:grid-cols-2">
-        <div className="h-[130px] rounded border border-border bg-background p-1.5">
-          <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">Volume</div>
+        <div className="h-[120px] rounded border border-border bg-background p-1.5">
+          <div className="mb-0.5 text-[9px] font-mono font-medium text-muted-foreground uppercase tracking-widest px-1">RSI (14)</div>
           <ResponsiveContainer width="100%" height="85%">
-            <BarChart data={chartData} syncId="stock-detail-sync">
+            <ComposedChart data={chartData} syncId="stock-detail-sync">
               <CartesianGrid strokeDasharray="2 4" stroke="hsl(220 14% 14%)" vertical={false} />
-              <XAxis dataKey="date" hide />
-              <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 8, fontFamily: 'JetBrains Mono, monospace' }} width={50} axisLine={false} tickLine={false} />
-              <Tooltip content={<VolumeTooltip />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
-              <Bar dataKey="volume" isAnimationActive={false}>
-                {chartData.map((entry) => <Cell key={`vol-${entry.date}`} fill={entry.isBull ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)'} />)}
-              </Bar>
-            </BarChart>
+              <XAxis dataKey="date" tick={{ fill: 'hsl(215 15% 50%)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }} minTickGap={40} axisLine={{ stroke: 'hsl(220 14% 18%)' }} tickLine={false} />
+              <YAxis tick={{ fill: 'hsl(215 15% 50%)', fontSize: 8, fontFamily: 'JetBrains Mono, monospace' }} width={38} axisLine={false} tickLine={false} domain={[0, 100]} />
+              <Tooltip content={<IndicatorTooltip title="RSI (14)" valueKey="rsi" />} cursor={{ stroke: 'hsl(160 80% 45%)', strokeDasharray: '2 2', strokeWidth: 0.5 }} />
+              <ReferenceLine y={70} stroke="rgba(148,163,184,0.35)" strokeDasharray="4 4" />
+              <ReferenceLine y={30} stroke="rgba(148,163,184,0.35)" strokeDasharray="4 4" />
+              <Line dataKey="rsi" type="monotone" dot={false} stroke="#60a5fa" strokeWidth={1.2} isAnimationActive={false} />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
+      </div>
 
-        <div className="grid gap-2">
-          <IndicatorPanel title="RSI (14)" dataKey="rsi" data={chartData} thresholds={[70, 30]} emptyState="RSI needs ≥14 daily bars." />
-          <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} emptyState={hasMansfieldData ? null : 'Mansfield unavailable — benchmark data insufficient.'} />
-        </div>
+      {/* Additional indicator */}
+      <div className="grid gap-2">
+        <IndicatorPanel title="Mansfield RS" dataKey="mansfield" data={chartData} thresholds={[0]} emptyState={hasMansfieldData ? null : 'Mansfield unavailable — benchmark data insufficient.'} />
       </div>
     </div>
   );
@@ -370,18 +371,6 @@ function PriceTooltip({ active, payload, label }: any) {
         <span className="text-muted-foreground">RSI</span><span>{formatNumber(candle.rsi)}</span>
         <span className="text-muted-foreground">MRS</span><span>{formatNumber(candle.mansfield)}</span>
       </div>
-    </TooltipCard>
-  );
-}
-
-function VolumeTooltip({ active, payload, label }: any) {
-  if (!active || !payload || payload.length === 0) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
-  return (
-    <TooltipCard>
-      <div className="text-[10px] font-semibold text-primary">{label}</div>
-      <div className="text-[10px]">Vol: {Math.round(Number(row.volume) || 0).toLocaleString()}</div>
     </TooltipCard>
   );
 }

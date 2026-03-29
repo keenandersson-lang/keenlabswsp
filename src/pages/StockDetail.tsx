@@ -7,7 +7,7 @@ import { StockChartModule } from '@/components/StockChartModule';
 import { WSPChecklist } from '@/components/WSPChecklist';
 import { PositionSizer } from '@/components/PositionSizer';
 import type { ChartTimeframe } from '@/lib/chart-types';
-import { barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
+import { aggregateBarsWeekly, barsForTimeframe, clampAsOfIndex } from '@/lib/charting';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { ArrowLeft, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { PatternBadge } from '@/components/PatternBadge';
@@ -48,7 +48,35 @@ export default function StockDetail() {
         .select('date, open, high, low, close, volume')
         .eq('symbol', requestedSymbol)
         .order('date', { ascending: false })
-        .limit(200);
+        .limit(756);
+
+      if (error) throw error;
+      if (!data || data.length === 0) return [];
+
+      return [...data]
+        .reverse()
+        .map((row) => ({
+          date: row.date,
+          open: Number(row.open),
+          high: Number(row.high),
+          low: Number(row.low),
+          close: Number(row.close),
+          volume: Number(row.volume),
+        }));
+    },
+  });
+
+
+  const spyDailyPricesQuery = useQuery({
+    queryKey: ['stock-detail-daily-prices', 'SPY'],
+    staleTime: 60_000,
+    queryFn: async (): Promise<Bar[]> => {
+      const { data, error } = await supabase
+        .from('daily_prices')
+        .select('date, open, high, low, close, volume')
+        .eq('symbol', 'SPY')
+        .order('date', { ascending: false })
+        .limit(756);
 
       if (error) throw error;
       if (!data || data.length === 0) return [];
@@ -73,6 +101,11 @@ export default function StockDetail() {
     return detailData?.barsDaily ?? [];
   }, [dailyPricesQuery.data, detailData?.barsDaily]);
   const isMetals = detailData?.assetClass === 'metals';
+  const resolvedBenchmarkDailyBars = useMemo(() => {
+    if (spyDailyPricesQuery.data && spyDailyPricesQuery.data.length > 0) return spyDailyPricesQuery.data;
+    return detailData?.benchmarkDaily ?? [];
+  }, [spyDailyPricesQuery.data, detailData?.benchmarkDaily]);
+  const resolvedBenchmarkWeeklyBars = useMemo(() => aggregateBarsWeekly(resolvedBenchmarkDailyBars), [resolvedBenchmarkDailyBars]);
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
   const sectorAligned = liveStock?.gate.sectorAligned ?? false;
@@ -84,7 +117,7 @@ export default function StockDetail() {
 
   const baseStock = useMemo(() => {
     if (!detailData) return null;
-    if (resolvedDailyBars.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+    if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
 
     return evaluateStock(
       detailData.symbol,
@@ -92,7 +125,7 @@ export default function StockDetail() {
       detailData.sector,
       detailData.industry,
       resolvedDailyBars,
-      detailData.benchmarkDaily,
+      resolvedBenchmarkDailyBars,
       sectorAligned,
       marketFavorable ?? true,
       'live',
@@ -106,14 +139,14 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, marketFavorable, resolvedDailyBars, sectorAligned]);
+  }, [detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedDailyBars, sectorAligned]);
 
   const historicalStock = useMemo(() => {
     if (!detailData || timeframeBars.bars.length === 0) return baseStock;
 
     const idx = clampAsOfIndex(asOfIndex, timeframeBars.bars.length);
     const asOfBars = asOfEnabled ? timeframeBars.bars.slice(0, idx + 1) : timeframeBars.bars;
-    const benchmarkSource = timeframeBars.cadence === 'weekly' ? detailData.benchmarkWeekly : detailData.benchmarkDaily;
+    const benchmarkSource = timeframeBars.cadence === 'weekly' ? resolvedBenchmarkWeeklyBars : resolvedBenchmarkDailyBars;
     const benchmarkBars = benchmarkSource.filter((bar) => bar.date <= asOfBars[asOfBars.length - 1]?.date);
 
     if (asOfBars.length === 0 || benchmarkBars.length === 0) return baseStock;
@@ -138,24 +171,24 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [asOfEnabled, asOfIndex, baseStock, detailData, marketFavorable, sectorAligned, timeframeBars]);
+  }, [asOfEnabled, asOfIndex, baseStock, detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, sectorAligned, timeframeBars]);
 
   const benchmarkStock = useMemo(() => {
     if (!detailData || !isBenchmark) return null;
-    if (resolvedDailyBars.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+    if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
     return evaluateStock(
       detailData.symbol,
       detailData.name,
       detailData.sector,
       detailData.industry,
       resolvedDailyBars,
-      detailData.benchmarkDaily,
+      resolvedBenchmarkDailyBars,
       true,
       true,
       'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
-  }, [detailData, isBenchmark, resolvedDailyBars]);
+  }, [detailData, isBenchmark, resolvedBenchmarkDailyBars, resolvedDailyBars]);
 
   if (detailQuery.isLoading) {
     return (
@@ -218,7 +251,7 @@ export default function StockDetail() {
     detailData.metadataCompleteness !== 'complete'
       ? `Metadata ${detailData.metadataCompleteness === 'missing' ? 'missing' : 'incomplete'} for one or more fields.`
       : null,
-    resolvedDailyBars.length < 200 || detailData.benchmarkDaily.length < 200
+    resolvedDailyBars.length < 200 || resolvedBenchmarkDailyBars.length < 200
       ? 'Indicator coverage incomplete: less than 200 bars available for full MA context.'
       : null,
   ].filter((item): item is string => Boolean(item));
@@ -310,8 +343,8 @@ export default function StockDetail() {
             stock={stock}
             dailyBars={resolvedDailyBars}
             weeklyBars={detailData.barsWeekly}
-            dailyBenchmark={detailData.benchmarkDaily}
-            weeklyBenchmark={detailData.benchmarkWeekly}
+            dailyBenchmark={resolvedBenchmarkDailyBars}
+            weeklyBenchmark={resolvedBenchmarkWeeklyBars}
             timeframe={timeframe}
             onTimeframeChange={setTimeframe}
             asOfEnabled={asOfEnabled}
