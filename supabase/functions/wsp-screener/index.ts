@@ -368,7 +368,7 @@ Deno.serve(async (req: Request) => {
       mode,
       data: {
         trackedSymbols,
-        liveScannerCohort: LIVE_SCANNER_PROMOTION_STATUSES,
+        liveScannerCohort: trackedSymbols.map((symbol) => symbol.symbol),
         stockBars: stockBarData,
         benchmarkBars,
         benchmarkSymbol: BENCHMARK,
