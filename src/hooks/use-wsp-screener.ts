@@ -192,6 +192,7 @@ interface ScannerPayload {
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
   mansfield_rs?: number | null;
+  wsp_pattern?: string | null;
   wsp_score?: number | null;
   pct_change_1d?: number | null;
 }
@@ -415,12 +416,14 @@ function buildDirectScannerStock(
   const ma50Slope = typeof payload?.ma50_slope === 'number' && Number.isFinite(payload.ma50_slope)
     ? payload.ma50_slope
     : null;
+  const wspPattern = typeof payload?.wsp_pattern === 'string' ? payload.wsp_pattern.toLowerCase() : null;
   const hasWspIndicators = payload !== null;
   const aboveMa50 = Boolean(payload?.above_ma50);
   const aboveMa150 = Boolean(payload?.above_ma150);
   const slope50Positive = ma50Slope !== null && ma50Slope > 0;
+  const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
-  const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
+  const volumeValid = volumeMultiple !== null && volumeMultiple >= 2;
   const normalizedSector = profile?.canonical_sector
     ?? (row.sector && row.sector !== 'Unknown' ? row.sector : null)
     ?? profile?.sector
@@ -485,7 +488,7 @@ function buildDirectScannerStock(
       priceAboveMA50: aboveMa50,
       ma50Rising: slope50Positive,
       priceAboveMA150: aboveMa150,
-      breakoutValid: false,
+      breakoutValid: hasBreakout,
       breakoutFresh: false,
       volumeSufficient: volumeValid,
       mansfieldValid,
@@ -508,7 +511,7 @@ function buildDirectScannerStock(
       sma200: null,
       sma50SlopeValue: ma50Slope,
       sma50SlopeDirection: ma50Slope === null ? 'flat' : (ma50Slope > 0 ? 'up' : ma50Slope < 0 ? 'down' : 'flat'),
-      breakoutValid: false,
+      breakoutValid: hasBreakout,
       breakoutStale: false,
       breakoutQualityPass: false,
       breakoutQualityReasons: [],
