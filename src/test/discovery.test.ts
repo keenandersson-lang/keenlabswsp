@@ -50,6 +50,20 @@ describe('discovery truth reset', () => {
     expect(sectors[0].displayValue).toBe(1.25);
   });
 
+  it('renders ETF-defined sectors even when no stocks are assigned', () => {
+    const sectors = buildSectorHeatmap(
+      [mockStock({ sector: 'Unknown' })],
+      [
+        { sector: 'Technology', isBullish: true, changePercent: 1.1, sma50AboveSma200: true },
+        { sector: 'Healthcare', isBullish: false, changePercent: -0.5, sma50AboveSma200: false },
+      ],
+      'LIVE',
+    );
+
+    expect(sectors.map((sector) => sector.sector)).toEqual(expect.arrayContaining(['Technology', 'Healthcare']));
+    expect(sectors).toHaveLength(2);
+  });
+
   it('downgrades sector values to tracked strength in fallback mode', () => {
     const sectors = buildSectorHeatmap(
       [mockStock({ sector: 'Technology' })],

@@ -386,12 +386,14 @@ function buildDirectScannerStock(
   const slope50Positive = ma50Slope !== null && ma50Slope > 0;
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
-  const normalizedSector = row.sector && row.sector !== 'Unknown'
-    ? row.sector
-    : profile?.canonical_sector ?? profile?.sector ?? 'Unknown';
-  const normalizedIndustry = row.industry && row.industry !== 'Unknown'
-    ? row.industry
-    : profile?.canonical_industry ?? profile?.industry ?? 'Unknown';
+  const normalizedSector = profile?.canonical_sector
+    ?? (row.sector && row.sector !== 'Unknown' ? row.sector : null)
+    ?? profile?.sector
+    ?? 'Unknown';
+  const normalizedIndustry = profile?.canonical_industry
+    ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
+    ?? profile?.industry
+    ?? 'Unknown';
   const currentPrice = typeof latestPrice?.close === 'number' && Number.isFinite(latestPrice.close)
     ? latestPrice.close
     : 0;
