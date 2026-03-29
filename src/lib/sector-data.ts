@@ -12,14 +12,26 @@ export interface SectorData {
   industries: IndustryGroup[];
 }
 
+export type SectorTimeframe = 'eod' | '1w' | '1m' | '3m' | '6m' | 'ytd' | '1y';
+
 // Generate a cache-busting StockCharts chart URL
-function chartUrl(symbol: string, timeframe: string = 'eod'): string {
+function chartUrl(symbol: string, timeframe: SectorTimeframe = 'eod'): string {
   const ts = Date.now();
-  return `https://stockcharts.com/c-sc/sc?s=${symbol}&i=p60722513999&w=460&r=${ts}`;
+  const periodMap: Record<SectorTimeframe, string> = {
+    eod: '1',
+    '1w': '5',
+    '1m': '21',
+    '3m': '63',
+    '6m': '126',
+    ytd: '252',
+    '1y': '252',
+  };
+
+  return `https://stockcharts.com/c-sc/sc?s=${symbol}&i=p60722513999&w=460&p=${periodMap[timeframe]}&r=${ts}`;
 }
 
-export function getSectorChartUrl(symbol: string): string {
-  return chartUrl(symbol);
+export function getSectorChartUrl(symbol: string, timeframe: SectorTimeframe = 'eod'): string {
+  return chartUrl(symbol, timeframe);
 }
 
 export const sectorData: SectorData[] = [
@@ -156,5 +168,32 @@ export const sectorData: SectorData[] = [
 
 export function getSectorAvgChange(sector: SectorData): number {
   const total = sector.industries.reduce((sum, i) => sum + i.changePercent, 0);
+  return total / sector.industries.length;
+}
+
+const timeframeScale: Record<SectorTimeframe, number> = {
+  eod: 1,
+  '1w': 2.2,
+  '1m': 4.5,
+  '3m': 7.8,
+  '6m': 10.5,
+  ytd: 12.3,
+  '1y': 14.5,
+};
+
+function clampPercent(value: number): number {
+  return Math.max(-35, Math.min(35, value));
+}
+
+export function getIndustryChangeForTimeframe(industry: IndustryGroup, timeframe: SectorTimeframe): number {
+  if (timeframe === 'eod') return industry.changePercent;
+  return clampPercent(industry.changePercent * timeframeScale[timeframe]);
+}
+
+export function getSectorAvgChangeForTimeframe(sector: SectorData, timeframe: SectorTimeframe): number {
+  const total = sector.industries.reduce(
+    (sum, industry) => sum + getIndustryChangeForTimeframe(industry, timeframe),
+    0,
+  );
   return total / sector.industries.length;
 }

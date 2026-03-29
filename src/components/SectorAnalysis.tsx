@@ -1,10 +1,15 @@
 import { useState } from 'react';
-import { sectorData, getSectorChartUrl, getSectorAvgChange, type SectorData } from '@/lib/sector-data';
+import {
+  sectorData,
+  getSectorChartUrl,
+  getIndustryChangeForTimeframe,
+  getSectorAvgChangeForTimeframe,
+  type SectorData,
+  type SectorTimeframe,
+} from '@/lib/sector-data';
 import { ArrowUpRight, ArrowDownRight, ChevronDown, ChevronRight, BarChart3, ExternalLink } from 'lucide-react';
 
-type Timeframe = 'eod' | '1w' | '1m' | '3m' | '6m' | 'ytd' | '1y';
-
-const timeframes: { value: Timeframe; label: string }[] = [
+const timeframes: { value: SectorTimeframe; label: string }[] = [
   { value: 'eod', label: 'Daglig' },
   { value: '1w', label: '1V' },
   { value: '1m', label: '1M' },
@@ -14,12 +19,16 @@ const timeframes: { value: Timeframe; label: string }[] = [
   { value: '1y', label: '1Å' },
 ];
 
-function SectorCard({ sector }: { sector: SectorData }) {
+function SectorCard({ sector, timeframe }: { sector: SectorData; timeframe: SectorTimeframe }) {
   const [expanded, setExpanded] = useState(false);
-  const avgChange = getSectorAvgChange(sector);
+  const avgChange = getSectorAvgChangeForTimeframe(sector, timeframe);
   const positive = avgChange >= 0;
-  const bestIndustry = [...sector.industries].sort((a, b) => b.changePercent - a.changePercent)[0];
-  const worstIndustry = [...sector.industries].sort((a, b) => a.changePercent - b.changePercent)[0];
+  const bestIndustry = [...sector.industries].sort(
+    (a, b) => getIndustryChangeForTimeframe(b, timeframe) - getIndustryChangeForTimeframe(a, timeframe),
+  )[0];
+  const worstIndustry = [...sector.industries].sort(
+    (a, b) => getIndustryChangeForTimeframe(a, timeframe) - getIndustryChangeForTimeframe(b, timeframe),
+  )[0];
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden transition-all">
@@ -49,7 +58,7 @@ function SectorCard({ sector }: { sector: SectorData }) {
           <div className="p-3 border-b border-border/50 bg-background/50">
             <div className="relative rounded-md overflow-hidden border border-border/30">
               <img
-                src={getSectorChartUrl(sector.chartSymbol)}
+                src={getSectorChartUrl(sector.chartSymbol, timeframe)}
                 alt={`${sector.name} chart`}
                 className="w-full h-auto"
                 loading="lazy"
@@ -73,12 +82,17 @@ function SectorCard({ sector }: { sector: SectorData }) {
             <div className="bg-card px-3 py-2">
               <span className="text-[10px] text-muted-foreground block">Bästa industri</span>
               <span className="text-xs font-medium text-signal-buy">{bestIndustry.name}</span>
-              <span className="text-[10px] font-mono text-signal-buy ml-1">+{bestIndustry.changePercent.toFixed(2)}%</span>
+              <span className="text-[10px] font-mono text-signal-buy ml-1">
+                {getIndustryChangeForTimeframe(bestIndustry, timeframe) >= 0 ? '+' : ''}
+                {getIndustryChangeForTimeframe(bestIndustry, timeframe).toFixed(2)}%
+              </span>
             </div>
             <div className="bg-card px-3 py-2">
               <span className="text-[10px] text-muted-foreground block">Sämsta industri</span>
               <span className="text-xs font-medium text-signal-sell">{worstIndustry.name}</span>
-              <span className="text-[10px] font-mono text-signal-sell ml-1">{worstIndustry.changePercent.toFixed(2)}%</span>
+              <span className="text-[10px] font-mono text-signal-sell ml-1">
+                {getIndustryChangeForTimeframe(worstIndustry, timeframe).toFixed(2)}%
+              </span>
             </div>
           </div>
 
@@ -95,7 +109,7 @@ function SectorCard({ sector }: { sector: SectorData }) {
               </thead>
               <tbody>
                 {[...sector.industries]
-                  .sort((a, b) => b.changePercent - a.changePercent)
+                  .sort((a, b) => getIndustryChangeForTimeframe(b, timeframe) - getIndustryChangeForTimeframe(a, timeframe))
                   .map(ind => (
                     <tr key={ind.symbol} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
                       <td className="px-3 py-1.5">
@@ -113,8 +127,9 @@ function SectorCard({ sector }: { sector: SectorData }) {
                         {ind.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-1.5 text-right">
-                        <span className={`font-mono font-medium ${ind.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                          {ind.changePercent >= 0 ? '+' : ''}{ind.changePercent.toFixed(2)}%
+                        <span className={`font-mono font-medium ${getIndustryChangeForTimeframe(ind, timeframe) >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                          {getIndustryChangeForTimeframe(ind, timeframe) >= 0 ? '+' : ''}
+                          {getIndustryChangeForTimeframe(ind, timeframe).toFixed(2)}%
                         </span>
                       </td>
                     </tr>
@@ -129,10 +144,12 @@ function SectorCard({ sector }: { sector: SectorData }) {
 }
 
 export function SectorAnalysis() {
-  const [timeframe, setTimeframe] = useState<Timeframe>('eod');
+  const [timeframe, setTimeframe] = useState<SectorTimeframe>('eod');
 
   // Sort sectors by avg performance
-  const sortedSectors = [...sectorData].sort((a, b) => getSectorAvgChange(b) - getSectorAvgChange(a));
+  const sortedSectors = [...sectorData].sort(
+    (a, b) => getSectorAvgChangeForTimeframe(b, timeframe) - getSectorAvgChangeForTimeframe(a, timeframe),
+  );
 
   return (
     <div>
@@ -162,7 +179,7 @@ export function SectorAnalysis() {
       {/* Sector heatmap bar */}
       <div className="mb-4 flex gap-1 overflow-x-auto pb-1">
         {sortedSectors.map(sector => {
-          const avg = getSectorAvgChange(sector);
+          const avg = getSectorAvgChangeForTimeframe(sector, timeframe);
           const positive = avg >= 0;
           return (
             <div
@@ -185,7 +202,7 @@ export function SectorAnalysis() {
       {/* Sector cards */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {sortedSectors.map(sector => (
-          <SectorCard key={sector.name} sector={sector} />
+          <SectorCard key={sector.name} sector={sector} timeframe={timeframe} />
         ))}
       </div>
 
