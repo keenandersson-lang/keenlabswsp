@@ -218,7 +218,7 @@ const Index = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Live approved cohort · {equityStocks.length} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Live approved cohort · {providerStatus.symbolCount} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
         </div>
         <CreditsBadge />
       </div>

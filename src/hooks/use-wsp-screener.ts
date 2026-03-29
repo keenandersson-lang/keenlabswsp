@@ -213,6 +213,19 @@ interface SymbolProfileRow {
   industry: string | null;
 }
 
+async function fetchQualifiedScanCount(): Promise<number | null> {
+  const { count, error } = await (supabase as any)
+    .from('market_scan_results_latest')
+    .select('symbol', { count: 'exact', head: true })
+    .in('pattern', ['climbing', 'base_or_climbing']);
+
+  if (error) {
+    return null;
+  }
+
+  return typeof count === 'number' ? count : null;
+}
+
 const SCANNER_PATTERN_PRIORITY: Record<string, number> = {
   climbing: 4,
   base_or_climbing: 3,
@@ -1059,6 +1072,17 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
 }
 
 export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean }): Promise<ScreenerApiResponse> {
+  const qualifiedScanCount = await fetchQualifiedScanCount();
+  const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
+    if (qualifiedScanCount === null) return payload;
+    return {
+      ...payload,
+      providerStatus: {
+        ...payload.providerStatus,
+        symbolCount: qualifiedScanCount,
+      },
+    };
+  };
   try {
     const directStocks = await fetchDirectFromSupabase();
     if (directStocks.length > 100) {
@@ -1086,7 +1110,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
           errorMessage: null,
           isFallback: false,
           fallbackActive: false,
-          symbolCount: directStocks.length,
+          symbolCount: qualifiedScanCount ?? directStocks.length,
           benchmarkSymbol: WSP_CONFIG.benchmark,
           benchmarkFetchStatus: 'stale',
           refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
@@ -1094,7 +1118,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
             envVarPresent: true,
             routeReachable: true,
             benchmarkSymbolConfigured: true,
-            trackedSymbolsCount: directStocks.length,
+            trackedSymbolsCount: qualifiedScanCount ?? directStocks.length,
             symbolsFetchedSuccessfully: directStocks.length,
             symbolsFailed: 0,
             lastSuccessfulLiveFetch: now,
@@ -1139,7 +1163,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
       edgeResp = edgeFirst.payload;
       fetchDiagnostics = edgeFirst.diagnostics;
       if (edgeResp.ok && edgeResp.data) {
-        return processEdgeResponse(edgeResp, fetchDiagnostics);
+        return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
       }
     }
 
@@ -1150,7 +1174,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     if (!(devResp.payload as any)?.ok && (devResp.payload as any)?.providerStatus?.uiState) {
       const raw = devResp.payload as any;
       if (raw.market && raw.stocks && raw.providerStatus) {
-        return raw as ScreenerApiResponse;
+        return applyQualifiedScanCount(raw as ScreenerApiResponse);
       }
     }
     edgeResp = devResp.payload;
@@ -1176,7 +1200,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
         statusCode: null,
         authOutcome: 'missing_client_auth',
       };
-      return processEdgeResponse(edgeResp, fetchDiagnostics);
+      return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
     }
 
     const efResp = await safeFetch(edgeFunctionUrl, { headers: buildSupabaseInvokeHeaders() });
@@ -1184,7 +1208,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     fetchDiagnostics = efResp.diagnostics;
   }
 
-  return processEdgeResponse(edgeResp, fetchDiagnostics);
+  return applyQualifiedScanCount(processEdgeResponse(edgeResp, fetchDiagnostics));
 }
 
 export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval) {
