@@ -21,6 +21,13 @@ import type { Bar, WSPPattern } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
 
 type DetailTab = 'chart' | 'checklist' | 'sizer';
+type ScannerPayload = {
+  above_ma50?: boolean | null;
+  above_ma150?: boolean | null;
+  ma50_slope?: string | null;
+  volume_ratio?: number | null;
+  mansfield_rs?: number | null;
+};
 
 const patternBanners: Record<WSPPattern, { bg: string; border: string; text: string }> = {
   CLIMBING: { bg: 'bg-[#0d2e1a]', border: 'border-signal-buy', text: '📈 CLIMBING PATTERN — Breakout ovanför motstånd med hög volym' },
@@ -39,6 +46,20 @@ export default function StockDetail() {
   const screenerQuery = useWspScreener();
   const detailQuery = useStockDetail(symbol);
   const requestedSymbol = symbol?.toUpperCase() ?? '';
+  const scannerDataQuery = useQuery({
+    queryKey: ['stock-detail-scanner-row', requestedSymbol],
+    enabled: Boolean(requestedSymbol),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data: scannerData, error } = await supabase
+        .from('market_scan_results_latest')
+        .select('symbol, pattern, recommendation, score, payload, sector, canonical_sector, name')
+        .eq('symbol', requestedSymbol)
+        .single();
+      if (error) throw error;
+      return scannerData;
+    },
+  });
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
   const dailyPricesQuery = useQuery({
     queryKey: ['stock-detail-daily-prices', requestedSymbol],
@@ -160,6 +181,11 @@ export default function StockDetail() {
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
   const sectorAligned = liveStock?.gate.sectorAligned ?? false;
+  const scannerData = scannerDataQuery.data;
+  const hasScannerData = Boolean(scannerData);
+  const scannerPayload = (scannerData?.payload && typeof scannerData.payload === 'object' && !Array.isArray(scannerData.payload))
+    ? (scannerData.payload as ScannerPayload)
+    : null;
 
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
@@ -167,6 +193,7 @@ export default function StockDetail() {
   }, [detailData, timeframe, resolvedDailyBars]);
 
   const baseStock = useMemo(() => {
+    if (hasScannerData) return null;
     if (!detailData) return null;
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
 
@@ -190,9 +217,10 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedDailyBars, sectorAligned]);
+  }, [detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedDailyBars, sectorAligned]);
 
   const historicalStock = useMemo(() => {
+    if (hasScannerData) return null;
     if (!detailData || timeframeBars.bars.length === 0) return baseStock;
 
     const idx = clampAsOfIndex(asOfIndex, timeframeBars.bars.length);
@@ -222,9 +250,10 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [asOfEnabled, asOfIndex, baseStock, detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, sectorAligned, timeframeBars]);
+  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, sectorAligned, timeframeBars]);
 
   const benchmarkStock = useMemo(() => {
+    if (hasScannerData) return null;
     if (!detailData || !isBenchmark) return null;
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
     return evaluateStock(
@@ -239,7 +268,7 @@ export default function StockDetail() {
       'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
-  }, [detailData, isBenchmark, resolvedBenchmarkDailyBars, resolvedDailyBars]);
+  }, [detailData, hasScannerData, isBenchmark, resolvedBenchmarkDailyBars, resolvedDailyBars]);
 
   if (detailQuery.isLoading) {
     return (
@@ -279,7 +308,7 @@ export default function StockDetail() {
     );
   }
 
-  const stock = historicalStock ?? baseStock ?? benchmarkStock;
+  const stock = hasScannerData ? liveStock : (historicalStock ?? baseStock ?? benchmarkStock);
   if (!stock) {
     return (
       <div className="p-6">
@@ -292,11 +321,18 @@ export default function StockDetail() {
   }
 
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
-  const banner = patternBanners[stock.pattern];
-  const slopeIcon = stock.audit.sma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : stock.audit.sma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
+  const scannerPattern = (scannerData?.pattern?.toUpperCase() as WSPPattern | undefined);
+  const displayPattern = scannerPattern && patternBanners[scannerPattern] ? scannerPattern : stock.pattern;
+  const displayScore = typeof scannerData?.score === 'number' ? scannerData.score : stock.score;
+  const scannerSlopeDirection = scannerPayload?.ma50_slope?.toLowerCase();
+  const ma50SlopeDirection = scannerSlopeDirection === 'rising' || scannerSlopeDirection === 'falling' || scannerSlopeDirection === 'flat'
+    ? scannerSlopeDirection
+    : stock.audit.sma50SlopeDirection;
+  const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
+  const banner = patternBanners[displayPattern];
   const volMultiple = stock.audit.volumeMultiple;
-  const indicatorVolumeRatio = indicatorQuery.data?.volume_ratio ?? stock.audit.volumeMultiple ?? null;
-  const indicatorMansfieldRs = indicatorQuery.data?.mansfield_rs ?? stock.audit.mansfieldValue ?? null;
+  const indicatorVolumeRatio = scannerPayload?.volume_ratio ?? indicatorQuery.data?.volume_ratio ?? stock.audit.volumeMultiple ?? null;
+  const indicatorMansfieldRs = scannerPayload?.mansfield_rs ?? indicatorQuery.data?.mansfield_rs ?? stock.audit.mansfieldValue ?? null;
   const sectorEtfBars = sectorEtfDailyPricesQuery.data ?? [];
   const sectorEtfClose = sectorEtfBars.length > 0 ? sectorEtfBars[sectorEtfBars.length - 1].close : null;
   const sectorEtfMa50 = sectorEtfBars.length > 0 ? sma(sectorEtfBars, 50) : null;
@@ -305,6 +341,20 @@ export default function StockDetail() {
   const stopLossFourPct = stock.price * 0.96;
   const stopLossSixPct = stock.price * 0.94;
   const stopLossRecommended = priorLow != null ? Math.min(stopLossFourPct, priorLow) : stopLossFourPct;
+  const checklistStock = hasScannerData
+    ? {
+        ...stock,
+        gate: {
+          ...stock.gate,
+          priceAboveMA50: scannerPayload?.above_ma50 ?? stock.gate.priceAboveMA50,
+          priceAboveMA150: scannerPayload?.above_ma150 ?? stock.gate.priceAboveMA150,
+        },
+        audit: {
+          ...stock.audit,
+          sma50SlopeDirection: ma50SlopeDirection,
+        },
+      }
+    : stock;
 
   const notices = [
     !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
@@ -365,8 +415,13 @@ export default function StockDetail() {
         </div>
 
         <div className="flex items-center gap-4">
-          <PatternBadge pattern={stock.pattern} size="md" />
-          <WSPScoreRing score={stock.score} maxScore={stock.maxScore} size={80} />
+          <PatternBadge pattern={displayPattern} size="md" />
+          <WSPScoreRing score={displayScore} maxScore={stock.maxScore} size={80} />
+          {hasScannerData && (
+            <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-primary">
+              Source: Scanner
+            </span>
+          )}
         </div>
       </div>
 
@@ -413,13 +468,14 @@ export default function StockDetail() {
             asOfIndex={asOfIndex}
             onAsOfIndexChange={setAsOfIndex}
             dataState={contextState}
+            hideBlockers={hasScannerData}
           />
         </div>
       )}
 
       {activeTab === 'checklist' && (
         <WSPChecklist
-          stock={stock}
+          stock={checklistStock}
           context={{
             volumeRatio: indicatorVolumeRatio,
             mansfieldRs: indicatorMansfieldRs,
