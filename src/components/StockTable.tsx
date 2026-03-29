@@ -511,6 +511,17 @@ function normalizeBreakoutAge(audit: StockAudit | undefined | null) {
 
 function getMissingIndicatorScore(stock: EvaluatedStock) {
   const audit = stock.audit;
+  const hasDirectIndicatorSnapshot = stock.dataSource === 'live'
+    && audit?.sma50 != null
+    && audit?.sma150 != null
+    && audit?.sma50SlopeValue != null
+    && audit?.volumeMultiple != null
+    && audit?.mansfieldValue != null;
+
+  if (hasDirectIndicatorSnapshot) {
+    return 0;
+  }
+
   const missingFields = [
     audit?.sma20,
     audit?.sma50,

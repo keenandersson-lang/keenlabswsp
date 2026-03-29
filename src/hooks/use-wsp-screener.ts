@@ -184,6 +184,19 @@ interface DirectScannerRow {
   scan_date: string | null;
 }
 
+interface WspIndicatorRow {
+  symbol: string | null;
+  ma50: number | null;
+  ma150: number | null;
+  above_ma50: boolean | null;
+  above_ma150: boolean | null;
+  volume_ratio: number | null;
+  mansfield_rs: number | null;
+  wsp_score: number | null;
+  ma50_slope: number | null;
+  calc_date: string | null;
+}
+
 function buildEdgeFunctionUrl(): string {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   if (supabaseUrl) {
@@ -318,9 +331,30 @@ function isSeriesBullish(bars: Bar[]): boolean {
   return ind.sma50 !== null && ind.sma200 !== null && latestClose > ind.sma50 && ind.sma50 > ind.sma200;
 }
 
-function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): EvaluatedStock | null {
+function buildDirectScannerStock(
+  row: DirectScannerRow,
+  nowIso: string,
+  indicator: WspIndicatorRow | null,
+): EvaluatedStock | null {
   if (!row.symbol) return null;
   const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null;
+  const ma50 = typeof indicator?.ma50 === 'number' && Number.isFinite(indicator.ma50) ? indicator.ma50 : null;
+  const ma150 = typeof indicator?.ma150 === 'number' && Number.isFinite(indicator.ma150) ? indicator.ma150 : null;
+  const mansfieldRs = typeof indicator?.mansfield_rs === 'number' && Number.isFinite(indicator.mansfield_rs)
+    ? indicator.mansfield_rs
+    : null;
+  const volumeMultiple = typeof indicator?.volume_ratio === 'number' && Number.isFinite(indicator.volume_ratio)
+    ? indicator.volume_ratio
+    : null;
+  const ma50Slope = typeof indicator?.ma50_slope === 'number' && Number.isFinite(indicator.ma50_slope)
+    ? indicator.ma50_slope
+    : null;
+  const hasWspIndicators = indicator !== null;
+  const aboveMa50 = indicator?.above_ma50 === true;
+  const aboveMa150 = indicator?.above_ma150 === true;
+  const slope50Positive = ma50Slope !== null && ma50Slope > 0;
+  const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
+  const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
 
   return {
     symbol: row.symbol,
@@ -333,11 +367,11 @@ function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): Evaluat
     pattern: 'BASE',
     indicators: {
       sma20: null,
-      sma50: null,
-      sma150: null,
+      sma50: ma50,
+      sma150: ma150,
       sma200: null,
-      sma50Slope: null,
-      sma50SlopeDirection: 'flat',
+      sma50Slope: ma50Slope,
+      sma50SlopeDirection: ma50Slope === null ? 'flat' : (ma50Slope > 0 ? 'up' : ma50Slope < 0 ? 'down' : 'flat'),
       resistanceZone: null,
       resistanceUpperBound: null,
       resistanceTouches: 0,
@@ -356,25 +390,25 @@ function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): Evaluat
       barsSinceBreakout: null,
       breakoutStale: false,
       averageVolumeReference: null,
-      volumeMultiple: null,
-      mansfieldRS: null,
-      mansfieldRSPrev: null,
-      mansfieldRSTrend: 'flat',
+      volumeMultiple,
+      mansfieldRS: mansfieldRs,
+      mansfieldRSPrev: mansfieldRs,
+      mansfieldRSTrend: mansfieldRs === null ? 'flat' : (mansfieldRs > 0 ? 'up' : mansfieldRs < 0 ? 'down' : 'flat'),
       mansfieldTransition: false,
-      mansfieldUptrend: false,
-      mansfieldValid: false,
+      mansfieldUptrend: mansfieldValid,
+      mansfieldValid,
       indicatorWarnings: [],
       chronologyNormalized: false,
     },
     gate: {
       isValidWspEntry: false,
-      priceAboveMA50: false,
-      ma50Rising: false,
-      priceAboveMA150: false,
+      priceAboveMA50: aboveMa50,
+      ma50Rising: slope50Positive,
+      priceAboveMA150: aboveMa150,
       breakoutValid: false,
       breakoutFresh: false,
-      volumeSufficient: false,
-      mansfieldValid: false,
+      volumeSufficient: volumeValid,
+      mansfieldValid,
       sectorAligned: false,
       marketFavorable: false,
       patternAllowsEntry: false,
@@ -385,15 +419,15 @@ function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): Evaluat
       pattern: 'BASE',
       finalRecommendation: 'BEVAKA',
       isValidWspEntry: false,
-      above50MA: false,
-      above150MA: false,
-      slope50Positive: false,
+      above50MA: aboveMa50,
+      above150MA: aboveMa150,
+      slope50Positive,
       sma20: null,
-      sma50: null,
-      sma150: null,
+      sma50: ma50,
+      sma150: ma150,
       sma200: null,
-      sma50SlopeValue: null,
-      sma50SlopeDirection: 'flat',
+      sma50SlopeValue: ma50Slope,
+      sma50SlopeDirection: ma50Slope === null ? 'flat' : (ma50Slope > 0 ? 'up' : ma50Slope < 0 ? 'down' : 'flat'),
       breakoutValid: false,
       breakoutStale: false,
       breakoutQualityPass: false,
@@ -412,15 +446,15 @@ function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): Evaluat
       breakoutAgeBars: null,
       currentVolume: 0,
       averageVolumeReference: null,
-      volumeMultiple: null,
-      volumeValid: false,
+      volumeMultiple,
+      volumeValid,
       mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
-      mansfieldValue: null,
-      mansfieldValuePrev: null,
-      mansfieldTrend: 'flat',
-      mansfieldUptrend: false,
+      mansfieldValue: mansfieldRs,
+      mansfieldValuePrev: mansfieldRs,
+      mansfieldTrend: mansfieldRs === null ? 'flat' : (mansfieldRs > 0 ? 'up' : mansfieldRs < 0 ? 'down' : 'flat'),
+      mansfieldUptrend: mansfieldValid,
       mansfieldRecentTransition: false,
-      mansfieldValid: false,
+      mansfieldValid,
       staleBreakoutBars: WSP_CONFIG.wsp.staleBreakoutBars,
       sectorAligned: false,
       marketAligned: false,
@@ -441,6 +475,7 @@ function buildDirectScannerStock(row: DirectScannerRow, nowIso: string): Evaluat
     scannerRecommendation: row.recommendation,
     scannerScore,
     trendState: row.trend_state,
+    ...(hasWspIndicators ? { lastUpdated: indicator?.calc_date ?? row.scan_date ?? nowIso } : {}),
   };
 }
 
@@ -457,9 +492,30 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   }
 
   const rows = (data ?? []) as DirectScannerRow[];
+  const symbols = [...new Set(rows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
+  const indicatorsBySymbol = new Map<string, WspIndicatorRow>();
+
+  if (symbols.length > 0) {
+    const { data: indicatorRows, error: indicatorError } = await (supabase as any)
+      .from('wsp_indicators')
+      .select('symbol, ma50, ma150, above_ma50, above_ma150, volume_ratio, mansfield_rs, wsp_score, ma50_slope, calc_date')
+      .in('symbol', symbols)
+      .order('symbol', { ascending: true })
+      .order('calc_date', { ascending: false });
+
+    if (indicatorError) {
+      throw new Error(indicatorError.message);
+    }
+
+    for (const indicatorRow of (indicatorRows ?? []) as WspIndicatorRow[]) {
+      if (!indicatorRow.symbol || indicatorsBySymbol.has(indicatorRow.symbol)) continue;
+      indicatorsBySymbol.set(indicatorRow.symbol, indicatorRow);
+    }
+  }
+
   const nowIso = new Date().toISOString();
   return rows
-    .map((row) => buildDirectScannerStock(row, nowIso))
+    .map((row) => buildDirectScannerStock(row, nowIso, row.symbol ? indicatorsBySymbol.get(row.symbol) ?? null : null))
     .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
