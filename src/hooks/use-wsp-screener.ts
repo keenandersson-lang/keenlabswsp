@@ -651,22 +651,23 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
 
     const top50 = allRows.slice(0, 50).map((row) => row.symbol);
     const priceResults = await Promise.all(
-      top50.map((sym) =>
-        (supabase as any)
-          .from('daily_prices')
-          .select('symbol, close, date')
-          .eq('symbol', sym)
-          .order('date', { ascending: false })
-          .limit(1)
-          .single()
-      )
+      top50.map(async (sym) => {
+        try {
+          const { data } = await (supabase as any)
+            .from('daily_prices')
+            .select('symbol, close, date')
+            .eq('symbol', sym)
+            .order('date', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          return data as DailyPriceRow | null;
+        } catch {
+          return null;
+        }
+      })
     );
 
-    for (const result of priceResults) {
-      if (result.error) {
-        throw new Error(result.error.message);
-      }
-      const priceRow = result.data as DailyPriceRow | null;
+    for (const priceRow of priceResults) {
       if (!priceRow?.symbol || latestPriceBySymbol.has(priceRow.symbol)) continue;
       latestPriceBySymbol.set(priceRow.symbol, priceRow);
     }
