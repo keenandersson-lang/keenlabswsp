@@ -174,6 +174,7 @@ interface SafeFetchResult {
 
 interface DirectScannerRow {
   symbol: string | null;
+  name: string | null;
   canonical_sector: string | null;
   sector: string | null;
   industry: string | null;
@@ -212,6 +213,7 @@ interface WspIndicatorRow {
 
 interface SymbolProfileRow {
   symbol: string | null;
+  name: string | null;
   canonical_sector: string | null;
   canonical_industry: string | null;
   sector: string | null;
@@ -422,6 +424,7 @@ function buildDirectScannerStock(
   nowIso: string,
   payload: ScannerPayload | null,
   profile: SymbolProfileRow | null,
+  symbolNames: Record<string, string>,
   latestPriceBySymbol: Record<string, number>,
   sectorTrends: Record<string, boolean>,
 ): EvaluatedStock | null {
@@ -459,10 +462,12 @@ function buildDirectScannerStock(
     ? Number(payload.pct_change_1d.toFixed(2))
     : 0;
   const updatedAt = row.scan_date ?? nowIso;
+  const companyName = row.name ?? profile?.name ?? symbolNames[row.symbol] ?? '';
 
   return {
     symbol: row.symbol,
-    name: row.symbol,
+    name: companyName || row.symbol,
+    companyName,
     sector: sectorValue,
     industry: normalizedIndustry,
     price: currentPrice,
@@ -665,7 +670,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const sectorTrends = await fetchSectorTrends();
   const { data, error } = await (supabase as any)
     .from('market_scan_results_latest')
-    .select('symbol, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
+    .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
     .order('score', { ascending: false, nullsFirst: false })
     .order('symbol', { ascending: true })
     .limit(2000);
@@ -677,6 +682,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const rows = (data ?? []) as DirectScannerRow[];
   const allRows = rows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
   const symbols = [...new Set(allRows.map((row) => row.symbol))];
+  const symbolNames: Record<string, string> = {};
   const payloadBySymbol = new Map<string, ScannerPayload>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
@@ -701,7 +707,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
 
     const { data: profileRows, error: profileError } = await (supabase as any)
       .from('symbols')
-      .select('symbol, canonical_sector, canonical_industry, sector, industry')
+      .select('symbol, name, canonical_sector, canonical_industry, sector, industry')
       .in('symbol', symbols);
 
     if (profileError) {
@@ -711,6 +717,9 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     for (const profileRow of (profileRows ?? []) as SymbolProfileRow[]) {
       if (!profileRow.symbol) continue;
       profilesBySymbol.set(profileRow.symbol, profileRow);
+      if (profileRow.name) {
+        symbolNames[profileRow.symbol] = profileRow.name;
+      }
     }
   }
 
@@ -764,6 +773,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
         nowIso,
         rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
         row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
+        symbolNames,
         latestPriceBySymbol,
         sectorTrends,
       );

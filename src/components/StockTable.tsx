@@ -287,6 +287,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
               const volumeMultiple = audit?.volumeMultiple ?? null;
               const rowWarnings = getRowWarnings(stock);
               const hasPartialData = rowWarnings.length > 0 || getMissingIndicatorScore(stock) > 0;
+              const companyName = stock.companyName || stock.name;
 
               return (
                 <Fragment key={stock.symbol}>
@@ -309,7 +310,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                             Detail
                           </Link>
                         </div>
-                        <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{stock.name}</p>
+                        <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{companyName}</p>
                         <p className="text-[9px] text-muted-foreground">{stock.exchange ?? 'N/A'} · {stock.supportsFullWsp ? 'Full WSP' : 'Limited'}</p>
                       </div>
                     </td>

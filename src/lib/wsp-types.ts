@@ -251,6 +251,7 @@ export interface ScreenerDebugSummary {
 export interface EvaluatedStock {
   symbol: string;
   name: string;
+  companyName?: string;
   sector: string;
   industry: string;
   exchange?: string;
