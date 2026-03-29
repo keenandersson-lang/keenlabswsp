@@ -212,6 +212,174 @@ export type Database = {
         }
         Relationships: []
       }
+      market_scan_results: {
+        Row: {
+          alignment_reason: string | null
+          alignment_status: string | null
+          approved_for_live_scanner: boolean
+          blocked_low_quality: boolean
+          blockers: string[]
+          confidence_level: string | null
+          created_at: string
+          id: number
+          industry: string | null
+          is_tier1_default: boolean
+          pattern: string | null
+          payload: Json
+          promotion_status: string
+          recommendation: string | null
+          review_needed: boolean
+          run_id: number
+          scan_date: string
+          scan_timestamp: string
+          score: number | null
+          sector: string | null
+          support_level: string | null
+          symbol: string
+          trend_state: string | null
+        }
+        Insert: {
+          alignment_reason?: string | null
+          alignment_status?: string | null
+          approved_for_live_scanner?: boolean
+          blocked_low_quality?: boolean
+          blockers?: string[]
+          confidence_level?: string | null
+          created_at?: string
+          id?: number
+          industry?: string | null
+          is_tier1_default?: boolean
+          pattern?: string | null
+          payload?: Json
+          promotion_status?: string
+          recommendation?: string | null
+          review_needed?: boolean
+          run_id: number
+          scan_date: string
+          scan_timestamp?: string
+          score?: number | null
+          sector?: string | null
+          support_level?: string | null
+          symbol: string
+          trend_state?: string | null
+        }
+        Update: {
+          alignment_reason?: string | null
+          alignment_status?: string | null
+          approved_for_live_scanner?: boolean
+          blocked_low_quality?: boolean
+          blockers?: string[]
+          confidence_level?: string | null
+          created_at?: string
+          id?: number
+          industry?: string | null
+          is_tier1_default?: boolean
+          pattern?: string | null
+          payload?: Json
+          promotion_status?: string
+          recommendation?: string | null
+          review_needed?: boolean
+          run_id?: number
+          scan_date?: string
+          scan_timestamp?: string
+          score?: number | null
+          sector?: string | null
+          support_level?: string | null
+          symbol?: string
+          trend_state?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_scan_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "market_scan_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbol_industry_alignment_active"
+            referencedColumns: ["symbol"]
+          },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["symbol"]
+          },
+        ]
+      }
+      market_scan_runs: {
+        Row: {
+          blocker_summary: Json | null
+          completed_at: string | null
+          error_message: string | null
+          error_sqlstate: string | null
+          failing_step: string | null
+          failure_reasons: Json
+          id: number
+          metadata: Json
+          run_label: string | null
+          scan_date: string
+          stage_counts: Json | null
+          started_at: string
+          status: string
+          symbols_failed: number
+          symbols_scanned: number
+          symbols_targeted: number
+          universe_run_id: number | null
+        }
+        Insert: {
+          blocker_summary?: Json | null
+          completed_at?: string | null
+          error_message?: string | null
+          error_sqlstate?: string | null
+          failing_step?: string | null
+          failure_reasons?: Json
+          id?: number
+          metadata?: Json
+          run_label?: string | null
+          scan_date?: string
+          stage_counts?: Json | null
+          started_at?: string
+          status?: string
+          symbols_failed?: number
+          symbols_scanned?: number
+          symbols_targeted?: number
+          universe_run_id?: number | null
+        }
+        Update: {
+          blocker_summary?: Json | null
+          completed_at?: string | null
+          error_message?: string | null
+          error_sqlstate?: string | null
+          failing_step?: string | null
+          failure_reasons?: Json
+          id?: number
+          metadata?: Json
+          run_label?: string | null
+          scan_date?: string
+          stage_counts?: Json | null
+          started_at?: string
+          status?: string
+          symbols_failed?: number
+          symbols_scanned?: number
+          symbols_targeted?: number
+          universe_run_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_scan_runs_universe_run_id_fkey"
+            columns: ["universe_run_id"]
+            isOneToOne: false
+            referencedRelation: "scanner_universe_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -235,6 +403,136 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      scanner_universe_runs: {
+        Row: {
+          as_of_date: string
+          blocked_symbols: number
+          eligible_symbols: number
+          id: number
+          metadata: Json
+          run_at: string
+          run_label: string | null
+          total_symbols: number
+        }
+        Insert: {
+          as_of_date?: string
+          blocked_symbols?: number
+          eligible_symbols?: number
+          id?: number
+          metadata?: Json
+          run_at?: string
+          run_label?: string | null
+          total_symbols?: number
+        }
+        Update: {
+          as_of_date?: string
+          blocked_symbols?: number
+          eligible_symbols?: number
+          id?: number
+          metadata?: Json
+          run_at?: string
+          run_label?: string | null
+          total_symbols?: number
+        }
+        Relationships: []
+      }
+      scanner_universe_snapshot: {
+        Row: {
+          alignment_eligible: boolean | null
+          baseline_eligible: boolean | null
+          blocker_alignment_ineligible: boolean | null
+          blocker_below_min_price: boolean | null
+          blocker_below_min_volume: boolean | null
+          blocker_low_confidence: boolean | null
+          blocker_no_price_data: boolean | null
+          blocker_unknown_sector: boolean | null
+          canonical_industry: string | null
+          canonical_sector: string | null
+          classification_confidence_level: string | null
+          classification_status: string | null
+          created_at: string
+          exclusion_reasons: string[]
+          history_bars: number
+          indicator_ready: boolean
+          is_scanner_eligible: boolean
+          latest_indicator_date: string | null
+          latest_price_date: string | null
+          run_id: number
+          support_level: string | null
+          symbol: string
+        }
+        Insert: {
+          alignment_eligible?: boolean | null
+          baseline_eligible?: boolean | null
+          blocker_alignment_ineligible?: boolean | null
+          blocker_below_min_price?: boolean | null
+          blocker_below_min_volume?: boolean | null
+          blocker_low_confidence?: boolean | null
+          blocker_no_price_data?: boolean | null
+          blocker_unknown_sector?: boolean | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          classification_status?: string | null
+          created_at?: string
+          exclusion_reasons?: string[]
+          history_bars?: number
+          indicator_ready?: boolean
+          is_scanner_eligible?: boolean
+          latest_indicator_date?: string | null
+          latest_price_date?: string | null
+          run_id: number
+          support_level?: string | null
+          symbol: string
+        }
+        Update: {
+          alignment_eligible?: boolean | null
+          baseline_eligible?: boolean | null
+          blocker_alignment_ineligible?: boolean | null
+          blocker_below_min_price?: boolean | null
+          blocker_below_min_volume?: boolean | null
+          blocker_low_confidence?: boolean | null
+          blocker_no_price_data?: boolean | null
+          blocker_unknown_sector?: boolean | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          classification_status?: string | null
+          created_at?: string
+          exclusion_reasons?: string[]
+          history_bars?: number
+          indicator_ready?: boolean
+          is_scanner_eligible?: boolean
+          latest_indicator_date?: string | null
+          latest_price_date?: string | null
+          run_id?: number
+          support_level?: string | null
+          symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scanner_universe_snapshot_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "scanner_universe_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scanner_universe_snapshot_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbol_industry_alignment_active"
+            referencedColumns: ["symbol"]
+          },
+          {
+            foreignKeyName: "scanner_universe_snapshot_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["symbol"]
+          },
+        ]
       }
       suppressed_emails: {
         Row: {
@@ -263,55 +561,79 @@ export type Database = {
       symbols: {
         Row: {
           asset_class: string | null
+          canonical_industry: string | null
+          canonical_sector: string | null
+          classification_confidence_level: string | null
+          classification_status: string | null
           created_at: string | null
+          eligible_for_backfill: boolean | null
+          eligible_for_full_wsp: boolean | null
           enriched_at: string | null
           exchange: string | null
           industry: string | null
           instrument_type: string | null
           is_active: boolean | null
           is_adr: boolean | null
+          is_common_stock: boolean | null
           is_etf: boolean | null
           name: string | null
           primary_exchange: string | null
           sector: string | null
           sic_code: string | null
           sic_description: string | null
+          support_level: string | null
           symbol: string
           updated_at: string | null
         }
         Insert: {
           asset_class?: string | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          classification_status?: string | null
           created_at?: string | null
+          eligible_for_backfill?: boolean | null
+          eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
           exchange?: string | null
           industry?: string | null
           instrument_type?: string | null
           is_active?: boolean | null
           is_adr?: boolean | null
+          is_common_stock?: boolean | null
           is_etf?: boolean | null
           name?: string | null
           primary_exchange?: string | null
           sector?: string | null
           sic_code?: string | null
           sic_description?: string | null
+          support_level?: string | null
           symbol: string
           updated_at?: string | null
         }
         Update: {
           asset_class?: string | null
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          classification_status?: string | null
           created_at?: string | null
+          eligible_for_backfill?: boolean | null
+          eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
           exchange?: string | null
           industry?: string | null
           instrument_type?: string | null
           is_active?: boolean | null
           is_adr?: boolean | null
+          is_common_stock?: boolean | null
           is_etf?: boolean | null
           name?: string | null
           primary_exchange?: string | null
           sector?: string | null
           sic_code?: string | null
           sic_description?: string | null
+          support_level?: string | null
           symbol?: string
           updated_at?: string | null
         }
@@ -406,9 +728,90 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      market_scan_results_latest: {
+        Row: {
+          alignment_reason: string | null
+          alignment_status: string | null
+          approved_for_live_scanner: boolean | null
+          blocked_low_quality: boolean | null
+          blockers: string[] | null
+          confidence_level: string | null
+          industry: string | null
+          is_tier1_default: boolean | null
+          pattern: string | null
+          payload: Json | null
+          promotion_status: string | null
+          recommendation: string | null
+          review_needed: boolean | null
+          run_id: number | null
+          scan_date: string | null
+          scan_timestamp: string | null
+          score: number | null
+          sector: string | null
+          support_level: string | null
+          symbol: string | null
+          trend_state: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_scan_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "market_scan_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbol_industry_alignment_active"
+            referencedColumns: ["symbol"]
+          },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["symbol"]
+          },
+        ]
+      }
+      symbol_industry_alignment_active: {
+        Row: {
+          alignment_eligible: boolean | null
+          alignment_reason: string | null
+          alignment_status: string | null
+          canonical_industry: string | null
+          canonical_sector: string | null
+          symbol: string | null
+        }
+        Insert: {
+          alignment_eligible?: never
+          alignment_reason?: never
+          alignment_status?: never
+          canonical_industry?: never
+          canonical_sector?: never
+          symbol?: string | null
+        }
+        Update: {
+          alignment_eligible?: never
+          alignment_reason?: never
+          alignment_status?: never
+          canonical_industry?: never
+          canonical_sector?: never
+          symbol?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      admin_tier1_price_coverage: {
+        Args: { p_symbols: string[] }
+        Returns: {
+          bars: number
+          symbol: string
+        }[]
+      }
       consume_credit: {
         Args: { p_amount?: number; p_description?: string; p_user_id: string }
         Returns: Json
@@ -420,6 +823,18 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      materialize_wsp_indicators: {
+        Args: { p_from_date?: string; p_to_date?: string }
+        Returns: undefined
+      }
+      materialize_wsp_indicators_from_prices: {
+        Args: {
+          p_as_of_date?: string
+          p_min_bars?: number
+          p_symbols?: string[]
+        }
+        Returns: Json
       }
       move_to_dlq: {
         Args: {
@@ -438,6 +853,15 @@ export type Database = {
           read_ct: number
         }[]
       }
+      refresh_scanner_universe_snapshot: {
+        Args: { p_as_of_date?: string; p_run_label?: string }
+        Returns: number
+      }
+      run_broad_market_scan: {
+        Args: { p_as_of_date?: string; p_run_label?: string }
+        Returns: number
+      }
+      scanner_operator_snapshot: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never

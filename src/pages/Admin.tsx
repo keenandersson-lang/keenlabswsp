@@ -154,9 +154,9 @@ export default function Admin() {
   } = useQuery({
     queryKey: ['admin-live-scanner-funnel'],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_live_scanner_funnel_snapshot');
+      const { data, error } = await supabase.rpc('scanner_operator_snapshot');
       if (error) throw error;
-      return data as LiveScannerFunnelSnapshot;
+      return data as unknown as LiveScannerFunnelSnapshot;
     },
     refetchInterval: 30000,
   });
@@ -164,7 +164,7 @@ export default function Admin() {
   const { data: latestBroadScanFailure } = useQuery({
     queryKey: ['admin-latest-broad-scan-failure'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('market_scan_runs')
         .select('id, started_at, completed_at, scan_date, run_label, status, symbols_targeted, symbols_scanned, symbols_failed, metadata')
         .eq('status', 'failed')
@@ -186,14 +186,14 @@ export default function Admin() {
           .from('symbols')
           .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
           .in('symbol', TIER1_SYMBOLS),
-        supabase.rpc('admin_tier1_price_coverage', { p_symbols: TIER1_SYMBOLS }),
+        supabase.rpc('admin_tier1_price_coverage', { p_symbols: TIER1_SYMBOLS }) as any,
       ]);
 
       if (coverageError) throw coverageError;
 
-      const symbolByTicker = new Map((symbols ?? []).map((s) => [s.symbol, s]));
+      const symbolByTicker = new Map((symbols ?? []).map((s: any) => [s.symbol, s]));
       const barCounts: Record<string, number> = {};
-      (priceCoverage ?? []).forEach((row: { symbol: string; bars: number | null }) => {
+      ((priceCoverage ?? []) as Array<{ symbol: string; bars: number | null }>).forEach((row) => {
         barCounts[row.symbol] = Number(row.bars ?? 0);
       });
 
