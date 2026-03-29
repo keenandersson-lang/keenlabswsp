@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
-type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | null;
+type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | 'yahoo_backfill' | null;
 
 interface LiveScannerFunnelSnapshot {
   generated_at: string;
@@ -89,6 +89,12 @@ export default function Admin() {
 
   // ── Polygon test result ──
   const [polygonTestResult, setPolygonTestResult] = useState<Record<string, any> | null>(null);
+  const [yahooProgress, setYahooProgress] = useState({
+    done: 0,
+    total: 0,
+    failed: 0,
+    running: false,
+  });
 
   // ── Core stats ──
   const {
@@ -490,6 +496,130 @@ export default function Admin() {
     setRunning(null);
   };
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const fetchYahooCandles = async (symbol: string) => {
+    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2y`);
+    if (!response.ok) {
+      throw new Error(`Yahoo HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const chart = payload?.chart;
+    const result = chart?.result?.[0];
+    const quote = result?.indicators?.quote?.[0];
+    const timestamps: number[] = result?.timestamp ?? [];
+    const opens: Array<number | null> = quote?.open ?? [];
+    const highs: Array<number | null> = quote?.high ?? [];
+    const lows: Array<number | null> = quote?.low ?? [];
+    const closes: Array<number | null> = quote?.close ?? [];
+    const volumes: Array<number | null> = quote?.volume ?? [];
+
+    if (!timestamps.length) return [];
+
+    return timestamps.flatMap((timestamp, idx) => {
+      const open = opens[idx];
+      const high = highs[idx];
+      const low = lows[idx];
+      const close = closes[idx];
+      const volume = volumes[idx];
+
+      if ([open, high, low, close, volume].some((v) => v === null || v === undefined)) {
+        return [];
+      }
+
+      const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
+      return [{
+        symbol,
+        date,
+        open: Number(open),
+        high: Number(high),
+        low: Number(low),
+        close: Number(close),
+        volume: Number(volume),
+        data_source: 'yahoo',
+        has_full_volume: true,
+      }];
+    });
+  };
+
+  const loadYahooBackfillSymbols = async () => {
+    const [{ data: activeSymbols, error: activeError }, { data: recentRows, error: recentError }] = await Promise.all([
+      supabase
+        .from('symbols')
+        .select('symbol')
+        .eq('is_active', true)
+        .eq('is_etf', false),
+      supabase
+        .from('daily_prices')
+        .select('symbol')
+        .gt('date', '2025-01-01'),
+    ]);
+
+    if (activeError) throw activeError;
+    if (recentError) throw recentError;
+
+    const recentSet = new Set((recentRows ?? []).map((row) => row.symbol));
+    return (activeSymbols ?? [])
+      .map((row) => row.symbol)
+      .filter((symbol) => !recentSet.has(symbol))
+      .slice(0, 200);
+  };
+
+  const runYahooBackfill = async (providedSymbols?: string[]) => {
+    setRunning('yahoo_backfill');
+    setYahooProgress({ done: 0, total: 0, failed: 0, running: true });
+
+    try {
+      const symbols = providedSymbols ?? await loadYahooBackfillSymbols();
+      if (!symbols.length) {
+        toast.info('Inga symboler behöver Yahoo-backfill just nu.');
+        setYahooProgress({ done: 0, total: 0, failed: 0, running: false });
+        return;
+      }
+
+      let done = 0;
+      let failed = 0;
+      setYahooProgress({ done, total: symbols.length, failed, running: true });
+
+      const batchSize = 5;
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(async (symbol) => {
+          try {
+            const rows = await fetchYahooCandles(symbol);
+            if (rows.length > 0) {
+              const { error } = await supabase
+                .from('daily_prices')
+                .upsert(rows, { onConflict: 'symbol,date' });
+              if (error) throw error;
+            }
+            return { ok: true };
+          } catch {
+            return { ok: false };
+          }
+        }));
+
+        done += batch.length;
+        failed += results.filter((entry) => !entry.ok).length;
+        setYahooProgress({ done, total: symbols.length, failed, running: true });
+
+        if (i + batchSize < symbols.length) {
+          await sleep(2000);
+        }
+      }
+
+      toast.success(`Yahoo-backfill klart: ${done}/${symbols.length} symboler, ${failed} misslyckade.`);
+    } catch (error) {
+      toast.error(`Yahoo-backfill misslyckades: ${String(error)}`);
+    } finally {
+      setYahooProgress((prev) => ({ ...prev, running: false }));
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
+      setRunning(null);
+    }
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'success') return <CheckCircle2 className="h-4 w-4 text-primary" />;
     if (status === 'partial') return <AlertTriangle className="h-4 w-4 text-signal-caution" />;
@@ -885,6 +1015,39 @@ export default function Admin() {
             <div className="text-xs font-mono text-signal-danger mt-2">
               ⛔ Backfill stoppat: {backfillProgress.stopReason}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground">
+            YAHOO FINANCE BACKFILL
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => runYahooBackfill()}
+              disabled={running !== null}
+              className="font-mono text-xs bg-primary text-primary-foreground"
+            >
+              🚀 Starta Yahoo Backfill
+            </Button>
+            <Button
+              onClick={() => runYahooBackfill(['CVX', 'XOM', 'AAPL'])}
+              disabled={running !== null}
+              variant="outline"
+              className="font-mono text-xs"
+            >
+              🧪 Testa 3 aktier
+            </Button>
+          </div>
+
+          {yahooProgress.total > 0 && (
+            <p className="text-xs font-mono text-primary">
+              {yahooProgress.done} / {yahooProgress.total} symboler klara · {yahooProgress.failed} misslyckade
+            </p>
           )}
         </CardContent>
       </Card>
