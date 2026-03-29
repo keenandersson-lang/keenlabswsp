@@ -25,7 +25,20 @@ interface EdgeFunctionResponse {
   ok: boolean;
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
   data: {
-    trackedSymbols: Array<{ symbol: string; name: string; sector: string; industry: string; exchange?: string; assetClass?: string; supportsFullWsp?: boolean; wspSupport?: string }>;
+    trackedSymbols: Array<{
+      symbol: string;
+      name: string;
+      sector: string;
+      industry: string;
+      pattern?: string | null;
+      recommendation?: string | null;
+      trendState?: string | null;
+      scannerScore?: number | null;
+      exchange?: string;
+      assetClass?: string;
+      supportsFullWsp?: boolean;
+      wspSupport?: string;
+    }>;
     liveScannerCohort?: string[];
     stockBars: Record<string, Bar[]>;
     benchmarkBars: Bar[];
@@ -348,7 +361,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       .filter(meta => data.stockBars[meta.symbol]?.length > 0)
       .map(meta => {
         const sectorAligned = sectorStatusMap[meta.sector]?.isBullish ?? false;
-        return evaluateStock(
+        const evaluated = evaluateStock(
           meta.symbol, meta.name, meta.sector, meta.industry,
           data.stockBars[meta.symbol], benchmarkBars,
           sectorAligned, marketFavorable, 'live',
@@ -361,6 +374,17 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
             },
           },
         );
+        const scannerScore = typeof meta.scannerScore === 'number' && Number.isFinite(meta.scannerScore)
+          ? Math.max(0, Math.min(4, meta.scannerScore))
+          : null;
+        return {
+          ...evaluated,
+          score: scannerScore ?? evaluated.score,
+          scannerPattern: meta.pattern ?? null,
+          scannerRecommendation: meta.recommendation ?? null,
+          scannerScore,
+          trendState: meta.trendState ?? null,
+        };
       });
 
   const benchmarkSuccessCount = Number(edgeResp.providerStatus.benchmarkSuccessCount ?? 0);

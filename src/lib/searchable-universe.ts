@@ -1,7 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export const APPROVED_LIVE_COHORT_STATUSES = ['tier1_default', 'approved_for_live_scanner'] as const;
-
 export interface SearchableSymbol {
   symbol: string;
   name: string;
@@ -22,9 +20,10 @@ export interface BroadScanSymbol {
 
 export interface ApprovedLiveScannerRow {
   symbol: string;
-  promotionStatus: string;
+  approvedForLiveScanner: boolean;
+  isTier1Default: boolean;
   score: number | null;
-  scanTimestamp: string | null;
+  scanDate: string | null;
 }
 
 interface SymbolRegistryRow {
@@ -108,9 +107,9 @@ export async function searchSearchableSymbols(query: string, limit = 25): Promis
 
   const { data: cohortRows, error: cohortError } = await supabase
     .from('market_scan_results_latest')
-    .select('symbol, promotion_status')
+    .select('symbol, approved_for_live_scanner, is_tier1_default')
     .in('symbol', symbols)
-    .in('promotion_status', [...APPROVED_LIVE_COHORT_STATUSES]);
+    .or('approved_for_live_scanner.eq.true,is_tier1_default.eq.true');
 
   if (!cohortError && cohortRows) {
     approvedSet = new Set(
@@ -141,9 +140,9 @@ export async function fetchSearchableSymbolByTicker(symbol: string): Promise<Sea
 
   const { data: cohortRow } = await supabase
     .from('market_scan_results_latest')
-    .select('symbol, promotion_status')
+    .select('symbol, approved_for_live_scanner, is_tier1_default')
     .eq('symbol', normalized)
-    .in('promotion_status', [...APPROVED_LIVE_COHORT_STATUSES])
+    .or('approved_for_live_scanner.eq.true,is_tier1_default.eq.true')
     .limit(1)
     .maybeSingle();
 

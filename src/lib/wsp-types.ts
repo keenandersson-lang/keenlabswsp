@@ -272,6 +272,10 @@ export interface EvaluatedStock {
   maxScore: number;
   dataSource: 'live' | 'fallback';
   lastUpdated: string;
+  scannerPattern?: string | null;
+  scannerRecommendation?: string | null;
+  scannerScore?: number | null;
+  trendState?: string | null;
 }
 
 export interface MarketOverview {
