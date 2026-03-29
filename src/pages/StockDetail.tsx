@@ -22,6 +22,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 type DetailTab = 'chart' | 'checklist' | 'sizer';
 type ScannerPayload = {
+  wsp_score?: number | null;
   above_ma50?: boolean | null;
   above_ma150?: boolean | null;
   ma50_slope?: string | null;
@@ -152,7 +153,7 @@ export default function StockDetail() {
   const scannerData = scannerDataQuery.data;
   const hasScannerData = Boolean(scannerData);
   const resolvedCompanyName = scannerData?.name ?? symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
-  const resolvedSector = scannerData?.canonical_sector ?? scannerData?.sector ?? symbolMeta?.canonical_sector ?? symbolMeta?.sector ?? detailData?.sector ?? 'Unknown';
+  const resolvedSector = scannerData?.canonical_sector ?? symbolMeta?.canonical_sector ?? 'Unknown';
   const resolvedDailyBars = useMemo(() => {
     if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
     return detailData?.barsDaily ?? [];
@@ -342,7 +343,12 @@ export default function StockDetail() {
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
   const scannerPattern = (scannerData?.pattern?.toUpperCase() as WSPPattern | undefined);
   const displayPattern = scannerPattern && patternBanners[scannerPattern] ? scannerPattern : stock.pattern;
-  const displayScore = typeof scannerData?.score === 'number' ? scannerData.score : stock.score;
+  const displayScore = typeof scannerPayload?.wsp_score === 'number'
+    ? scannerPayload.wsp_score
+    : typeof scannerData?.score === 'number'
+      ? scannerData.score
+      : stock.score;
+  const displayMaxScore = 4;
   const scannerSlopeDirection = scannerPayload?.ma50_slope?.toLowerCase();
   const ma50SlopeDirection = scannerSlopeDirection === 'rising' || scannerSlopeDirection === 'falling' || scannerSlopeDirection === 'flat'
     ? scannerSlopeDirection
@@ -435,7 +441,7 @@ export default function StockDetail() {
 
         <div className="flex items-center gap-4">
           <PatternBadge pattern={displayPattern} size="md" />
-          <WSPScoreRing score={displayScore} maxScore={stockWithMeta.maxScore} size={80} />
+          <WSPScoreRing score={displayScore} maxScore={displayMaxScore} size={80} />
           {hasScannerData && (
             <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-primary">
               Source: Scanner
@@ -444,7 +450,7 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {notices.length > 0 && (
+      {!hasScannerData && notices.length > 0 && (
         <div className="space-y-2 rounded-lg border border-signal-caution/30 bg-signal-caution/10 p-3">
           {notices.map((notice) => (
             <div key={notice} className="text-xs font-mono text-signal-caution">• {notice}</div>
@@ -492,7 +498,7 @@ export default function StockDetail() {
             asOfIndex={asOfIndex}
             onAsOfIndexChange={setAsOfIndex}
             dataState={contextState}
-            hideBlockers={!scannerData || !liveStock}
+            hideBlockers={hasScannerData || !liveStock}
           />
         </div>
       )}
