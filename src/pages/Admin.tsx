@@ -661,17 +661,23 @@ export default function Admin() {
             </p>
           ) : isLiveScannerFunnelLoading || !liveScannerFunnel ? (
             <p className="text-xs text-muted-foreground font-mono">Laddar live scanner funnel...</p>
+          ) : !liveScannerFunnel.funnel ? (
+            <p className="text-xs text-signal-danger font-mono">
+              Funnel-data saknas i svaret. Kontrollera att scanner_operator_snapshot returnerar rätt format.
+              <br />
+              <code className="text-[10px] block mt-1 whitespace-pre-wrap">{JSON.stringify(liveScannerFunnel, null, 2).slice(0, 500)}</code>
+            </p>
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <StatBox label="Active symbols" value={String(liveScannerFunnel.funnel.active_symbols ?? '—')} />
-                <StatBox label="Any daily_prices" value={String(liveScannerFunnel.funnel.symbols_with_any_daily_prices ?? '—')} />
-                <StatBox label="≥200 bars" value={String(liveScannerFunnel.funnel.symbols_with_200_plus_bars ?? '—')} />
-                <StatBox label="In wsp_indicators" value={String(liveScannerFunnel.funnel.symbols_present_in_wsp_indicators ?? '—')} />
-                <StatBox label="Pass class/supp/align" value={String(liveScannerFunnel.funnel.symbols_passing_classification_support_alignment ?? '—')} />
-                <StatBox label="In market_scan_results_latest" value={String(liveScannerFunnel.funnel.symbols_in_market_scan_results_latest ?? '—')} />
-                <StatBox label="Endpoint statuses match" value={String(liveScannerFunnel.funnel.symbols_matching_live_endpoint_statuses ?? '—')} />
-                <StatBox label="Exposed by live endpoint" value={String(liveScannerFunnel.funnel.symbols_exposed_by_live_endpoint ?? '—')} highlight />
+                <StatBox label="Active symbols" value={String(liveScannerFunnel.funnel?.active_symbols ?? '—')} />
+                <StatBox label="Any daily_prices" value={String(liveScannerFunnel.funnel?.symbols_with_any_daily_prices ?? '—')} />
+                <StatBox label="≥200 bars" value={String(liveScannerFunnel.funnel?.symbols_with_200_plus_bars ?? '—')} />
+                <StatBox label="In wsp_indicators" value={String(liveScannerFunnel.funnel?.symbols_present_in_wsp_indicators ?? '—')} />
+                <StatBox label="Pass class/supp/align" value={String(liveScannerFunnel.funnel?.symbols_passing_classification_support_alignment ?? '—')} />
+                <StatBox label="In market_scan_results_latest" value={String(liveScannerFunnel.funnel?.symbols_in_market_scan_results_latest ?? '—')} />
+                <StatBox label="Endpoint statuses match" value={String(liveScannerFunnel.funnel?.symbols_matching_live_endpoint_statuses ?? '—')} />
+                <StatBox label="Exposed by live endpoint" value={String(liveScannerFunnel.funnel?.symbols_exposed_by_live_endpoint ?? '—')} highlight />
               </div>
 
               <div className="space-y-2">
