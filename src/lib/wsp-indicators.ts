@@ -411,10 +411,28 @@ export function isBreakoutStale(
   return barsSinceBreakout !== null && barsSinceBreakout >= staleBreakoutBars;
 }
 
-function calculateMansfieldValue(rsSeries: number[], endIndex: number, smaPeriod: number): number | null {
-  const average = sma(rsSeries, smaPeriod, endIndex);
-  if (average === null || Math.abs(average) < EPSILON) return null;
-  return ((rsSeries[endIndex] / average) - 1) * 100;
+function calculateMansfieldPoint(
+  stockCloseSeries: number[],
+  benchmarkCloseSeries: number[],
+  endIndex: number,
+  maPeriod: number,
+): number | null {
+  if (endIndex < maPeriod - 1) return null;
+  const stockClose = stockCloseSeries[endIndex];
+  const benchmarkClose = benchmarkCloseSeries[endIndex];
+  if (Math.abs(stockClose) < EPSILON || Math.abs(benchmarkClose) < EPSILON) return null;
+
+  const stockMa = sma(stockCloseSeries, maPeriod, endIndex);
+  const benchmarkMa = sma(benchmarkCloseSeries, maPeriod, endIndex);
+  if (stockMa === null || benchmarkMa === null || Math.abs(stockMa) < EPSILON || Math.abs(benchmarkMa) < EPSILON) {
+    return null;
+  }
+
+  const stockRelative = stockClose / stockMa;
+  const benchmarkRelative = benchmarkClose / benchmarkMa;
+  if (Math.abs(benchmarkRelative) < EPSILON) return null;
+
+  return ((stockRelative / benchmarkRelative) - 1) * 100;
 }
 
 export function mansfieldRS(
@@ -429,22 +447,24 @@ export function mansfieldRS(
   }
 
   const benchmarkByDate = new Map(benchmarkBars.map((bar) => [bar.date, bar.close]));
-  const rsSeries: number[] = [];
+  const stockCloses: number[] = [];
+  const benchmarkCloses: number[] = [];
 
   for (const stockBar of stockBars) {
     const benchmarkClose = benchmarkByDate.get(stockBar.date);
     if (benchmarkClose === undefined || Math.abs(benchmarkClose) < EPSILON) continue;
-    rsSeries.push(stockBar.close / benchmarkClose);
+    stockCloses.push(stockBar.close);
+    benchmarkCloses.push(benchmarkClose);
   }
 
-  if (rsSeries.length < smaPeriod) {
+  if (stockCloses.length < smaPeriod) {
     return { rs: null, prev: null, trend: 'flat', transition: false, uptrend: false, valid: false };
   }
 
-  const nowIndex = rsSeries.length - 1;
-  const rs = calculateMansfieldValue(rsSeries, nowIndex, smaPeriod);
+  const nowIndex = stockCloses.length - 1;
+  const rs = calculateMansfieldPoint(stockCloses, benchmarkCloses, nowIndex, smaPeriod);
   const prevIndex = nowIndex - trendLookback;
-  const prev = prevIndex >= 0 ? calculateMansfieldValue(rsSeries, prevIndex, smaPeriod) : null;
+  const prev = prevIndex >= 0 ? calculateMansfieldPoint(stockCloses, benchmarkCloses, prevIndex, smaPeriod) : null;
   if (rs === null) {
     return { rs: null, prev, trend: 'flat', transition: false, uptrend: false, valid: false };
   }
@@ -458,7 +478,7 @@ export function mansfieldRS(
   const uptrend = rs > 0 && prev !== null && rs > prev;
   const transition = rs > 0 && Array.from({ length: transitionLookback }, (_, offset) => {
     const index = nowIndex - 1 - offset;
-    return index >= 0 ? calculateMansfieldValue(rsSeries, index, smaPeriod) : null;
+    return index >= 0 ? calculateMansfieldPoint(stockCloses, benchmarkCloses, index, smaPeriod) : null;
   }).some((value) => value !== null && value <= 0);
 
   return {
@@ -474,20 +494,23 @@ export function mansfieldRS(
 export function computeMansfieldSeries(
   stockBars: Bar[],
   benchmarkBars: Bar[],
-  smaPeriod: number = WSP_CONFIG.wsp.mansfieldLookbackBars,
+  smaPeriod: number = 252,
 ): Array<{ date: string; value: number | null }> {
   const benchmarkByDate = new Map(benchmarkBars.map((bar) => [bar.date, bar.close]));
-  const rsSeries: Array<{ date: string; rs: number }> = [];
+  const aligned: Array<{ date: string; stockClose: number; benchmarkClose: number }> = [];
 
   for (const stockBar of stockBars) {
     const benchmarkClose = benchmarkByDate.get(stockBar.date);
     if (benchmarkClose === undefined || Math.abs(benchmarkClose) < EPSILON) continue;
-    rsSeries.push({ date: stockBar.date, rs: stockBar.close / benchmarkClose });
+    aligned.push({ date: stockBar.date, stockClose: stockBar.close, benchmarkClose });
   }
 
-  return rsSeries.map((point, index) => ({
+  const stockCloseSeries = aligned.map((item) => item.stockClose);
+  const benchmarkCloseSeries = aligned.map((item) => item.benchmarkClose);
+
+  return aligned.map((point, index) => ({
     date: point.date,
-    value: index >= smaPeriod - 1 ? calculateMansfieldValue(rsSeries.map((item) => item.rs), index, smaPeriod) : null,
+    value: calculateMansfieldPoint(stockCloseSeries, benchmarkCloseSeries, index, smaPeriod),
   }));
 }
 
