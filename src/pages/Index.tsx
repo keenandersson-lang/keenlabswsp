@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWspScreener, fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
@@ -60,6 +60,7 @@ function toWspRecommendation(value: string | null | undefined, pattern: WSPPatte
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
+  const [topSetups, setTopSetups] = useState<TopSetup[]>([]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isFetching, isLoading, isError } = useWspScreener(pollingIntervalMs);
@@ -82,20 +83,29 @@ const Index = () => {
     avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
   }), [stocks]);
 
-  const { data: topSetups = [] } = useQuery({
-    queryKey: ['dashboard-top-setups-climbing-direct'],
-    queryFn: async (): Promise<TopSetup[]> => {
-      const { data: rows, error } = await supabase
+  useEffect(() => {
+    const fetchTopSetups = async () => {
+      const { data: topSetupsData, error } = await supabase
         .from('market_scan_results_latest')
-        .select('symbol, pattern, recommendation, score, volume_ratio, sector, industry, payload')
+        .select('symbol, pattern, recommendation, score, sector, industry, volume_ratio, payload')
         .eq('pattern', 'climbing')
         .order('score', { ascending: false })
         .order('volume_ratio', { ascending: false })
         .limit(10);
 
-      if (error) throw error;
+      if (error) {
+        console.log('[Index] Failed to load top setups:', error);
+        setTopSetups([]);
+        return;
+      }
 
-      return (rows ?? []).flatMap((row) => {
+      if (!topSetupsData || topSetupsData.length === 0) {
+        console.log('[Index] topSetupsData is null or empty:', topSetupsData);
+        setTopSetups([]);
+        return;
+      }
+
+      const mappedTopSetups = topSetupsData.flatMap((row) => {
         if (!row.symbol) return [];
 
         const payload = (row.payload ?? {}) as Record<string, unknown>;
@@ -142,8 +152,12 @@ const Index = () => {
           volumeMultiple,
         };
       });
-    },
-  });
+
+      setTopSetups(mappedTopSetups);
+    };
+
+    void fetchTopSetups();
+  }, []);
 
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
