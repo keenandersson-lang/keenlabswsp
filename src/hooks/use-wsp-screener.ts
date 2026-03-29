@@ -206,7 +206,7 @@ interface DailyPriceRow {
 interface WspIndicatorRow {
   symbol: string | null;
   above_ma50: boolean | null;
-  ma50_slope: number | null;
+  ma50_slope: string | null;
 }
 
 interface SymbolProfileRow {
@@ -602,8 +602,8 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
     const symbol = row.symbol ?? '';
     if (!symbol || latestTrendByEtf.has(symbol)) continue;
     const aboveMa50 = Boolean(row.above_ma50);
-    const ma50Slope = typeof row.ma50_slope === 'number' && Number.isFinite(row.ma50_slope) ? row.ma50_slope : null;
-    latestTrendByEtf.set(symbol, aboveMa50 && ma50Slope !== null && ma50Slope > 0);
+    const ma50Slope = typeof row.ma50_slope === 'string' ? row.ma50_slope.toLowerCase() : null;
+    latestTrendByEtf.set(symbol, aboveMa50 && (ma50Slope === 'rising' || ma50Slope === 'flat'));
   }
 
   return Object.fromEntries(
