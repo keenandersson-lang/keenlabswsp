@@ -684,7 +684,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   while (true) {
     const { data, error } = await (supabase as any)
       .from('market_scan_results_latest')
-      .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
+      .select('symbol, name, canonical_sector, sector, pattern, recommendation, score, payload, scan_date')
       .in('pattern', ['climbing', 'base_or_climbing'])
       .range(from, from + PAGE_SIZE - 1);
 
