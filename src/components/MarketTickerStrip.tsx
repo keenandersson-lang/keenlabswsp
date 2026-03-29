@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 type TickerItem = {
   key: string;
@@ -7,10 +8,9 @@ type TickerItem = {
   changePercent: number | null;
 };
 
-const YAHOO_TICKERS = [
+const MARKET_TICKERS = [
   { key: 'sp500', label: 'S&P 500', symbol: 'SPY' },
   { key: 'nasdaq', label: 'NASDAQ', symbol: 'QQQ' },
-  { key: 'omx30', label: 'OMX30', symbol: '^OMX' },
   { key: 'gold', label: 'Gold', symbol: 'GC=F' },
   { key: 'silver', label: 'Silver', symbol: 'SI=F' },
 ] as const;
@@ -35,43 +35,109 @@ const formatChange = (value: number | null) => {
   return `${sign}${value.toFixed(2)}%`;
 };
 
-async function fetchYahooTicker(symbol: string) {
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-  if (!response.ok) throw new Error(`Failed to load ${symbol}`);
-
-  const payload = await response.json();
-  const result = payload?.chart?.result?.[0];
-  const meta = result?.meta;
-
-  const price = meta?.regularMarketPrice;
-  const previousClose = meta?.chartPreviousClose ?? meta?.previousClose;
-
-  if (typeof price !== 'number') {
-    throw new Error(`No price returned for ${symbol}`);
+async function fetchMarketTickersFromFmp() {
+  const response = await fetch(
+    'https://financialmodelingprep.com/api/v3/quote/SPY,QQQ,GC=F,SI=F?apikey=demo',
+  );
+  if (!response.ok) {
+    throw new Error('Failed to load FMP ticker feed');
   }
 
-  const changePercent = typeof previousClose === 'number' && previousClose !== 0
-    ? ((price - previousClose) / previousClose) * 100
-    : null;
+  const payload = await response.json();
+  if (!Array.isArray(payload) || payload.length === 0) {
+    throw new Error('FMP returned no ticker data');
+  }
 
-  return { price, changePercent };
+  const rowsBySymbol = new Map<string, any>();
+  for (const row of payload) {
+    if (row && typeof row.symbol === 'string') {
+      rowsBySymbol.set(row.symbol, row);
+    }
+  }
+
+  return MARKET_TICKERS.map((ticker) => {
+    const row = rowsBySymbol.get(ticker.symbol);
+    const price = Number(row?.price);
+    const changePercent = typeof row?.changesPercentage === 'number'
+      ? Number(row.changesPercentage)
+      : (Number.isFinite(Number(row?.change)) && Number.isFinite(Number(row?.previousClose)) && Number(row.previousClose) !== 0
+        ? (Number(row.change) / Number(row.previousClose)) * 100
+        : null);
+
+    if (!Number.isFinite(price)) {
+      throw new Error(`FMP row missing price for ${ticker.symbol}`);
+    }
+
+    return {
+      key: ticker.key,
+      label: ticker.label,
+      price,
+      changePercent: typeof changePercent === 'number' && Number.isFinite(changePercent) ? changePercent : null,
+    } satisfies TickerItem;
+  });
+}
+
+async function fetchMarketTickersFromSupabaseFallback() {
+  const { data: latestDateRows, error: latestDateError } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('calc_date')
+    .order('calc_date', { ascending: false })
+    .limit(1);
+
+  if (latestDateError) throw new Error(latestDateError.message);
+  const latestDate = latestDateRows?.[0]?.calc_date;
+  if (!latestDate) throw new Error('No calc_date available in wsp_indicators');
+
+  const { data, error } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('symbol, close, pct_change_1d')
+    .in('symbol', ['SPY', 'QQQ', 'GLD', 'SLV'])
+    .eq('calc_date', latestDate);
+
+  if (error) throw new Error(error.message);
+
+  const rowsBySymbol = new Map<string, any>();
+  for (const row of data ?? []) {
+    if (row && typeof row.symbol === 'string') {
+      rowsBySymbol.set(row.symbol, row);
+    }
+  }
+
+  const fallbackMap: Record<string, string> = {
+    SPY: 'SPY',
+    QQQ: 'QQQ',
+    'GC=F': 'GLD',
+    'SI=F': 'SLV',
+  };
+
+  return MARKET_TICKERS.map((ticker) => {
+    const fallbackSymbol = fallbackMap[ticker.symbol];
+    const row = rowsBySymbol.get(fallbackSymbol);
+    const price = Number(row?.close);
+    const changePercent = Number(row?.pct_change_1d);
+    if (!Number.isFinite(price)) {
+      throw new Error(`Fallback row missing close for ${fallbackSymbol}`);
+    }
+
+    return {
+      key: ticker.key,
+      label: ticker.label,
+      price,
+      changePercent: Number.isFinite(changePercent) ? changePercent : null,
+    } satisfies TickerItem;
+  });
 }
 
 export function MarketTickerStrip() {
   const [items, setItems] = useState<TickerItem[]>([]);
 
   const fetchTickerData = useCallback(async () => {
-    const yahooResults = await Promise.all(
-      YAHOO_TICKERS.map(async (ticker) => {
-        const data = await fetchYahooTicker(ticker.symbol);
-        return {
-          key: ticker.key,
-          label: ticker.label,
-          price: data.price,
-          changePercent: data.changePercent,
-        } satisfies TickerItem;
-      }),
-    );
+    let marketResults: TickerItem[];
+    try {
+      marketResults = await fetchMarketTickersFromFmp();
+    } catch {
+      marketResults = await fetchMarketTickersFromSupabaseFallback();
+    }
 
     const cryptoResponse = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true',
@@ -89,7 +155,7 @@ export function MarketTickerStrip() {
           : null,
     } satisfies TickerItem));
 
-    setItems([...yahooResults, ...cryptoResults].filter((item) => Number.isFinite(item.price)));
+    setItems([...marketResults, ...cryptoResults].filter((item) => Number.isFinite(item.price)));
   }, []);
 
   useEffect(() => {
