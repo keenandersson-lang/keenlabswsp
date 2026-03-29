@@ -194,7 +194,22 @@ interface WspIndicatorRow {
   mansfield_rs: number | null;
   wsp_score: number | null;
   ma50_slope: number | null;
+  pct_change_1d: number | null;
   calc_date: string | null;
+}
+
+interface DailyPriceRow {
+  symbol: string | null;
+  close: number | null;
+  date: string | null;
+}
+
+interface SymbolProfileRow {
+  symbol: string | null;
+  canonical_sector: string | null;
+  canonical_industry: string | null;
+  sector: string | null;
+  industry: string | null;
 }
 
 function buildEdgeFunctionUrl(): string {
@@ -335,6 +350,8 @@ function buildDirectScannerStock(
   row: DirectScannerRow,
   nowIso: string,
   indicator: WspIndicatorRow | null,
+  latestPrice: DailyPriceRow | null,
+  profile: SymbolProfileRow | null,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null;
@@ -355,14 +372,27 @@ function buildDirectScannerStock(
   const slope50Positive = ma50Slope !== null && ma50Slope > 0;
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
+  const normalizedSector = row.sector && row.sector !== 'Unknown'
+    ? row.sector
+    : profile?.canonical_sector ?? profile?.sector ?? 'Unknown';
+  const normalizedIndustry = row.industry && row.industry !== 'Unknown'
+    ? row.industry
+    : profile?.canonical_industry ?? profile?.industry ?? 'Unknown';
+  const currentPrice = typeof latestPrice?.close === 'number' && Number.isFinite(latestPrice.close)
+    ? latestPrice.close
+    : 0;
+  const changePercent = typeof indicator?.pct_change_1d === 'number' && Number.isFinite(indicator.pct_change_1d)
+    ? Number(indicator.pct_change_1d.toFixed(2))
+    : 0;
+  const updatedAt = latestPrice?.date ?? indicator?.calc_date ?? row.scan_date ?? nowIso;
 
   return {
     symbol: row.symbol,
     name: row.symbol,
-    sector: row.sector ?? 'Unknown',
-    industry: row.industry ?? 'Unknown',
-    price: 0,
-    changePercent: 0,
+    sector: normalizedSector,
+    industry: normalizedIndustry,
+    price: currentPrice,
+    changePercent,
     volume: 0,
     pattern: 'BASE',
     indicators: {
@@ -379,7 +409,7 @@ function buildDirectScannerStock(
       resistanceTouchIndices: [],
       resistanceMostRecentTouchDate: null,
       breakoutLevel: null,
-      currentClose: null,
+      currentClose: currentPrice,
       breakoutCloseDelta: null,
       closeAboveResistancePct: null,
       breakoutConfirmed: false,
@@ -438,7 +468,7 @@ function buildDirectScannerStock(
       resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
       resistanceMostRecentTouchDate: null,
       breakoutLevel: null,
-      currentClose: null,
+      currentClose: currentPrice,
       breakoutCloseDelta: null,
       closeAboveResistancePct: null,
       breakoutClv: null,
@@ -470,13 +500,35 @@ function buildDirectScannerStock(
     score: scannerScore ?? 0,
     maxScore: 4,
     dataSource: 'live',
-    lastUpdated: row.scan_date ?? nowIso,
+    lastUpdated: updatedAt,
     scannerPattern: row.pattern,
     scannerRecommendation: row.recommendation,
     scannerScore,
     trendState: row.trend_state,
-    ...(hasWspIndicators ? { lastUpdated: indicator?.calc_date ?? row.scan_date ?? nowIso } : {}),
+    ...(hasWspIndicators ? { lastUpdated: updatedAt } : {}),
   };
+}
+
+function buildSectorStatusesFromIndicators(stocks: EvaluatedStock[]): SectorStatus[] {
+  const grouped = new Map<string, EvaluatedStock[]>();
+  for (const stock of stocks) {
+    const bucket = grouped.get(stock.sector) ?? [];
+    bucket.push(stock);
+    grouped.set(stock.sector, bucket);
+  }
+
+  return [...grouped.entries()].map(([sector, sectorStocks]) => {
+    const total = sectorStocks.length || 1;
+    const bullishCount = sectorStocks.filter((stock) => stock.gate.priceAboveMA50 && stock.gate.priceAboveMA150).length;
+    const bearishCount = sectorStocks.filter((stock) => !stock.gate.priceAboveMA50 && !stock.gate.priceAboveMA150).length;
+    const breadthScore = ((bullishCount - bearishCount) / total) * 3;
+    return {
+      sector,
+      isBullish: bullishCount / total >= 0.55,
+      changePercent: Number(breadthScore.toFixed(2)),
+      sma50AboveSma200: bullishCount >= bearishCount,
+    };
+  });
 }
 
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
@@ -494,11 +546,13 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const rows = (data ?? []) as DirectScannerRow[];
   const symbols = [...new Set(rows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
   const indicatorsBySymbol = new Map<string, WspIndicatorRow>();
+  const latestPriceBySymbol = new Map<string, DailyPriceRow>();
+  const profilesBySymbol = new Map<string, SymbolProfileRow>();
 
   if (symbols.length > 0) {
     const { data: indicatorRows, error: indicatorError } = await (supabase as any)
       .from('wsp_indicators')
-      .select('symbol, ma50, ma150, above_ma50, above_ma150, volume_ratio, mansfield_rs, wsp_score, ma50_slope, calc_date')
+      .select('symbol, ma50, ma150, above_ma50, above_ma150, volume_ratio, mansfield_rs, wsp_score, ma50_slope, pct_change_1d, calc_date')
       .in('symbol', symbols)
       .order('symbol', { ascending: true })
       .order('calc_date', { ascending: false });
@@ -511,11 +565,47 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
       if (!indicatorRow.symbol || indicatorsBySymbol.has(indicatorRow.symbol)) continue;
       indicatorsBySymbol.set(indicatorRow.symbol, indicatorRow);
     }
+
+    const { data: priceRows, error: priceError } = await (supabase as any)
+      .from('daily_prices')
+      .select('symbol, close, date')
+      .in('symbol', symbols)
+      .order('symbol', { ascending: true })
+      .order('date', { ascending: false });
+
+    if (priceError) {
+      throw new Error(priceError.message);
+    }
+
+    for (const priceRow of (priceRows ?? []) as DailyPriceRow[]) {
+      if (!priceRow.symbol || latestPriceBySymbol.has(priceRow.symbol)) continue;
+      latestPriceBySymbol.set(priceRow.symbol, priceRow);
+    }
+
+    const { data: profileRows, error: profileError } = await (supabase as any)
+      .from('symbols')
+      .select('symbol, canonical_sector, canonical_industry, sector, industry')
+      .in('symbol', symbols);
+
+    if (profileError) {
+      throw new Error(profileError.message);
+    }
+
+    for (const profileRow of (profileRows ?? []) as SymbolProfileRow[]) {
+      if (!profileRow.symbol) continue;
+      profilesBySymbol.set(profileRow.symbol, profileRow);
+    }
   }
 
   const nowIso = new Date().toISOString();
   return rows
-    .map((row) => buildDirectScannerStock(row, nowIso, row.symbol ? indicatorsBySymbol.get(row.symbol) ?? null : null))
+    .map((row) => buildDirectScannerStock(
+      row,
+      nowIso,
+      row.symbol ? indicatorsBySymbol.get(row.symbol) ?? null : null,
+      row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
+      row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
+    ))
     .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
@@ -787,6 +877,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
     const directStocks = await fetchDirectFromSupabase();
     if (directStocks.length > 100) {
       const now = new Date().toISOString();
+      const directSectorStatuses = buildSectorStatusesFromIndicators(directStocks);
       return {
         market: {
           ...demoMarket,
@@ -798,7 +889,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
         },
         stocks: directStocks,
         ...buildDiscoverySnapshot(directStocks, 'LIVE'),
-        sectorStatuses: [],
+        sectorStatuses: directSectorStatuses,
         providerStatus: {
           provider: 'finnhub',
           isLive: true,
