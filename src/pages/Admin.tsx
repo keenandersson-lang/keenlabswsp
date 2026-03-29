@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
-type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | 'yahoo_backfill' | null;
+type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | 'yahoo_backfill' | 'finnhub_backfill' | null;
 
 interface LiveScannerFunnelSnapshot {
   generated_at: string;
@@ -95,6 +95,13 @@ export default function Admin() {
     failed: 0,
     running: false,
   });
+  const [finnhubProgress, setFinnhubProgress] = useState({
+    done: 0,
+    total: 0,
+    failed: 0,
+    running: false,
+  });
+  const [finnhubNextOffset, setFinnhubNextOffset] = useState(50);
 
   // ── Core stats ──
   const {
@@ -620,6 +627,43 @@ export default function Admin() {
     }
   };
 
+  const runFinnhubBackfillBatch = async (offset: number) => {
+    if (!syncKey) {
+      toast.error('Ange SYNC_SECRET_KEY först');
+      return;
+    }
+
+    setRunning('finnhub_backfill');
+    setFinnhubProgress((prev) => ({ ...prev, running: true }));
+    try {
+      const { data, error } = await supabase.functions.invoke('historical-backfill', {
+        body: { mode: 'finnhub_backfill', batchSize: 50, offset },
+        headers: {
+          Authorization: `Bearer ${syncKey}`,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const done = Number(data?.done ?? data?.fetched ?? data?.processed ?? data?.symbolsProcessed ?? 0);
+      const total = Number(data?.total ?? data?.symbolsTotal ?? data?.symbolCount ?? 0);
+      const failed = Number(data?.failed ?? data?.symbolsFailed ?? 0);
+
+      setFinnhubProgress({ done, total, failed, running: false });
+      setFinnhubNextOffset(offset + 50);
+      toast.success(`Finnhub batch klar (offset ${offset})`);
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
+    } catch (err) {
+      setFinnhubProgress((prev) => ({ ...prev, running: false }));
+      toast.error(`Finnhub backfill misslyckades: ${String(err)}`);
+    } finally {
+      setRunning(null);
+    }
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'success') return <CheckCircle2 className="h-4 w-4 text-primary" />;
     if (status === 'partial') return <AlertTriangle className="h-4 w-4 text-signal-caution" />;
@@ -1047,6 +1091,39 @@ export default function Admin() {
           {yahooProgress.total > 0 && (
             <p className="text-xs font-mono text-primary">
               {yahooProgress.done} / {yahooProgress.total} symboler klara · {yahooProgress.failed} misslyckade
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground">
+            FINNHUB BACKFILL
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => runFinnhubBackfillBatch(0)}
+              disabled={running !== null}
+              className="font-mono text-xs bg-primary text-primary-foreground"
+            >
+              🚀 Starta Finnhub Backfill
+            </Button>
+            <Button
+              onClick={() => runFinnhubBackfillBatch(finnhubNextOffset)}
+              disabled={running !== null}
+              variant="outline"
+              className="font-mono text-xs"
+            >
+              ⏭ Nästa batch (offset {finnhubNextOffset})
+            </Button>
+          </div>
+
+          {(finnhubProgress.running || finnhubProgress.total > 0) && (
+            <p className="text-xs font-mono text-primary">
+              {finnhubProgress.done} / {finnhubProgress.total} symboler klara · {finnhubProgress.failed} misslyckade
             </p>
           )}
         </CardContent>
