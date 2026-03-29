@@ -198,6 +198,15 @@ interface DailyPriceRow {
   date: string | null;
 }
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 interface WspIndicatorRow {
   symbol: string | null;
   above_ma50: boolean | null;
@@ -787,22 +796,30 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
 
   const latestPriceBySymbol: Record<string, number> = {};
   if (top50Symbols.length > 0) {
-    const { data: priceRows, error: priceError } = await (supabase as any)
-      .from('daily_prices')
-      .select('symbol, close, date')
-      .in('symbol', top50Symbols)
-      .order('date', { ascending: false });
+    const PRICE_BATCH_SIZE = 20;
+    const symbolChunks = chunkArray(top50Symbols, PRICE_BATCH_SIZE);
+    for (const symbolChunk of symbolChunks) {
+      const { data: priceRows, error: priceError } = await (supabase as any)
+        .from('daily_prices')
+        .select('symbol, close, date')
+        .in('symbol', symbolChunk)
+        .order('date', { ascending: false });
 
-    if (priceError) {
-      throw new Error(priceError.message);
-    }
+      if (priceError) {
+        console.warn(
+          `[WSP] Failed to fetch daily prices for ${symbolChunk.length} symbols: ${priceError.message}`,
+          { failedSymbols: symbolChunk },
+        );
+        continue;
+      }
 
-    for (const row of (priceRows ?? []) as DailyPriceRow[]) {
-      if (!row.symbol) continue;
-      if (latestPriceBySymbol[row.symbol] !== undefined) continue;
-      const close = Number(row.close);
-      if (!Number.isFinite(close)) continue;
-      latestPriceBySymbol[row.symbol] = close;
+      for (const row of (priceRows ?? []) as DailyPriceRow[]) {
+        if (!row.symbol) continue;
+        if (latestPriceBySymbol[row.symbol] !== undefined) continue;
+        const close = Number(row.close);
+        if (!Number.isFinite(close)) continue;
+        latestPriceBySymbol[row.symbol] = close;
+      }
     }
   }
 
