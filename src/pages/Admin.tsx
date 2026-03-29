@@ -24,6 +24,13 @@ interface LiveScannerFunnelCounts {
   total: number;
 }
 
+interface ScannerFunnelCountsRpcResponse {
+  climbing?: number | null;
+  base?: number | null;
+  downhill?: number | null;
+  total?: number | null;
+}
+
 interface DatabaseStatusStats {
   symbolCount: number;
   priceCount: number;
@@ -153,31 +160,19 @@ export default function Admin() {
   } = useQuery({
     queryKey: ['admin-live-scanner-funnel'],
     queryFn: async () => {
-      const [climbingRes, baseOrClimbingRes, downhillRes] = await Promise.all([
-        supabase
-          .from('market_scan_results_latest')
-          .select('*', { count: 'exact', head: true })
-          .eq('pattern', 'climbing'),
-        supabase
-          .from('market_scan_results_latest')
-          .select('*', { count: 'exact', head: true })
-          .eq('pattern', 'base_or_climbing'),
-        supabase
-          .from('market_scan_results_latest')
-          .select('*', { count: 'exact', head: true })
-          .eq('pattern', 'downhill'),
-      ]);
-      if (climbingRes.error) throw climbingRes.error;
-      if (baseOrClimbingRes.error) throw baseOrClimbingRes.error;
-      if (downhillRes.error) throw downhillRes.error;
+      const { data, error } = await supabase.rpc('get_scanner_funnel_counts');
+      if (error) throw error;
+
+      const counts = (data ?? {}) as ScannerFunnelCountsRpcResponse;
 
       return {
-        climbing: climbingRes.count ?? 0,
-        baseOrClimbing: baseOrClimbingRes.count ?? 0,
-        downhill: downhillRes.count ?? 0,
-        total: (climbingRes.count ?? 0) + (baseOrClimbingRes.count ?? 0) + (downhillRes.count ?? 0),
+        climbing: Number(counts.climbing ?? 0),
+        baseOrClimbing: Number(counts.base ?? 0),
+        downhill: Number(counts.downhill ?? 0),
+        total: Number(counts.total ?? 0),
       } satisfies LiveScannerFunnelCounts;
     },
+    retry: false,
     ...ONE_TIME_QUERY_OPTIONS,
   });
 

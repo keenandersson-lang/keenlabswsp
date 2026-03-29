@@ -894,6 +894,10 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_scanner_funnel_counts: {
+        Args: never
+        Returns: Json
+      }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
