@@ -98,14 +98,14 @@ export async function searchSearchableSymbols(query: string, limit = 25): Promis
 
   if (error) throw new Error(error.message);
 
-  const eligibleRows = ((rows ?? []) as SymbolRegistryRow[]).filter(isSearchableSymbolRow).slice(0, limit);
+  const eligibleRows = ((rows ?? []) as unknown as SymbolRegistryRow[]).filter(isSearchableSymbolRow).slice(0, limit);
 
   if (eligibleRows.length === 0) return [];
 
   const symbols = eligibleRows.map((row) => row.symbol);
   let approvedSet = new Set<string>();
 
-  const { data: cohortRows, error: cohortError } = await supabase
+  const { data: cohortRows, error: cohortError } = await (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol, approved_for_live_scanner, is_tier1_default')
     .in('symbol', symbols)
@@ -135,10 +135,10 @@ export async function fetchSearchableSymbolByTicker(symbol: string): Promise<Sea
   if (error) throw new Error(error.message);
   if (!row) return null;
 
-  const typed = row as SymbolRegistryRow;
+  const typed = row as unknown as SymbolRegistryRow;
   if (!isSearchableSymbolRow(typed)) return null;
 
-  const { data: cohortRow } = await supabase
+  const { data: cohortRow } = await (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol, approved_for_live_scanner, is_tier1_default')
     .eq('symbol', normalized)
