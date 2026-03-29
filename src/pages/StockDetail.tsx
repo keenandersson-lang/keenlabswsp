@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useWspScreener } from '@/hooks/use-wsp-screener';
 import { useStockDetail } from '@/hooks/use-stock-detail';
 import { StockChartModule } from '@/components/StockChartModule';
@@ -14,7 +15,8 @@ import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { isBenchmarkSymbol } from '@/lib/benchmarks';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { WSPPattern } from '@/lib/wsp-types';
+import type { Bar, WSPPattern } from '@/lib/wsp-types';
+import { supabase } from '@/integrations/supabase/client';
 
 type DetailTab = 'chart' | 'checklist' | 'sizer';
 
@@ -36,9 +38,40 @@ export default function StockDetail() {
   const detailQuery = useStockDetail(symbol);
   const requestedSymbol = symbol?.toUpperCase() ?? '';
   const isBenchmark = isBenchmarkSymbol(requestedSymbol);
+  const dailyPricesQuery = useQuery({
+    queryKey: ['stock-detail-daily-prices', requestedSymbol],
+    enabled: Boolean(requestedSymbol),
+    staleTime: 60_000,
+    queryFn: async (): Promise<Bar[]> => {
+      const { data, error } = await supabase
+        .from('daily_prices')
+        .select('date, open, high, low, close, volume')
+        .eq('symbol', requestedSymbol)
+        .order('date', { ascending: false })
+        .limit(200);
+
+      if (error) throw error;
+      if (!data || data.length === 0) return [];
+
+      return [...data]
+        .reverse()
+        .map((row) => ({
+          date: row.date,
+          open: Number(row.open),
+          high: Number(row.high),
+          low: Number(row.low),
+          close: Number(row.close),
+          volume: Number(row.volume),
+        }));
+    },
+  });
 
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
   const detailData = detailQuery.data?.data;
+  const resolvedDailyBars = useMemo(() => {
+    if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
+    return detailData?.barsDaily ?? [];
+  }, [dailyPricesQuery.data, detailData?.barsDaily]);
   const isMetals = detailData?.assetClass === 'metals';
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
@@ -46,19 +79,19 @@ export default function StockDetail() {
 
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
-    return barsForTimeframe(timeframe, detailData.barsDaily, detailData.barsWeekly);
-  }, [detailData, timeframe]);
+    return barsForTimeframe(timeframe, resolvedDailyBars, detailData.barsWeekly);
+  }, [detailData, timeframe, resolvedDailyBars]);
 
   const baseStock = useMemo(() => {
     if (!detailData) return null;
-    if (detailData.barsDaily.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+    if (resolvedDailyBars.length === 0 || detailData.benchmarkDaily.length === 0) return null;
 
     return evaluateStock(
       detailData.symbol,
       detailData.name,
       detailData.sector,
       detailData.industry,
-      detailData.barsDaily,
+      resolvedDailyBars,
       detailData.benchmarkDaily,
       sectorAligned,
       marketFavorable ?? true,
@@ -73,7 +106,7 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, marketFavorable, sectorAligned]);
+  }, [detailData, marketFavorable, resolvedDailyBars, sectorAligned]);
 
   const historicalStock = useMemo(() => {
     if (!detailData || timeframeBars.bars.length === 0) return baseStock;
@@ -109,20 +142,20 @@ export default function StockDetail() {
 
   const benchmarkStock = useMemo(() => {
     if (!detailData || !isBenchmark) return null;
-    if (detailData.barsDaily.length === 0 || detailData.benchmarkDaily.length === 0) return null;
+    if (resolvedDailyBars.length === 0 || detailData.benchmarkDaily.length === 0) return null;
     return evaluateStock(
       detailData.symbol,
       detailData.name,
       detailData.sector,
       detailData.industry,
-      detailData.barsDaily,
+      resolvedDailyBars,
       detailData.benchmarkDaily,
       true,
       true,
       'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
-  }, [detailData, isBenchmark]);
+  }, [detailData, isBenchmark, resolvedDailyBars]);
 
   if (detailQuery.isLoading) {
     return (
@@ -185,7 +218,7 @@ export default function StockDetail() {
     detailData.metadataCompleteness !== 'complete'
       ? `Metadata ${detailData.metadataCompleteness === 'missing' ? 'missing' : 'incomplete'} for one or more fields.`
       : null,
-    detailData.barsDaily.length < 200 || detailData.benchmarkDaily.length < 200
+    resolvedDailyBars.length < 200 || detailData.benchmarkDaily.length < 200
       ? 'Indicator coverage incomplete: less than 200 bars available for full MA context.'
       : null,
   ].filter((item): item is string => Boolean(item));
@@ -275,7 +308,7 @@ export default function StockDetail() {
 
           <StockChartModule
             stock={stock}
-            dailyBars={detailData.barsDaily}
+            dailyBars={resolvedDailyBars}
             weeklyBars={detailData.barsWeekly}
             dailyBenchmark={detailData.benchmarkDaily}
             weeklyBenchmark={detailData.benchmarkWeekly}
