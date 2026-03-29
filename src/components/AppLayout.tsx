@@ -109,16 +109,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
                 />
 
-                {searchFocused && searchValue.trim().length > 0 && (
+                {searchFocused && searchValue.trim().length >= 2 && (
                   <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-md border border-border bg-card p-1 shadow-lg">
                     {searchQuery.isLoading && (
                       <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">Söker i symbolregistret...</div>
                     )}
 
                     {!searchQuery.isLoading && searchResults.length === 0 && (
-                      <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">
-                        Ingen träff i sökbar universumsökning. Tryck Enter för att försöka öppna symbolen direkt.
-                      </div>
+                        <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">
+                        Ingen träff i symbolregistret.
+                        </div>
                     )}
 
                     {!searchQuery.isLoading && searchResults.length > 0 && (
@@ -134,20 +134,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             <div className="min-w-0">
                               <div className="text-xs font-mono font-semibold text-foreground">{item.symbol}</div>
                               <div className="truncate text-[10px] text-muted-foreground">{item.name}</div>
-                              <div className="truncate text-[9px] text-muted-foreground/90">
-                                {item.sector ?? 'Okänd sektor'} · {item.industry ?? 'Okänd industri'}
-                              </div>
-                            </div>
-                            <div className="mt-0.5 flex flex-col items-end gap-1">
-                              <span className="text-[9px] font-mono text-muted-foreground">{item.exchange ?? 'N/A'} · {item.instrumentType ?? 'N/A'}</span>
-                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-mono ${item.isApprovedLiveCohort ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-border text-muted-foreground'}`}>
-                                {item.isApprovedLiveCohort ? 'Live approved cohort' : 'Searchable universe'}
-                              </span>
+                              {item.canonicalSector && (
+                                <div className="truncate text-[9px] text-muted-foreground/90">{item.canonicalSector}</div>
+                              )}
                             </div>
                           </button>
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+                {searchFocused && searchValue.trim().length > 0 && searchValue.trim().length < 2 && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-md border border-border bg-card p-1 shadow-lg">
+                    <div className="px-2 py-2 text-[10px] text-muted-foreground font-mono">Skriv minst 2 tecken för att söka.</div>
                   </div>
                 )}
               </div>

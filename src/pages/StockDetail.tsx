@@ -55,7 +55,7 @@ export default function StockDetail() {
         .from('market_scan_results_latest')
         .select('symbol, pattern, recommendation, score, payload, sector, canonical_sector, name')
         .eq('symbol', requestedSymbol)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return scannerData;
     },
@@ -70,22 +70,19 @@ export default function StockDetail() {
         .from('daily_prices')
         .select('date, open, high, low, close, volume')
         .eq('symbol', requestedSymbol)
-        .order('date', { ascending: false })
-        .limit(756);
+        .order('date', { ascending: true });
 
       if (error) throw error;
       if (!data || data.length === 0) return [];
 
-      return [...data]
-        .reverse()
-        .map((row) => ({
-          date: row.date,
-          open: Number(row.open),
-          high: Number(row.high),
-          low: Number(row.low),
-          close: Number(row.close),
-          volume: Number(row.volume),
-        }));
+      return data.map((row) => ({
+        date: row.date,
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume),
+      }));
     },
   });
 
@@ -292,7 +289,7 @@ export default function StockDetail() {
   }
 
   if (!detailQuery.data?.ok || !detailData) {
-    const symbolNotSearchable = detailQuery.data?.error?.code === 'SYMBOL_NOT_IN_SEARCHABLE_UNIVERSE';
+    const symbolNotSearchable = detailQuery.data?.error?.code === 'SYMBOL_NOT_ACTIVE';
 
     return (
       <div className="p-6">
@@ -301,7 +298,7 @@ export default function StockDetail() {
         </Link>
         <div className={`mt-8 rounded-lg border p-4 text-sm ${symbolNotSearchable ? 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' : 'border-signal-sell/20 bg-signal-sell/5 text-signal-sell'}`}>
           {symbolNotSearchable
-            ? `Symbol ${requestedSymbol} finns inte i sökbara universumregistret.`
+            ? `Symbol ${requestedSymbol} är inte aktiv i symbolregistret.`
             : `Chart-data ej tillgänglig: ${sanitizeClientErrorMessage(detailQuery.data?.error?.message)}`}
         </div>
       </div>
@@ -451,6 +448,11 @@ export default function StockDetail() {
 
       {activeTab === 'chart' && (
         <div className="space-y-3">
+          {!hasScannerData && (
+            <div className="rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-mono text-muted-foreground">
+              Denna aktie ingår inte i WSP-scannern
+            </div>
+          )}
           <div className={`rounded-lg border-l-4 ${banner.border} ${banner.bg} px-4 py-2.5 text-sm text-foreground`}>
             {banner.text}
           </div>
