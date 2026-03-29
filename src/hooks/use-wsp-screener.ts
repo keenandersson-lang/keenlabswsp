@@ -185,8 +185,6 @@ interface DirectScannerRow {
 }
 
 interface ScannerPayload {
-  current_close?: number | null;
-  close?: number | null;
   ma50?: number | null;
   ma150?: number | null;
   ma50_slope?: number | null;
@@ -401,6 +399,7 @@ function buildDirectScannerStock(
   nowIso: string,
   payload: ScannerPayload | null,
   profile: SymbolProfileRow | null,
+  latestPriceBySymbol: Record<string, number>,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const payloadScore = typeof payload?.wsp_score === 'number' && Number.isFinite(payload.wsp_score) ? payload.wsp_score : null;
@@ -430,7 +429,7 @@ function buildDirectScannerStock(
     ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
     ?? profile?.industry
     ?? 'Unknown';
-  const rawPrice = payload?.current_close ?? payload?.close ?? payload?.ma50 ?? 0;
+  const rawPrice = row.symbol ? latestPriceBySymbol[row.symbol] ?? Number(payload?.ma50) ?? 0 : Number(payload?.ma50) ?? 0;
   const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
   const changePercent = typeof payload?.pct_change_1d === 'number' && Number.isFinite(payload.pct_change_1d)
     ? Number(payload.pct_change_1d.toFixed(2))
@@ -663,6 +662,32 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     }
   }
 
+  const top50Symbols = rows
+    .slice(0, 50)
+    .map((row) => row.symbol)
+    .filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0);
+
+  const latestPriceBySymbol: Record<string, number> = {};
+  if (top50Symbols.length > 0) {
+    const { data: priceRows, error: priceError } = await (supabase as any)
+      .from('daily_prices')
+      .select('symbol, close, date')
+      .in('symbol', top50Symbols)
+      .order('date', { ascending: false });
+
+    if (priceError) {
+      throw new Error(priceError.message);
+    }
+
+    for (const row of (priceRows ?? []) as DailyPriceRow[]) {
+      if (!row.symbol) continue;
+      if (latestPriceBySymbol[row.symbol] !== undefined) continue;
+      const close = Number(row.close);
+      if (!Number.isFinite(close)) continue;
+      latestPriceBySymbol[row.symbol] = close;
+    }
+  }
+
   const nowIso = new Date().toISOString();
   return rows
     .sort((left, right) => {
@@ -687,6 +712,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
         nowIso,
         rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
         row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
+        latestPriceBySymbol,
       );
     })
     .filter((stock): stock is EvaluatedStock => stock !== null);
