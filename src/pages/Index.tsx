@@ -85,7 +85,7 @@ const Index = () => {
 
   useEffect(() => {
     const fetchTopSetups = async () => {
-      const { data: topSetupsData, error } = await supabase
+      const { data: topSetupsData, error: topSetupsError } = await supabase
         .from('market_scan_results_latest')
         .select('symbol, pattern, recommendation, score, sector, industry, volume_ratio, payload')
         .eq('pattern', 'climbing')
@@ -93,8 +93,11 @@ const Index = () => {
         .order('volume_ratio', { ascending: false })
         .limit(10);
 
-      if (error) {
-        console.log('[Index] Failed to load top setups:', error);
+      console.log('TOP SETUPS DATA:', topSetupsData);
+      console.log('TOP SETUPS ERROR:', topSetupsError);
+
+      if (topSetupsError) {
+        console.log('[Index] Failed to load top setups:', topSetupsError);
         setTopSetups([]);
         return;
       }
