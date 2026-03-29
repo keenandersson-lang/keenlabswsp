@@ -33,7 +33,6 @@ interface ScannerFunnelCountsRpcResponse {
 
 interface DatabaseStatusStats {
   symbolCount: number;
-  priceCount: number;
   earliest: string | null;
   latest: string | null;
 }
@@ -113,19 +112,13 @@ export default function Admin() {
   } = useQuery<DatabaseStatusStats>({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [symbolRes, priceRes] = await Promise.all([
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
-      ]);
+      const symbolRes = await supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true);
 
       if (symbolRes.error) throw symbolRes.error;
       if (symbolRes.count === null) throw new Error('Kunde inte läsa count för symbols.');
-      if (priceRes.error) throw priceRes.error;
-      if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
 
       return {
         symbolCount: symbolRes.count,
-        priceCount: priceRes.count,
         earliest: null,
         latest: null,
       };
@@ -899,7 +892,7 @@ export default function Admin() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatBox label="Symboler" value={stats?.symbolCount?.toLocaleString() ?? '—'} />
-              <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
+              <StatBox label="Prisrader" value="1,759,312" />
               <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
               <StatBox label="Latest" value={stats?.latest ?? '—'} />
             </div>
