@@ -9,9 +9,14 @@ import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { useQueryClient } from '@tanstack/react-query';
 import { Scan } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+
+const CLIMBING_PATTERNS = new Set(['climbing', 'base_or_climbing']);
 
 export default function Screener() {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
+  const [showAll, setShowAll] = useState(false);
   const queryClient = useQueryClient();
   const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs);
 
@@ -23,6 +28,14 @@ export default function Screener() {
   const discoveryMeta = payload?.discoveryMeta;
 
   const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
+
+  const filteredStocks = useMemo(() => {
+    if (showAll) return equityStocks;
+    return equityStocks.filter(s => {
+      const pattern = (s as any).scannerPattern ?? s.pattern;
+      return pattern && CLIMBING_PATTERNS.has(pattern);
+    });
+  }, [equityStocks, showAll]);
 
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
@@ -71,16 +84,30 @@ export default function Screener() {
           <div>
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              Live approved scanner cohort · {equityStocks.length} equities
+              Visar {filteredStocks.length} av {equityStocks.length} aktier
+              {!showAll && ' · climbing / base_or_climbing'}
               {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> · {providerStatus.uiState}</span>}
             </p>
           </div>
         </div>
-        <CreditsBadge />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-all"
+              checked={showAll}
+              onCheckedChange={setShowAll}
+              className="h-5 w-9 data-[state=checked]:bg-primary"
+            />
+            <Label htmlFor="show-all" className="text-[10px] font-mono text-muted-foreground cursor-pointer whitespace-nowrap">
+              Visa alla
+            </Label>
+          </div>
+          <CreditsBadge />
+        </div>
       </div>
 
-      <PatternSummary stocks={equityStocks} />
-      <StockTable stocks={equityStocks} discoveryMeta={discoveryMeta} />
+      <PatternSummary stocks={filteredStocks} />
+      <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
     </div>
   );
 }

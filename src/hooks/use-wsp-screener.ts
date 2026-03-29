@@ -665,7 +665,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           trendState: meta.trendState ?? null,
         };
       })
-      .filter((stock): stock is EvaluatedStock => stock !== null);
+      .filter((stock): stock is NonNullable<typeof stock> => stock !== null) as EvaluatedStock[];
 
   const benchmarkSuccessCount = Number(edgeResp.providerStatus.benchmarkSuccessCount ?? 0);
   const benchmarkFailureCount = Number(edgeResp.providerStatus.benchmarkFailureCount ?? 0);
