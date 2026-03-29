@@ -174,6 +174,7 @@ interface SafeFetchResult {
 
 interface DirectScannerRow {
   symbol: string | null;
+  canonical_sector: string | null;
   sector: string | null;
   industry: string | null;
   pattern: string | null;
@@ -446,10 +447,8 @@ function buildDirectScannerStock(
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = volumeMultiple !== null && volumeMultiple >= 2;
-  const normalizedSector = profile?.canonical_sector
-    ?? (row.sector && row.sector !== 'Unknown' ? row.sector : null)
-    ?? profile?.sector
-    ?? 'Unknown';
+  const sectorValue = row.canonical_sector ?? row.sector ?? 'Unknown';
+  const normalizedSector = row.canonical_sector ?? row.sector ?? '';
   const normalizedIndustry = profile?.canonical_industry
     ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
     ?? profile?.industry
@@ -464,7 +463,7 @@ function buildDirectScannerStock(
   return {
     symbol: row.symbol,
     name: row.symbol,
-    sector: normalizedSector,
+    sector: sectorValue,
     industry: normalizedIndustry,
     price: currentPrice,
     changePercent,
@@ -666,7 +665,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const sectorTrends = await fetchSectorTrends();
   const { data, error } = await (supabase as any)
     .from('market_scan_results_latest')
-    .select('symbol, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
+    .select('symbol, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
     .order('score', { ascending: false, nullsFirst: false })
     .order('symbol', { ascending: true })
     .limit(2000);
