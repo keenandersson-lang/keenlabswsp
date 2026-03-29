@@ -416,8 +416,8 @@ function buildDirectScannerStock(
     ? payload.ma50_slope
     : null;
   const hasWspIndicators = payload !== null;
-  const aboveMa50 = payload?.above_ma50 === true;
-  const aboveMa150 = payload?.above_ma150 === true;
+  const aboveMa50 = Boolean(payload?.above_ma50);
+  const aboveMa150 = Boolean(payload?.above_ma150);
   const slope50Positive = ma50Slope !== null && ma50Slope > 0;
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = volumeMultiple !== null && volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;

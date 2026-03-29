@@ -544,7 +544,6 @@ function getMissingIndicatorScore(stock: EvaluatedStock) {
   const hasDirectIndicatorSnapshot = stock.dataSource === 'live'
     && audit?.sma50 != null
     && audit?.sma150 != null
-    && audit?.sma50SlopeValue != null
     && audit?.volumeMultiple != null
     && audit?.mansfieldValue != null;
 
