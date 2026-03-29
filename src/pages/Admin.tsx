@@ -17,31 +17,11 @@ import { toast } from 'sonner';
 
 type RunningType = 'daily' | 'backfill' | 'backfill_date' | 'seed' | 'enrich' | 'test_polygon' | 'yahoo_backfill' | 'finnhub_backfill' | null;
 
-interface LiveScannerFunnelSnapshot {
-  generated_at: string;
-  funnel: {
-    active_symbols: number;
-    symbols_with_any_daily_prices: number;
-    symbols_with_200_plus_bars: number;
-    symbols_present_in_wsp_indicators: number;
-    symbols_passing_classification_support_alignment: number;
-    symbols_in_market_scan_results_latest: number;
-    symbols_matching_live_endpoint_statuses: number;
-    symbols_exposed_by_live_endpoint: number;
-  };
-  promotion_status_counts: Record<string, number>;
-  live_endpoint_details: {
-    source_view: string;
-    promotion_statuses_included: string[];
-    additional_symbol_filters: string[];
-  };
-  biggest_dropoff: {
-    stage_from: string;
-    stage_to: string;
-    count_from: number;
-    count_to: number;
-    drop_count: number;
-  } | null;
+interface LiveScannerFunnelCounts {
+  climbing: number;
+  baseOrClimbing: number;
+  downhill: number;
+  total: number;
 }
 
 interface MarketScanFailureDebug {
@@ -111,29 +91,33 @@ export default function Admin() {
   } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [priceRes, symbolRes, earliestRes, latestRes, enrichedRes] = await Promise.all([
-        supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      const [priceRes, symbolRes, minDateRes, maxDateRes, indicatorRes, enrichedRes] = await Promise.all([
+        supabase.from('daily_prices').select('id', { count: 'exact', head: true }),
+        supabase.from('symbols').select('id', { count: 'exact', head: true }).eq('is_active', true),
         supabase.from('daily_prices').select('date').order('date', { ascending: true }).limit(1),
         supabase.from('daily_prices').select('date').order('date', { ascending: false }).limit(1),
-        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
+        supabase.from('wsp_indicators').select('id', { count: 'exact', head: true }),
+        supabase.from('symbols').select('id', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
       ]);
 
       if (priceRes.error) throw priceRes.error;
       if (symbolRes.error) throw symbolRes.error;
-      if (earliestRes.error) throw earliestRes.error;
-      if (latestRes.error) throw latestRes.error;
+      if (minDateRes.error) throw minDateRes.error;
+      if (maxDateRes.error) throw maxDateRes.error;
+      if (indicatorRes.error) throw indicatorRes.error;
       if (enrichedRes.error) throw enrichedRes.error;
 
       if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
       if (symbolRes.count === null) throw new Error('Kunde inte läsa count för symbols.');
+      if (indicatorRes.count === null) throw new Error('Kunde inte läsa count för wsp_indicators.');
       if (enrichedRes.count === null) throw new Error('Kunde inte läsa count för enriched symbols.');
 
       return {
         priceCount: priceRes.count,
         symbolCount: symbolRes.count,
-        earliest: earliestRes.data?.[0]?.date ?? null,
-        latest: latestRes.data?.[0]?.date ?? null,
+        earliest: minDateRes.data?.[0]?.date ?? null,
+        latest: maxDateRes.data?.[0]?.date ?? null,
+        indicatorCount: indicatorRes.count,
         enrichedCount: enrichedRes.count,
       };
     },
@@ -167,9 +151,30 @@ export default function Admin() {
   } = useQuery({
     queryKey: ['admin-live-scanner-funnel'],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('scanner_operator_snapshot');
-      if (error) throw error;
-      return data as unknown as LiveScannerFunnelSnapshot;
+      const [climbingRes, baseOrClimbingRes, downhillRes] = await Promise.all([
+        supabase
+          .from('market_scan_results_latest')
+          .select('id', { count: 'exact', head: true })
+          .eq('pattern', 'climbing'),
+        supabase
+          .from('market_scan_results_latest')
+          .select('id', { count: 'exact', head: true })
+          .eq('pattern', 'base_or_climbing'),
+        supabase
+          .from('market_scan_results_latest')
+          .select('id', { count: 'exact', head: true })
+          .eq('pattern', 'downhill'),
+      ]);
+      if (climbingRes.error) throw climbingRes.error;
+      if (baseOrClimbingRes.error) throw baseOrClimbingRes.error;
+      if (downhillRes.error) throw downhillRes.error;
+
+      return {
+        climbing: climbingRes.count ?? 0,
+        baseOrClimbing: baseOrClimbingRes.count ?? 0,
+        downhill: downhillRes.count ?? 0,
+        total: (climbingRes.count ?? 0) + (baseOrClimbingRes.count ?? 0) + (downhillRes.count ?? 0),
+      } satisfies LiveScannerFunnelCounts;
     },
     refetchInterval: 30000,
   });
@@ -552,6 +557,10 @@ export default function Admin() {
         batchNumber,
         lastError: '',
       });
+
+      if (hasMore && !autoDateBackfillStopRef.current) {
+        await sleep(3000);
+      }
     }
 
     if (autoDateBackfillStopRef.current) {
@@ -926,6 +935,7 @@ export default function Admin() {
               <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
               <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
               <StatBox label="Latest" value={stats?.latest ?? '—'} />
+              <StatBox label="WSP indicators" value={stats?.indicatorCount?.toLocaleString() ?? '—'} />
               <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
             </div>
           )}
@@ -946,55 +956,14 @@ export default function Admin() {
             </p>
           ) : isLiveScannerFunnelLoading || !liveScannerFunnel ? (
             <p className="text-xs text-muted-foreground font-mono">Laddar live scanner funnel...</p>
-          ) : !liveScannerFunnel.funnel ? (
-            <p className="text-xs text-signal-danger font-mono">
-              Funnel-data saknas i svaret. Kontrollera att scanner_operator_snapshot returnerar rätt format.
-              <br />
-              <code className="text-[10px] block mt-1 whitespace-pre-wrap">{JSON.stringify(liveScannerFunnel, null, 2).slice(0, 500)}</code>
-            </p>
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <StatBox label="Active symbols" value={String(liveScannerFunnel.funnel?.active_symbols ?? '—')} />
-                <StatBox label="Any daily_prices" value={String(liveScannerFunnel.funnel?.symbols_with_any_daily_prices ?? '—')} />
-                <StatBox label="≥200 bars" value={String(liveScannerFunnel.funnel?.symbols_with_200_plus_bars ?? '—')} />
-                <StatBox label="In wsp_indicators" value={String(liveScannerFunnel.funnel?.symbols_present_in_wsp_indicators ?? '—')} />
-                <StatBox label="Pass class/supp/align" value={String(liveScannerFunnel.funnel?.symbols_passing_classification_support_alignment ?? '—')} />
-                <StatBox label="In market_scan_results_latest" value={String(liveScannerFunnel.funnel?.symbols_in_market_scan_results_latest ?? '—')} />
-                <StatBox label="Endpoint statuses match" value={String(liveScannerFunnel.funnel?.symbols_matching_live_endpoint_statuses ?? '—')} />
-                <StatBox label="Exposed by live endpoint" value={String(liveScannerFunnel.funnel?.symbols_exposed_by_live_endpoint ?? '—')} highlight />
+                <StatBox label="Climbing" value={String(liveScannerFunnel.climbing)} highlight />
+                <StatBox label="Base/Climbing" value={String(liveScannerFunnel.baseOrClimbing)} highlight />
+                <StatBox label="Downhill" value={String(liveScannerFunnel.downhill)} />
+                <StatBox label="Total" value={String(liveScannerFunnel.total)} />
               </div>
-
-              <div className="space-y-2">
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Promotion status breakdown</p>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(liveScannerFunnel.promotion_status_counts ?? {}).length === 0 ? (
-                    <span className="text-xs font-mono text-muted-foreground">Inga rows i market_scan_results_latest.</span>
-                  ) : (
-                    Object.entries(liveScannerFunnel.promotion_status_counts)
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([status, count]) => (
-                        <Badge key={status} variant="outline" className="text-[10px] font-mono">
-                          {status}: {count}
-                        </Badge>
-                      ))
-                  )}
-                </div>
-              </div>
-
-              <div className="text-[10px] font-mono text-muted-foreground bg-muted rounded p-2 space-y-1">
-                <div>Live source: <span className="text-foreground">{liveScannerFunnel.live_endpoint_details?.source_view ?? '—'}</span></div>
-                <div>Included statuses: <span className="text-foreground">{(liveScannerFunnel.live_endpoint_details?.promotion_statuses_included ?? []).join(', ') || '—'}</span></div>
-                <div>Additional filters: <span className="text-foreground">{(liveScannerFunnel.live_endpoint_details?.additional_symbol_filters ?? []).join(' + ') || '—'}</span></div>
-              </div>
-
-              {liveScannerFunnel.biggest_dropoff && (
-                <div className="text-[10px] font-mono rounded p-2 border border-primary/20 bg-primary/10 text-foreground">
-                  Biggest drop-off: <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_from}</span> →{' '}
-                  <span className="text-primary">{liveScannerFunnel.biggest_dropoff.stage_to}</span>{' '}
-                  ({liveScannerFunnel.biggest_dropoff.count_from} → {liveScannerFunnel.biggest_dropoff.count_to}, Δ {liveScannerFunnel.biggest_dropoff.drop_count})
-                </div>
-              )}
 
               {latestBroadScanFailure && (
                 <div className="text-[10px] font-mono rounded p-2 border border-signal-danger/30 bg-signal-danger/10 text-foreground space-y-1">
@@ -1098,7 +1067,7 @@ export default function Admin() {
               variant={autoDateBackfill.running ? 'destructive' : 'outline'}
               className="font-mono text-xs border-primary/40 text-primary"
             >
-              {autoDateBackfill.running ? '⏹ Stoppa' : '🔄 Auto-kör alla datum'}
+              {autoDateBackfill.running ? '⏹ Stoppa' : '🔄 Auto-kör alla datum (3s paus)'}
             </Button>
 
             <div className="flex flex-wrap gap-2 border-l border-border pl-3">
