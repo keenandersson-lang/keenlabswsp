@@ -156,6 +156,16 @@
     animation: pulse-subtle 3s ease-in-out infinite;
   }
 
+  .market-ticker-track {
+    animation: ticker-scroll 36s linear infinite;
+    will-change: transform;
+  }
+
+  @keyframes ticker-scroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
   @keyframes pulse-subtle {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
