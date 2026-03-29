@@ -79,6 +79,10 @@ Deno.serve(async (req: Request) => {
     return handleDateBackfill(body)
   }
 
+  if (body.mode === 'yahoo_backfill') {
+    return handleYahooBackfill(body)
+  }
+
   // ── Mode: per-symbol backfill (original) ──
   return handleSymbolBackfill(body)
 })
@@ -654,6 +658,128 @@ async function handleSymbolBackfill(body: Record<string, any>) {
       .sort((a, b) => b[1] - a[1])
       .map(([cat, count]) => ({ category: cat, count, retryable: categoryMeta[cat as FailureCategory]?.retryable ?? false })),
     failedSymbols: failureDetails,
+  })
+}
+
+async function handleYahooBackfill(body: Record<string, any>) {
+  const { symbols, batchSize = 50, offset = 0 } = body
+
+  let symbolsToProcess: string[] = []
+  if (Array.isArray(symbols) && symbols.length > 0) {
+    symbolsToProcess = symbols
+      .map((s: unknown) => String(s ?? '').toUpperCase().trim())
+      .filter((s: string) => s.length > 0 && s.length <= 10)
+  } else {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_symbols_needing_backfill')
+    if (rpcError) {
+      return jsonRes({ ok: false, error: `get_symbols_needing_backfill failed: ${rpcError.message}` })
+    }
+    symbolsToProcess = (rpcData ?? [])
+      .map((row: any) => String(row?.symbol ?? row ?? '').toUpperCase().trim())
+      .filter((s: string) => s.length > 0 && s.length <= 10)
+  }
+
+  const total = symbolsToProcess.length
+  const selectedSymbols = symbolsToProcess.slice(offset, offset + batchSize)
+
+  if (selectedSymbols.length === 0) {
+    return jsonRes({
+      fetched: 0,
+      failed: 0,
+      total,
+      failedSymbols: [],
+      nextOffset: offset,
+      hasMore: false,
+    })
+  }
+
+  const failedSymbols: { symbol: string; reason: string }[] = []
+  let fetched = 0
+  let failed = 0
+
+  const symbolBatches = chunkArray(selectedSymbols, 10)
+  for (let i = 0; i < symbolBatches.length; i++) {
+    const symbolBatch = symbolBatches[i]
+
+    for (const symbol of symbolBatch) {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2y`
+        const res = await fetch(url)
+        if (!res.ok) {
+          failed++
+          failedSymbols.push({ symbol, reason: `HTTP ${res.status}` })
+          continue
+        }
+
+        const payload = await res.json().catch(() => null)
+        const result = payload?.chart?.result?.[0]
+        const timestamps: number[] = Array.isArray(result?.timestamp) ? result.timestamp : []
+        const quote = result?.indicators?.quote?.[0] ?? {}
+        const opens: number[] = Array.isArray(quote.open) ? quote.open : []
+        const highs: number[] = Array.isArray(quote.high) ? quote.high : []
+        const lows: number[] = Array.isArray(quote.low) ? quote.low : []
+        const closes: number[] = Array.isArray(quote.close) ? quote.close : []
+        const volumes: number[] = Array.isArray(quote.volume) ? quote.volume : []
+
+        const bars = timestamps.map((ts: number, idx: number) => {
+          const open = Number(opens[idx])
+          const high = Number(highs[idx])
+          const low = Number(lows[idx])
+          const close = Number(closes[idx])
+          const volume = Number(volumes[idx])
+          if ([open, high, low, close, volume].some((n) => Number.isNaN(n))) return null
+          return {
+            symbol,
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            open,
+            high,
+            low,
+            close,
+            volume: Math.round(volume),
+            data_source: 'yahoo',
+            has_full_volume: true,
+          }
+        }).filter(Boolean) as Array<Record<string, any>>
+
+        if (bars.length === 0) {
+          failed++
+          failedSymbols.push({ symbol, reason: 'No valid bars returned' })
+          continue
+        }
+
+        let hadUpsertError = false
+        for (const upsertBatch of chunkArray(bars, 500)) {
+          const { error } = await supabase
+            .from('daily_prices')
+            .upsert(upsertBatch, { onConflict: 'symbol,date', ignoreDuplicates: false })
+          if (error) {
+            hadUpsertError = true
+            failed++
+            failedSymbols.push({ symbol, reason: `Upsert failed: ${error.message}` })
+            break
+          }
+        }
+
+        if (!hadUpsertError) fetched++
+      } catch (err) {
+        failed++
+        failedSymbols.push({ symbol, reason: safeReason(String(err)) })
+      }
+    }
+
+    if (i < symbolBatches.length - 1) {
+      await sleep(1000)
+    }
+  }
+
+  const nextOffset = offset + selectedSymbols.length
+  return jsonRes({
+    fetched,
+    failed,
+    total,
+    failedSymbols,
+    nextOffset,
+    hasMore: nextOffset < total,
   })
 }
 
