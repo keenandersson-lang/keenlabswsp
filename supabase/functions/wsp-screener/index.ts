@@ -88,7 +88,6 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
     .from("market_scan_results_latest")
     .select("symbol, pattern, recommendation, score, sector, canonical_sector, name, payload")
     .in("pattern", ["climbing", "base_or_climbing"])
-    .order("payload->volume_ratio", { ascending: false })
     .range(from, to);
 
   if (error) {
@@ -96,7 +95,14 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
     return [];
   }
 
-  const latestRows = (data ?? []) as any[];
+  const allRows = (data ?? []) as any[];
+  allRows.sort((a, b) => {
+    const volA = Number(a.payload?.volume_ratio ?? 0);
+    const volB = Number(b.payload?.volume_ratio ?? 0);
+    return volB - volA;
+  });
+
+  const latestRows = allRows;
   if (latestRows.length === 0) {
     console.warn("wsp-screener no rows from market_scan_results_latest for climbing/base_or_climbing cohort");
     return [];
