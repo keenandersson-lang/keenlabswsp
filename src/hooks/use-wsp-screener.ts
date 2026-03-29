@@ -663,18 +663,35 @@ async function buildSectorStatusesFromDailyPrices(): Promise<SectorStatus[]> {
 
 async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   const sectorTrends = await fetchSectorTrends();
-  const { data, error } = await (supabase as any)
-    .from('market_scan_results_latest')
-    .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
-    .order('score', { ascending: false, nullsFirst: false })
-    .order('symbol', { ascending: true })
-    .limit(2000);
+  const PAGE_SIZE = 1000;
+  const rows: DirectScannerRow[] = [];
+  let from = 0;
+  let hasMore = true;
 
-  if (error) {
-    throw new Error(error.message);
+  while (hasMore) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await (supabase as any)
+      .from('market_scan_results_latest')
+      .select('symbol, name, canonical_sector, sector, industry, pattern, recommendation, trend_state, score, payload, scan_date')
+      .in('pattern', ['climbing', 'base_or_climbing'])
+      .order('score', { ascending: false, nullsFirst: false })
+      .order('symbol', { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const pageRows = (data ?? []) as DirectScannerRow[];
+    rows.push(...pageRows);
+
+    if (pageRows.length < PAGE_SIZE) {
+      hasMore = false;
+    } else {
+      from += PAGE_SIZE;
+    }
   }
 
-  const rows = (data ?? []) as DirectScannerRow[];
   const allRows = rows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
   const symbols = [...new Set(allRows.map((row) => row.symbol))];
   const symbolNames: Record<string, string> = {};
