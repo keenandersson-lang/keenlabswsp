@@ -297,6 +297,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "market_scan_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "market_scan_runs_safe"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "market_scan_results_symbol_fkey"
             columns: ["symbol"]
             isOneToOne: false
@@ -761,6 +768,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "market_scan_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "market_scan_runs_safe"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "market_scan_results_symbol_fkey"
             columns: ["symbol"]
             isOneToOne: false
@@ -773,6 +787,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "symbols"
             referencedColumns: ["symbol"]
+          },
+        ]
+      }
+      market_scan_runs_safe: {
+        Row: {
+          blocker_summary: Json | null
+          completed_at: string | null
+          id: number | null
+          metadata: Json | null
+          run_label: string | null
+          scan_date: string | null
+          stage_counts: Json | null
+          started_at: string | null
+          status: string | null
+          symbols_failed: number | null
+          symbols_scanned: number | null
+          symbols_targeted: number | null
+          universe_run_id: number | null
+        }
+        Insert: {
+          blocker_summary?: Json | null
+          completed_at?: string | null
+          id?: number | null
+          metadata?: Json | null
+          run_label?: string | null
+          scan_date?: string | null
+          stage_counts?: Json | null
+          started_at?: string | null
+          status?: string | null
+          symbols_failed?: number | null
+          symbols_scanned?: number | null
+          symbols_targeted?: number | null
+          universe_run_id?: number | null
+        }
+        Update: {
+          blocker_summary?: Json | null
+          completed_at?: string | null
+          id?: number | null
+          metadata?: Json | null
+          run_label?: string | null
+          scan_date?: string | null
+          stage_counts?: Json | null
+          started_at?: string | null
+          status?: string | null
+          symbols_failed?: number | null
+          symbols_scanned?: number | null
+          symbols_targeted?: number | null
+          universe_run_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_scan_runs_universe_run_id_fkey"
+            columns: ["universe_run_id"]
+            isOneToOne: false
+            referencedRelation: "scanner_universe_runs"
+            referencedColumns: ["id"]
           },
         ]
       }
