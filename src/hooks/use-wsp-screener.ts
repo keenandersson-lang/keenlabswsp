@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta } from '@/lib/wsp-types';
+import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indicators';
@@ -41,6 +41,20 @@ interface EdgeFunctionResponse {
     }>;
     liveScannerCohort?: string[];
     stockBars: Record<string, Bar[]>;
+    indicatorFallback?: Record<string, {
+      close: number;
+      ma50: number | null;
+      ma150: number | null;
+      above_ma50: boolean;
+      above_ma150: boolean;
+      volume_ratio: number | null;
+      mansfield_rs: number | null;
+      wsp_pattern: string | null;
+      wsp_score: number | null;
+      pct_change_1d: number | null;
+      recommendation?: string | null;
+      wsp_recommendation?: string | null;
+    }>;
     benchmarkBars: Bar[];
     benchmarkSymbol: string;
     marketBars: Record<string, Bar[]>;
@@ -76,6 +90,69 @@ interface EdgeFunctionResponse {
   sectorStatuses?: SectorStatus[];
   discovery?: DiscoveryBuckets;
   discoveryMeta?: DiscoveryMeta;
+}
+
+function toWspPattern(value: string | null | undefined): WSPPattern {
+  switch ((value ?? '').toUpperCase()) {
+    case 'CLIMBING':
+      return 'CLIMBING';
+    case 'TIRED':
+      return 'TIRED';
+    case 'DOWNHILL':
+      return 'DOWNHILL';
+    default:
+      return 'BASE';
+  }
+}
+
+function recommendationFromPattern(pattern: WSPPattern): WSPRecommendation {
+  if (pattern === 'CLIMBING') return 'KÖP';
+  if (pattern === 'TIRED') return 'SÄLJ';
+  if (pattern === 'DOWNHILL') return 'UNDVIK';
+  return 'BEVAKA';
+}
+
+function buildFallbackIndicators(fallback: NonNullable<EdgeFunctionResponse['data']>['indicatorFallback'][string]): StockIndicators {
+  const ma50 = typeof fallback.ma50 === 'number' && Number.isFinite(fallback.ma50) ? fallback.ma50 : null;
+  const ma150 = typeof fallback.ma150 === 'number' && Number.isFinite(fallback.ma150) ? fallback.ma150 : null;
+  const mansfieldRs = typeof fallback.mansfield_rs === 'number' && Number.isFinite(fallback.mansfield_rs) ? fallback.mansfield_rs : null;
+  const volumeRatio = typeof fallback.volume_ratio === 'number' && Number.isFinite(fallback.volume_ratio) ? fallback.volume_ratio : null;
+
+  return {
+    sma20: null,
+    sma50: ma50,
+    sma150: ma150,
+    sma200: null,
+    sma50Slope: null,
+    sma50SlopeDirection: 'flat',
+    resistanceZone: null,
+    resistanceUpperBound: null,
+    resistanceTouches: 0,
+    resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+    resistanceTouchIndices: [],
+    resistanceMostRecentTouchDate: null,
+    breakoutLevel: null,
+    currentClose: fallback.close,
+    breakoutCloseDelta: null,
+    closeAboveResistancePct: null,
+    breakoutConfirmed: false,
+    breakoutQualityPass: false,
+    breakoutQualityReasons: [],
+    breakoutClv: null,
+    recentFalseBreakoutsCount: 0,
+    barsSinceBreakout: null,
+    breakoutStale: false,
+    averageVolumeReference: null,
+    volumeMultiple: volumeRatio,
+    mansfieldRS: mansfieldRs,
+    mansfieldRSPrev: mansfieldRs,
+    mansfieldRSTrend: 'flat',
+    mansfieldTransition: false,
+    mansfieldUptrend: mansfieldRs !== null && mansfieldRs > 0,
+    mansfieldValid: mansfieldRs !== null && mansfieldRs > 0,
+    indicatorWarnings: [],
+    chronologyNormalized: false,
+  };
 }
 
 interface FetchDiagnostics {
@@ -358,14 +435,61 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   const evaluatedStocks: EvaluatedStock[] = edgeResp.stocks?.length
     ? edgeResp.stocks
     : data.trackedSymbols
-      .filter(meta => data.stockBars[meta.symbol]?.length > 0)
       .map(meta => {
+        const bars = data.stockBars[meta.symbol] ?? [];
+        const fallback = data.indicatorFallback?.[meta.symbol];
+        const hasBars = bars.length > 0;
+        if (!hasBars && !fallback) return null;
+
         const sectorAligned = sectorStatusMap[meta.sector]?.isBullish ?? false;
+        if (hasBars) {
+          const evaluated = evaluateStock(
+            meta.symbol, meta.name, meta.sector, meta.industry,
+            bars, benchmarkBars,
+            sectorAligned, marketFavorable, 'live',
+            {
+              metadata: {
+                exchange: meta.exchange ?? '',
+                assetClass: (meta.assetClass as 'equity' | 'commodity' | 'metals') ?? 'equity',
+                supportsFullWsp: meta.supportsFullWsp ?? true,
+                wspSupport: (meta.wspSupport as 'full' | 'limited') ?? 'full',
+              },
+            },
+          );
+          const scannerScore = typeof meta.scannerScore === 'number' && Number.isFinite(meta.scannerScore)
+            ? Math.max(0, Math.min(4, meta.scannerScore))
+            : null;
+          return {
+            ...evaluated,
+            score: scannerScore ?? evaluated.score,
+            scannerPattern: meta.pattern ?? null,
+            scannerRecommendation: meta.recommendation ?? null,
+            scannerScore,
+            trendState: meta.trendState ?? null,
+          };
+        }
+
+        const fallbackPattern = toWspPattern(fallback.wsp_pattern);
+        const fallbackScore = typeof fallback.wsp_score === 'number' && Number.isFinite(fallback.wsp_score)
+          ? Math.max(0, Math.min(4, fallback.wsp_score))
+          : null;
+        const fallbackPct = typeof fallback.pct_change_1d === 'number' && Number.isFinite(fallback.pct_change_1d)
+          ? fallback.pct_change_1d
+          : 0;
+        const fallbackPrevClose = fallback.close / (1 + (fallbackPct / 100));
         const evaluated = evaluateStock(
           meta.symbol, meta.name, meta.sector, meta.industry,
-          data.stockBars[meta.symbol], benchmarkBars,
-          sectorAligned, marketFavorable, 'live',
+          [], benchmarkBars,
+          sectorAligned, marketFavorable, 'fallback',
           {
+            overrideAnalysis: {
+              pattern: fallbackPattern,
+              indicators: buildFallbackIndicators(fallback),
+              price: fallback.close,
+              prevClose: Number.isFinite(fallbackPrevClose) ? fallbackPrevClose : fallback.close,
+              volume: 0,
+              lastUpdated: now,
+            },
             metadata: {
               exchange: meta.exchange ?? '',
               assetClass: (meta.assetClass as 'equity' | 'commodity' | 'metals') ?? 'equity',
@@ -374,18 +498,16 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
             },
           },
         );
-        const scannerScore = typeof meta.scannerScore === 'number' && Number.isFinite(meta.scannerScore)
-          ? Math.max(0, Math.min(4, meta.scannerScore))
-          : null;
         return {
           ...evaluated,
-          score: scannerScore ?? evaluated.score,
-          scannerPattern: meta.pattern ?? null,
-          scannerRecommendation: meta.recommendation ?? null,
-          scannerScore,
+          score: fallbackScore ?? evaluated.score,
+          scannerPattern: fallback.wsp_pattern ?? null,
+          scannerRecommendation: fallback.wsp_recommendation ?? fallback.recommendation ?? recommendationFromPattern(fallbackPattern),
+          scannerScore: fallbackScore,
           trendState: meta.trendState ?? null,
         };
-      });
+      })
+      .filter((stock): stock is EvaluatedStock => stock !== null);
 
   const benchmarkSuccessCount = Number(edgeResp.providerStatus.benchmarkSuccessCount ?? 0);
   const benchmarkFailureCount = Number(edgeResp.providerStatus.benchmarkFailureCount ?? 0);
