@@ -6,8 +6,8 @@ export function useSymbolSearch(query: string) {
 
   return useQuery({
     queryKey: ['searchable-symbols', normalizedQuery],
-    queryFn: () => searchSearchableSymbols(normalizedQuery, 12),
-    enabled: normalizedQuery.length >= 1,
+    queryFn: () => searchSearchableSymbols(normalizedQuery, 20),
+    enabled: normalizedQuery.length >= 2,
     staleTime: 30_000,
   });
 }

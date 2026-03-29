@@ -94,13 +94,9 @@ async function fetchSearchableSymbolMeta(supabase: any, symbol: string) {
   return data;
 }
 
-function isSearchableSymbol(meta: any): boolean {
+function isActiveSymbol(meta: any): boolean {
   if (!meta) return false;
-  if (meta.is_active === false) return false;
-  if (meta.instrument_type && meta.instrument_type !== 'CS') return false;
-  if (meta.is_etf === true) return false;
-  if (meta.is_adr === true) return false;
-  return true;
+  return meta.is_active !== false;
 }
 
 function inferMetadataCompleteness(meta: any): 'complete' | 'partial' | 'missing' {
@@ -146,11 +142,11 @@ Deno.serve(async (req: Request) => {
       isApprovedLiveCohort(supabase, symbol),
     ]);
 
-    if (!isSearchableSymbol(symbolMeta)) {
+    if (!isActiveSymbol(symbolMeta)) {
       return json(404, {
         ok: false,
         data: null,
-        error: { code: 'SYMBOL_NOT_IN_SEARCHABLE_UNIVERSE', message: `${symbol} is not in the current searchable universe.` },
+        error: { code: 'SYMBOL_NOT_ACTIVE', message: `${symbol} is not an active symbol.` },
       });
     }
 
