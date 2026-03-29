@@ -898,7 +898,7 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
   const symbols = [...new Set(latestRows.map((row: any) => row.symbol).filter(Boolean))];
   const { data: symbolRows } = await supabase
     .from("symbols")
-    .select("symbol, name, exchange, instrument_type, is_etf")
+    .select("symbol, name, exchange, instrument_type, is_etf, canonical_sector, canonical_industry, sector, industry")
     .in("symbol", symbols);
 
   const symbolMetaMap = new Map((symbolRows ?? []).map((row: any) => [row.symbol, row]));
@@ -907,11 +907,19 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
     const row = latestRows.find((item: any) => item.symbol === symbol);
     const meta = symbolMetaMap.get(symbol);
     const isEquity = !meta?.is_etf && meta?.instrument_type === "CS";
+    const resolvedSector = meta?.canonical_sector
+      ?? (row?.sector && row.sector !== "Unknown" ? row.sector : null)
+      ?? meta?.sector
+      ?? "Unknown";
+    const resolvedIndustry = meta?.canonical_industry
+      ?? (row?.industry && row.industry !== "Unknown" ? row.industry : null)
+      ?? meta?.industry
+      ?? "Unknown";
     return {
       symbol,
       name: meta?.name ?? symbol,
-      sector: row?.sector ?? "Unknown",
-      industry: row?.industry ?? "Unknown",
+      sector: resolvedSector,
+      industry: resolvedIndustry,
       pattern: row?.pattern ?? null,
       recommendation: row?.recommendation ?? null,
       trendState: row?.trend_state ?? null,

@@ -58,20 +58,18 @@ export function buildSectorHeatmap(
   uiState: ScreenerUiState = 'LIVE',
 ): SectorHeatCell[] {
   const statusMap = new Map(sectorStatuses.map((item) => [item.sector, item]));
-  const bySector = new Map<string, EvaluatedStock[]>();
+  const sectorsFromEtfStatus = sectorStatuses.map((item) => item.sector);
+  const sectors = sectorsFromEtfStatus.length > 0
+    ? sectorsFromEtfStatus
+    : [...new Set(stocks.map((stock) => stock.sector))];
 
-  for (const stock of stocks) {
-    const existing = bySector.get(stock.sector) ?? [];
-    existing.push(stock);
-    bySector.set(stock.sector, existing);
-  }
-
-  return [...bySector.entries()]
-    .map(([sector, items]) => {
+  return sectors
+    .map((sector) => {
+      const items = stocks.filter((stock) => stock.sector === sector);
       const status = statusMap.get(sector);
       const avgChange = status && uiState !== 'FALLBACK'
         ? status.changePercent
-        : avg(items.map((s) => s.changePercent));
+        : (items.length > 0 ? avg(items.map((s) => s.changePercent)) : 0);
       const bullishRatio = ratio(items.filter((s) => isConstructiveStock(s)).length, items.length);
       const breakoutRatio = ratio(items.filter((s) => isStrictBreakout(s)).length, items.length);
       const baseStrength = normalizeStrengthScore(avgChange, bullishRatio, breakoutRatio);
