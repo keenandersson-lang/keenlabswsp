@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -48,6 +48,13 @@ interface MarketScanFailureDebug {
     stage_counts?: Record<string, number>;
   } | null;
 }
+
+const ONE_TIME_QUERY_OPTIONS = {
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: false,
+  staleTime: Infinity,
+} as const;
 
 const TIER1_SYMBOLS = [
   'SPY','QQQ','DIA','IWM',
@@ -119,7 +126,7 @@ export default function Admin() {
         latest: latestDateRes.data?.[0]?.date ?? null,
       };
     },
-    refetchInterval: 15000,
+    ...ONE_TIME_QUERY_OPTIONS,
   });
 
   const {
@@ -139,7 +146,7 @@ export default function Admin() {
       if (!Array.isArray(data)) return [];
       return data;
     },
-    refetchInterval: 15000,
+    ...ONE_TIME_QUERY_OPTIONS,
   });
 
   const {
@@ -174,7 +181,7 @@ export default function Admin() {
         total: (climbingRes.count ?? 0) + (baseOrClimbingRes.count ?? 0) + (downhillRes.count ?? 0),
       } satisfies LiveScannerFunnelCounts;
     },
-    refetchInterval: 30000,
+    ...ONE_TIME_QUERY_OPTIONS,
   });
 
   const { data: latestBroadScanFailure } = useQuery({
@@ -190,7 +197,7 @@ export default function Admin() {
       if (error) throw error;
       return (data ?? null) as MarketScanFailureDebug | null;
     },
-    refetchInterval: 30000,
+    ...ONE_TIME_QUERY_OPTIONS,
   });
 
   // ── Tier 1 readiness ──
@@ -259,8 +266,19 @@ export default function Admin() {
         barCounts,
       };
     },
-    refetchInterval: 30000,
+    ...ONE_TIME_QUERY_OPTIONS,
   });
+
+  const refreshAdminData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-live-scanner-funnel'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-latest-broad-scan-failure'] }),
+      queryClient.invalidateQueries({ queryKey: ['tier1-readiness'] }),
+    ]);
+    toast.success('Admin-data uppdaterad');
+  };
 
   const invokeFunction = async (fnName: string, body: Record<string, unknown> = {}) => {
     if (!syncKey) {
@@ -390,52 +408,6 @@ export default function Admin() {
     lastError: '',
   });
   const autoDateBackfillStopRef = useRef(false);
-  const [dateBackfillPollError, setDateBackfillPollError] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Poll data_sync_log for real-time progress during date backfill
-  useEffect(() => {
-    if (dateBackfillProgress.running && dateBackfillProgress.logId) {
-      pollingRef.current = setInterval(async () => {
-        // Get the latest running backfill_by_date log entry
-        const { data, error } = await supabase
-          .from('data_sync_log')
-          .select('*')
-          .eq('sync_type', 'backfill_by_date')
-          .order('started_at', { ascending: false })
-          .limit(1);
-
-        if (error) {
-          setDateBackfillPollError(`Kunde inte läsa backfill-status: ${error.message}`);
-          return;
-        }
-        setDateBackfillPollError(null);
-
-        if (data && data[0]) {
-          const log = data[0];
-          const meta = log.metadata as any;
-          setDateBackfillProgress(prev => ({
-            ...prev,
-            completedDays: meta?.completed_days ?? prev.completedDays,
-            totalDays: meta?.total_trading_days ?? prev.totalDays,
-            totalRows: meta?.total_rows ?? prev.totalRows,
-            currentDate: meta?.last_date ?? prev.currentDate,
-            lastError: log.error_message ?? '',
-          }));
-          // Also refresh stats
-          queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
-          queryClient.invalidateQueries({ queryKey: ['admin-sync-log'] });
-        }
-      }, 5000);
-
-      return () => {
-        if (pollingRef.current) clearInterval(pollingRef.current);
-      };
-    }
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [dateBackfillProgress.running, dateBackfillProgress.logId, queryClient]);
 
   const runDateBackfill = async () => {
     setRunning('backfill_date');
@@ -796,6 +768,9 @@ export default function Admin() {
       <div className="flex items-center gap-3">
         <Server className="h-5 w-5 text-primary" />
         <h1 className="text-lg font-bold text-foreground font-mono tracking-wider">WSP DATA ADMIN</h1>
+        <Button onClick={refreshAdminData} disabled={running !== null} variant="outline" className="font-mono text-xs ml-auto">
+          🔄 Uppdatera
+        </Button>
       </div>
 
       {/* Sync Key */}
@@ -1135,12 +1110,6 @@ export default function Admin() {
               )}
             </div>
           )}
-          {dateBackfillPollError && (
-            <div className="text-xs font-mono text-signal-danger mt-2">
-              ⚠ {dateBackfillPollError}
-            </div>
-          )}
-
           {/* Stopped state */}
           {!running && backfillProgress.stopped && (
             <div className="text-xs font-mono text-signal-danger mt-2">
