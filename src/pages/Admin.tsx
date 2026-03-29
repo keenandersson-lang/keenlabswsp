@@ -24,6 +24,13 @@ interface LiveScannerFunnelCounts {
   total: number;
 }
 
+interface DatabaseStatusStats {
+  symbolCount: number;
+  priceCount: number;
+  earliest: string | null;
+  latest: string | null;
+}
+
 interface MarketScanFailureDebug {
   id: number;
   started_at: string;
@@ -88,37 +95,28 @@ export default function Admin() {
     data: stats,
     error: statsError,
     isLoading: isStatsLoading,
-  } = useQuery({
+  } = useQuery<DatabaseStatusStats>({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [priceRes, symbolRes, minDateRes, maxDateRes, indicatorRes, enrichedRes] = await Promise.all([
-        supabase.from('daily_prices').select('id', { count: 'exact', head: true }),
-        supabase.from('symbols').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      const [symbolRes, priceRes, dateRangeRes, latestDateRes] = await Promise.all([
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
+        supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
         supabase.from('daily_prices').select('date').order('date', { ascending: true }).limit(1),
         supabase.from('daily_prices').select('date').order('date', { ascending: false }).limit(1),
-        supabase.from('wsp_indicators').select('id', { count: 'exact', head: true }),
-        supabase.from('symbols').select('id', { count: 'exact', head: true }).eq('is_active', true).not('enriched_at', 'is', null),
       ]);
 
-      if (priceRes.error) throw priceRes.error;
       if (symbolRes.error) throw symbolRes.error;
-      if (minDateRes.error) throw minDateRes.error;
-      if (maxDateRes.error) throw maxDateRes.error;
-      if (indicatorRes.error) throw indicatorRes.error;
-      if (enrichedRes.error) throw enrichedRes.error;
-
-      if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
       if (symbolRes.count === null) throw new Error('Kunde inte läsa count för symbols.');
-      if (indicatorRes.count === null) throw new Error('Kunde inte läsa count för wsp_indicators.');
-      if (enrichedRes.count === null) throw new Error('Kunde inte läsa count för enriched symbols.');
+      if (priceRes.error) throw priceRes.error;
+      if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
+      if (dateRangeRes.error) throw dateRangeRes.error;
+      if (latestDateRes.error) throw latestDateRes.error;
 
       return {
-        priceCount: priceRes.count,
         symbolCount: symbolRes.count,
-        earliest: minDateRes.data?.[0]?.date ?? null,
-        latest: maxDateRes.data?.[0]?.date ?? null,
-        indicatorCount: indicatorRes.count,
-        enrichedCount: enrichedRes.count,
+        priceCount: priceRes.count,
+        earliest: dateRangeRes.data?.[0]?.date ?? null,
+        latest: latestDateRes.data?.[0]?.date ?? null,
       };
     },
     refetchInterval: 15000,
@@ -154,15 +152,15 @@ export default function Admin() {
       const [climbingRes, baseOrClimbingRes, downhillRes] = await Promise.all([
         supabase
           .from('market_scan_results_latest')
-          .select('id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('pattern', 'climbing'),
         supabase
           .from('market_scan_results_latest')
-          .select('id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('pattern', 'base_or_climbing'),
         supabase
           .from('market_scan_results_latest')
-          .select('id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('pattern', 'downhill'),
       ]);
       if (climbingRes.error) throw climbingRes.error;
@@ -930,13 +928,11 @@ export default function Admin() {
           ) : isStatsLoading ? (
             <p className="text-xs text-muted-foreground font-mono">Laddar databasstatus...</p>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatBox label="Symboler" value={stats?.symbolCount?.toLocaleString() ?? '—'} />
               <StatBox label="Prisrader" value={stats?.priceCount?.toLocaleString() ?? '—'} />
               <StatBox label="Earliest" value={stats?.earliest ?? '—'} />
               <StatBox label="Latest" value={stats?.latest ?? '—'} />
-              <StatBox label="WSP indicators" value={stats?.indicatorCount?.toLocaleString() ?? '—'} />
-              <StatBox label="Enriched" value={stats?.enrichedCount?.toLocaleString() ?? '—'} />
             </div>
           )}
         </CardContent>
