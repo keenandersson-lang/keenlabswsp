@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern } from '@/lib/wsp-types';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indicators';
@@ -108,13 +108,6 @@ function toWspPattern(value: string | null | undefined): WSPPattern {
     default:
       return 'BASE';
   }
-}
-
-function recommendationFromPattern(pattern: WSPPattern): WSPRecommendation {
-  if (pattern === 'CLIMBING') return 'KÖP';
-  if (pattern === 'TIRED') return 'SÄLJ';
-  if (pattern === 'DOWNHILL') return 'UNDVIK';
-  return 'BEVAKA';
 }
 
 function buildFallbackIndicators(fallback: NonNullable<EdgeFunctionResponse['data']>['indicatorFallback'][string]): StockIndicators {
@@ -430,8 +423,9 @@ function buildDirectScannerStock(
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const p = payload ?? {};
-  const payloadScore = typeof p.wsp_score === 'number' && Number.isFinite(p.wsp_score) ? p.wsp_score : null;
-  const scannerScore = payloadScore ?? (typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : null);
+  const scannerScore = typeof p.wsp_score === 'number' && Number.isFinite(p.wsp_score)
+    ? p.wsp_score
+    : null;
   const ma50 = typeof p.ma50 === 'number' && Number.isFinite(p.ma50) ? p.ma50 : null;
   const ma150 = typeof p.ma150 === 'number' && Number.isFinite(p.ma150) ? p.ma150 : null;
   const mansfieldRs = typeof p.mansfield_rs === 'number' && Number.isFinite(p.mansfield_rs)
@@ -582,7 +576,7 @@ function buildDirectScannerStock(
     dataSource: 'live',
     lastUpdated: updatedAt,
     scannerPattern: row.pattern,
-    scannerRecommendation: row.recommendation,
+    scannerRecommendation: row.recommendation ?? 'BEVAKA',
     scannerScore,
     trendState: row.trend_state,
     sectorBullish: sectorTrends[normalizedSector] ?? false,
@@ -943,8 +937,9 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           return {
             ...evaluated,
             score: scannerScore ?? evaluated.score,
+            maxScore: 4,
             scannerPattern: meta.pattern ?? null,
-            scannerRecommendation: meta.recommendation ?? null,
+            scannerRecommendation: meta.recommendation ?? 'BEVAKA',
             scannerScore,
             trendState: meta.trendState ?? null,
           };
@@ -982,8 +977,9 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
         return {
           ...evaluated,
           score: fallbackScore ?? evaluated.score,
+          maxScore: 4,
           scannerPattern: fallback.wsp_pattern ?? null,
-          scannerRecommendation: fallback.wsp_recommendation ?? fallback.recommendation ?? recommendationFromPattern(fallbackPattern),
+          scannerRecommendation: fallback.wsp_recommendation ?? fallback.recommendation ?? 'BEVAKA',
           scannerScore: fallbackScore,
           trendState: meta.trendState ?? null,
         };

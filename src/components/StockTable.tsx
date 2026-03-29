@@ -13,7 +13,7 @@ interface StockTableProps {
   discoveryMeta?: DiscoveryMeta;
 }
 
-type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base';
+type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
 type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
@@ -83,6 +83,7 @@ const scannerPatternPriority: Record<string, number> = {
   climbing: 4,
   base_or_climbing: 3,
   base: 2,
+  tired: 2,
   downhill: 1,
 };
 
@@ -93,6 +94,8 @@ function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPP
     case 'base_or_climbing':
     case 'base':
       return 'BASE';
+    case 'tired':
+      return 'TIRED';
     case 'downhill':
       return 'DOWNHILL';
     default:
@@ -144,7 +147,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
       if (filter === 'all') return true;
       if (filter === 'valid-wsp') return stock.isValidWspEntry;
       if (filter === 'KÖP' || filter === 'BEVAKA' || filter === 'SÄLJ' || filter === 'UNDVIK') {
-        return (stock.scannerRecommendation ?? stock.finalRecommendation) === filter;
+        return (stock.scannerRecommendation ?? 'BEVAKA') === filter;
       }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
       if (filter === 'CLIMBING' || filter === 'BASE' || filter === 'TIRED' || filter === 'DOWNHILL') {
@@ -339,7 +342,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                     </td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={stock.sectorBullish ?? audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
-                      <WSPScoreRing score={stock.scannerScore ?? stock.score} maxScore={stock.maxScore} size={36} />
+                      <WSPScoreRing score={stock.scannerScore ?? 0} maxScore={4} size={36} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="space-y-1">
@@ -420,7 +423,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                               <Row label="Indicator warnings" value={formatIndicatorWarnings(audit?.indicatorWarnings)} warn={(audit?.indicatorWarnings?.length ?? 0) > 0} />
                               <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
                               <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
-                              <Row label="Score" value={`${stock.score}/${stock.maxScore}`} />
+                              <Row label="Score" value={`${stock.scannerScore ?? 0}/4`} />
                             </div>
                           </div>
 
@@ -655,8 +658,7 @@ function renderScannerPattern(stock: EvaluatedStock) {
 }
 
 function renderScannerRecommendation(stock: EvaluatedStock) {
-  const recommendation = stock.scannerRecommendation;
-  if (!recommendation) return <RecommendationBadge recommendation={stock.finalRecommendation} />;
+  const recommendation = stock.scannerRecommendation ?? 'BEVAKA';
   if (recommendation === 'KÖP' || recommendation === 'BEVAKA' || recommendation === 'UNDVIK' || recommendation === 'SÄLJ') {
     return <RecommendationBadge recommendation={recommendation} />;
   }
