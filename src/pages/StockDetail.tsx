@@ -14,6 +14,8 @@ import { PatternBadge } from '@/components/PatternBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { isBenchmarkSymbol } from '@/lib/benchmarks';
+import { SECTOR_ETF_MAP } from '@/lib/market-universe';
+import { sma } from '@/lib/wsp-indicators';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Bar, WSPPattern } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
@@ -94,6 +96,24 @@ export default function StockDetail() {
     },
   });
 
+  const indicatorQuery = useQuery({
+    queryKey: ['stock-detail-indicator', requestedSymbol],
+    enabled: Boolean(requestedSymbol),
+    staleTime: 60_000,
+    queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null } | null> => {
+      const { data, error } = await supabase
+        .from('wsp_indicators')
+        .select('volume_ratio, mansfield_rs')
+        .eq('symbol', requestedSymbol)
+        .order('calc_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
   const detailData = detailQuery.data?.data;
   const resolvedDailyBars = useMemo(() => {
@@ -106,6 +126,37 @@ export default function StockDetail() {
     return detailData?.benchmarkDaily ?? [];
   }, [spyDailyPricesQuery.data, detailData?.benchmarkDaily]);
   const resolvedBenchmarkWeeklyBars = useMemo(() => aggregateBarsWeekly(resolvedBenchmarkDailyBars), [resolvedBenchmarkDailyBars]);
+  const sectorEtfSymbol = useMemo(() => {
+    if (!detailData?.sector) return null;
+    return SECTOR_ETF_MAP[detailData.sector]?.[0] ?? null;
+  }, [detailData?.sector]);
+  const sectorEtfDailyPricesQuery = useQuery({
+    queryKey: ['stock-detail-daily-prices', sectorEtfSymbol],
+    enabled: Boolean(sectorEtfSymbol),
+    staleTime: 60_000,
+    queryFn: async (): Promise<Bar[]> => {
+      const { data, error } = await supabase
+        .from('daily_prices')
+        .select('date, open, high, low, close, volume')
+        .eq('symbol', sectorEtfSymbol ?? '')
+        .order('date', { ascending: false })
+        .limit(756);
+
+      if (error) throw error;
+      if (!data || data.length === 0) return [];
+
+      return [...data]
+        .reverse()
+        .map((row) => ({
+          date: row.date,
+          open: Number(row.open),
+          high: Number(row.high),
+          low: Number(row.low),
+          close: Number(row.close),
+          volume: Number(row.volume),
+        }));
+    },
+  });
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
   const sectorAligned = liveStock?.gate.sectorAligned ?? false;
@@ -244,6 +295,16 @@ export default function StockDetail() {
   const banner = patternBanners[stock.pattern];
   const slopeIcon = stock.audit.sma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : stock.audit.sma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const volMultiple = stock.audit.volumeMultiple;
+  const indicatorVolumeRatio = indicatorQuery.data?.volume_ratio ?? stock.audit.volumeMultiple ?? null;
+  const indicatorMansfieldRs = indicatorQuery.data?.mansfield_rs ?? stock.audit.mansfieldValue ?? null;
+  const sectorEtfBars = sectorEtfDailyPricesQuery.data ?? [];
+  const sectorEtfClose = sectorEtfBars.length > 0 ? sectorEtfBars[sectorEtfBars.length - 1].close : null;
+  const sectorEtfMa50 = sectorEtfBars.length > 0 ? sma(sectorEtfBars, 50) : null;
+  const sectorEtfAbove50MA = sectorEtfClose != null && sectorEtfMa50 != null ? sectorEtfClose > sectorEtfMa50 : null;
+  const priorLow = resolvedDailyBars.length >= 2 ? resolvedDailyBars[resolvedDailyBars.length - 2].low : null;
+  const stopLossFourPct = stock.price * 0.96;
+  const stopLossSixPct = stock.price * 0.94;
+  const stopLossRecommended = priorLow != null ? Math.min(stopLossFourPct, priorLow) : stopLossFourPct;
 
   const notices = [
     !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
@@ -357,7 +418,22 @@ export default function StockDetail() {
       )}
 
       {activeTab === 'checklist' && (
-        <WSPChecklist stock={stock} onOpenPositionSizer={() => setActiveTab('sizer')} />
+        <WSPChecklist
+          stock={stock}
+          context={{
+            volumeRatio: indicatorVolumeRatio,
+            mansfieldRs: indicatorMansfieldRs,
+            sectorEtfSymbol,
+            sectorEtfClose,
+            sectorEtfMa50,
+            sectorEtfAbove50MA,
+            stopLossRecommended,
+            stopLossFourPct,
+            stopLossSixPct,
+            stopLossPriorLow: priorLow,
+          }}
+          onOpenPositionSizer={() => setActiveTab('sizer')}
+        />
       )}
 
       {activeTab === 'sizer' && (
