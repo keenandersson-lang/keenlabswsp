@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWspScreener, fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarketHeader } from '@/components/MarketHeader';
 import { MarketRegime } from '@/components/MarketRegime';
 import { MarketHeatmap } from '@/components/MarketHeatmap';
@@ -14,6 +14,7 @@ import { CreditsBadge } from '@/components/CreditsBadge';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { EvaluatedStock } from '@/lib/wsp-types';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
@@ -40,11 +41,47 @@ const Index = () => {
   }), [stocks]);
 
   const topSetups = useMemo(() =>
-    [...equityStocks]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10),
+    {
+      const climbingOnly = equityStocks.filter((stock) => stock.scannerPattern === 'climbing' || stock.pattern === 'CLIMBING');
+      const primaryPool = climbingOnly.length > 0
+        ? climbingOnly
+        : equityStocks.filter((stock) => stock.scannerPattern === 'base_or_climbing');
+
+      return [...primaryPool]
+        .sort((a, b) => (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY))
+        .slice(0, 10);
+    },
     [equityStocks]
   );
+
+  const topSetupSymbolsWithMissingPrice = useMemo(
+    () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
+    [topSetups]
+  );
+
+  const { data: topSetupFallbackCloseMap = {} } = useQuery({
+    queryKey: ['dashboard-top-setup-fallback-closes', topSetupSymbolsWithMissingPrice],
+    enabled: topSetupSymbolsWithMissingPrice.length > 0,
+    queryFn: async () => {
+      const { data: rows, error } = await supabase
+        .from('daily_prices')
+        .select('symbol, close, date')
+        .in('symbol', topSetupSymbolsWithMissingPrice)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      const latestCloseBySymbol: Record<string, number> = {};
+
+      for (const row of rows ?? []) {
+        if (latestCloseBySymbol[row.symbol] != null) continue;
+        if (typeof row.close !== 'number' || !Number.isFinite(row.close) || row.close <= 0) continue;
+        latestCloseBySymbol[row.symbol] = row.close;
+      }
+
+      return latestCloseBySymbol;
+    },
+  });
 
   const handleManualRefresh = async () => {
     await queryClient.fetchQuery({
@@ -131,7 +168,7 @@ const Index = () => {
               </div>
               <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
               <div className="mt-1 flex items-center justify-between">
-                <span className="font-mono text-[9px] text-foreground">${stock.price.toFixed(2)}</span>
+                <span className="font-mono text-[9px] text-foreground">${getDisplayPrice(stock, topSetupFallbackCloseMap).toFixed(2)}</span>
                 <span className={`font-mono text-[9px] font-medium ${stock.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
                   {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(1)}%
                 </span>
@@ -160,7 +197,7 @@ const Index = () => {
             </thead>
             <tbody>
               {topSetups.map((stock) => (
-                <TopSetupRow key={stock.symbol} stock={stock} />
+                <TopSetupRow key={stock.symbol} stock={stock} fallbackCloseMap={topSetupFallbackCloseMap} />
               ))}
             </tbody>
           </table>
@@ -173,10 +210,18 @@ const Index = () => {
   );
 };
 
-function TopSetupRow({ stock }: { stock: EvaluatedStock }) {
+function getDisplayPrice(stock: EvaluatedStock, fallbackCloseMap: Record<string, number>) {
+  const candidate = typeof stock.price === 'number' && Number.isFinite(stock.price) && stock.price > 0
+    ? stock.price
+    : fallbackCloseMap[stock.symbol];
+
+  return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
+}
+
+function TopSetupRow({ stock, fallbackCloseMap }: { stock: EvaluatedStock; fallbackCloseMap: Record<string, number> }) {
   const positive = stock.changePercent >= 0;
   const volumeMultiple = stock.audit?.volumeMultiple;
-  const slopeDir = stock.audit?.sma50SlopeDirection;
+  const displayPrice = getDisplayPrice(stock, fallbackCloseMap);
 
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
@@ -186,7 +231,7 @@ function TopSetupRow({ stock }: { stock: EvaluatedStock }) {
           <span className="block text-[8px] text-muted-foreground truncate max-w-[80px]">{stock.name}</span>
         </Link>
       </td>
-      <td className="px-2 py-2 font-mono text-xs text-foreground">${stock.price.toFixed(2)}</td>
+      <td className="px-2 py-2 font-mono text-xs text-foreground">${displayPrice.toFixed(2)}</td>
       <td className="px-2 py-2">
         <span className={`flex items-center gap-0.5 font-mono text-xs font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
           {positive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
