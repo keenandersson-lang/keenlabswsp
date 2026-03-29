@@ -624,7 +624,8 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   }
 
   const rows = (data ?? []) as DirectScannerRow[];
-  const symbols = [...new Set(rows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
+  const allRows = rows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
+  const symbols = [...new Set(allRows.map((row) => row.symbol))];
   const payloadBySymbol = new Map<string, ScannerPayload>();
   const latestPriceBySymbol = new Map<string, DailyPriceRow>();
   const profilesBySymbol = new Map<string, SymbolProfileRow>();
@@ -639,19 +640,25 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
       payloadBySymbol.set(row.symbol, payload);
     }
 
-    const { data: priceRows, error: priceError } = await (supabase as any)
-      .from('daily_prices')
-      .select('symbol, close, date')
-      .in('symbol', symbols)
-      .order('symbol', { ascending: true })
-      .order('date', { ascending: false });
+    const top50 = allRows.slice(0, 50).map((row) => row.symbol);
+    const priceResults = await Promise.all(
+      top50.map((sym) =>
+        (supabase as any)
+          .from('daily_prices')
+          .select('symbol, close, date')
+          .eq('symbol', sym)
+          .order('date', { ascending: false })
+          .limit(1)
+          .single()
+      )
+    );
 
-    if (priceError) {
-      throw new Error(priceError.message);
-    }
-
-    for (const priceRow of (priceRows ?? []) as DailyPriceRow[]) {
-      if (!priceRow.symbol || latestPriceBySymbol.has(priceRow.symbol)) continue;
+    for (const result of priceResults) {
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      const priceRow = result.data as DailyPriceRow | null;
+      if (!priceRow?.symbol || latestPriceBySymbol.has(priceRow.symbol)) continue;
       latestPriceBySymbol.set(priceRow.symbol, priceRow);
     }
 
