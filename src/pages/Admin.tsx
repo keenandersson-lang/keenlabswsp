@@ -51,6 +51,7 @@ interface MarketScanFailureDebug {
 
 const ONE_TIME_QUERY_OPTIONS = {
   refetchOnWindowFocus: false,
+  refetchInterval: false,
   refetchOnReconnect: false,
   refetchOnMount: false,
   staleTime: Infinity,
@@ -105,25 +106,21 @@ export default function Admin() {
   } = useQuery<DatabaseStatusStats>({
     queryKey: ['admin-stats'],
     queryFn: async () => {
-      const [symbolRes, priceRes, dateRangeRes, latestDateRes] = await Promise.all([
+      const [symbolRes, priceRes] = await Promise.all([
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
         supabase.from('daily_prices').select('*', { count: 'exact', head: true }),
-        supabase.from('daily_prices').select('date').order('date', { ascending: true }).limit(1),
-        supabase.from('daily_prices').select('date').order('date', { ascending: false }).limit(1),
       ]);
 
       if (symbolRes.error) throw symbolRes.error;
       if (symbolRes.count === null) throw new Error('Kunde inte läsa count för symbols.');
       if (priceRes.error) throw priceRes.error;
       if (priceRes.count === null) throw new Error('Kunde inte läsa count för daily_prices.');
-      if (dateRangeRes.error) throw dateRangeRes.error;
-      if (latestDateRes.error) throw latestDateRes.error;
 
       return {
         symbolCount: symbolRes.count,
         priceCount: priceRes.count,
-        earliest: dateRangeRes.data?.[0]?.date ?? null,
-        latest: latestDateRes.data?.[0]?.date ?? null,
+        earliest: null,
+        latest: null,
       };
     },
     ...ONE_TIME_QUERY_OPTIONS,
@@ -204,16 +201,18 @@ export default function Admin() {
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
     queryFn: async () => {
-      const [{ data: symbols }, { data: priceCoverage, error: coverageError }] = await Promise.all([
+      const [{ count: _symbolsCount, error: symbolsError }, { data: priceCoverage, error: coverageError }] = await Promise.all([
         supabase
           .from('symbols')
-          .select('symbol, sector, industry, instrument_type, is_etf, exchange, enriched_at, is_active')
+          .select('*', { count: 'exact', head: true })
           .in('symbol', TIER1_SYMBOLS),
         supabase.rpc('admin_tier1_price_coverage', { p_symbols: TIER1_SYMBOLS }) as any,
       ]);
 
+      if (symbolsError) throw symbolsError;
       if (coverageError) throw coverageError;
 
+      const symbols: any[] = [];
       const symbolByTicker = new Map((symbols ?? []).map((s: any) => [s.symbol, s]));
       const barCounts: Record<string, number> = {};
       ((priceCoverage ?? []) as Array<{ symbol: string; bars: number | null }>).forEach((row) => {
