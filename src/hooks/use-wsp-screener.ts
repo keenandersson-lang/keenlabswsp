@@ -212,6 +212,13 @@ interface SymbolProfileRow {
   industry: string | null;
 }
 
+const SCANNER_PATTERN_PRIORITY: Record<string, number> = {
+  climbing: 4,
+  base_or_climbing: 3,
+  base: 2,
+  downhill: 1,
+};
+
 const MARKET_HEATMAP_SECTOR_ETFS: Record<string, string> = {
   Technology: 'XLK',
   Healthcare: 'XLV',
@@ -225,6 +232,35 @@ const MARKET_HEATMAP_SECTOR_ETFS: Record<string, string> = {
   'Real Estate': 'XLRE',
   Utilities: 'XLU',
 };
+
+function getScannerPatternPriority(stock: EvaluatedStock): number {
+  const scannerPattern = (stock.scannerPattern ?? '').toLowerCase();
+  if (scannerPattern in SCANNER_PATTERN_PRIORITY) {
+    return SCANNER_PATTERN_PRIORITY[scannerPattern];
+  }
+
+  const wspPattern = stock.pattern;
+  if (wspPattern === 'CLIMBING') return SCANNER_PATTERN_PRIORITY.climbing;
+  if (wspPattern === 'DOWNHILL') return SCANNER_PATTERN_PRIORITY.downhill;
+  return SCANNER_PATTERN_PRIORITY.base;
+}
+
+function sortStocksForDefaultView(stocks: EvaluatedStock[]): EvaluatedStock[] {
+  return [...stocks].sort((left, right) => {
+    const scoreDiff = (right.score ?? Number.NEGATIVE_INFINITY) - (left.score ?? Number.NEGATIVE_INFINITY);
+    if (scoreDiff !== 0) return scoreDiff;
+
+    const leftVolume = left.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY;
+    const rightVolume = right.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY;
+    const volumeDiff = rightVolume - leftVolume;
+    if (volumeDiff !== 0) return volumeDiff;
+
+    const patternDiff = getScannerPatternPriority(right) - getScannerPatternPriority(left);
+    if (patternDiff !== 0) return patternDiff;
+
+    return left.symbol.localeCompare(right.symbol);
+  });
+}
 
 function buildEdgeFunctionUrl(): string {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -643,7 +679,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
   }
 
   const nowIso = new Date().toISOString();
-  return rows
+  return sortStocksForDefaultView(rows
     .map((row) => buildDirectScannerStock(
       row,
       nowIso,
@@ -651,7 +687,7 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
       row.symbol ? latestPriceBySymbol.get(row.symbol) ?? null : null,
       row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
     ))
-    .filter((stock): stock is EvaluatedStock => stock !== null);
+    .filter((stock): stock is EvaluatedStock => stock !== null));
 }
 
 function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: FetchDiagnostics): ScreenerApiResponse {
@@ -872,7 +908,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
 
   return {
     market: { ...market, dataSource: 'live' },
-    stocks: evaluatedStocks,
+    stocks: sortStocksForDefaultView(evaluatedStocks),
     ...discoverySnapshot,
     sectorStatuses,
       providerStatus: {

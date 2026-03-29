@@ -12,7 +12,7 @@ import { Scan } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
-const CLIMBING_PATTERNS = new Set(['climbing', 'base_or_climbing', 'CLIMBING']);
+const DEFAULT_VISIBLE_PATTERNS = new Set(['climbing', 'base_or_climbing', 'base', 'CLIMBING', 'BASE']);
 
 export default function Screener() {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
@@ -33,7 +33,7 @@ export default function Screener() {
     if (showAll) return equityStocks;
     return equityStocks.filter(s => {
       const pattern = (s as any).scannerPattern ?? s.pattern;
-      return pattern && CLIMBING_PATTERNS.has(pattern);
+      return pattern && DEFAULT_VISIBLE_PATTERNS.has(pattern);
     });
   }, [equityStocks, showAll]);
 
@@ -85,7 +85,7 @@ export default function Screener() {
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
               Visar {filteredStocks.length} av {equityStocks.length} aktier
-              {!showAll && ' · climbing / base_or_climbing / CLIMBING'}
+              {!showAll && ' · climbing / base_or_climbing först, därefter base (downhill dold)'}
               {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> · {providerStatus.uiState}</span>}
             </p>
           </div>

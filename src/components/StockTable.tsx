@@ -79,6 +79,13 @@ const IMPORTANT_WARNING_SET = new Set<IndicatorWarning>([
   'benchmark_dates_misaligned',
 ]);
 
+const scannerPatternPriority: Record<string, number> = {
+  climbing: 4,
+  base_or_climbing: 3,
+  base: 2,
+  downhill: 1,
+};
+
 function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPPattern | null {
   switch ((pattern ?? '').toLowerCase()) {
     case 'climbing':
@@ -95,6 +102,17 @@ function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPP
 
 function getEffectiveWspPattern(stock: EvaluatedStock): WSPPattern {
   return mapScannerPatternToWspPattern(stock.scannerPattern) ?? stock.pattern;
+}
+
+function getPatternPriority(stock: EvaluatedStock): number {
+  const scannerPattern = (stock.scannerPattern ?? '').toLowerCase();
+  if (scannerPattern in scannerPatternPriority) {
+    return scannerPatternPriority[scannerPattern];
+  }
+  const effectivePattern = getEffectiveWspPattern(stock);
+  if (effectivePattern === 'CLIMBING') return scannerPatternPriority.climbing;
+  if (effectivePattern === 'DOWNHILL') return scannerPatternPriority.downhill;
+  return scannerPatternPriority.base;
 }
 
 function BoolCell({ value }: { value: boolean | null | undefined }) {
@@ -142,6 +160,18 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
       if (sortBy === 'logicViolations') return dir * (a.logicViolations.length - b.logicViolations.length);
       if (sortBy === 'breakoutAge') return dir * ((normalizeBreakoutAge(a.audit) ?? Number.POSITIVE_INFINITY) - (normalizeBreakoutAge(b.audit) ?? Number.POSITIVE_INFINITY));
       if (sortBy === 'missingIndicators') return dir * (getMissingIndicatorScore(a) - getMissingIndicatorScore(b));
+      if (sortBy === 'score') {
+        const scoreDiff = (a.score - b.score);
+        if (scoreDiff !== 0) return dir * scoreDiff;
+
+        const volumeDiff = (a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY);
+        if (volumeDiff !== 0) return dir * volumeDiff;
+
+        const patternDiff = getPatternPriority(a) - getPatternPriority(b);
+        if (patternDiff !== 0) return dir * patternDiff;
+
+        return a.symbol.localeCompare(b.symbol);
+      }
       return dir * ((a[sortBy] as number) - (b[sortBy] as number));
     }), [filter, search, sortBy, sortDir, stocks]);
 
