@@ -922,7 +922,6 @@ async function handleYahooBackfill(body: Record<string, any>) {
   });
 }
 
-
 async function handleFinnhubBackfill(body: Record<string, any>) {
   const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY") ?? "";
   const { symbols, batchSize = 50, offset = 0 } = body;
