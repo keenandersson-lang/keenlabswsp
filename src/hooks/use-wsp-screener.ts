@@ -169,16 +169,12 @@ interface SafeFetchResult {
 
 interface DirectScannerRow {
   symbol: string | null;
-  name: string | null;
-  canonical_sector: string | null;
   sector: string | null;
   industry: string | null;
   pattern: string | null;
   recommendation: string | null;
-  trend_state: string | null;
   score: number | null;
   payload: unknown | null;
-  scan_date: string | null;
 }
 
 interface ScannerPayload {
@@ -216,13 +212,11 @@ function parseOptionalNumericValue(value: unknown): number | null {
   return null;
 }
 
-interface SymbolProfileRow {
+interface IndicatorSnapshotRow {
   symbol: string | null;
-  name: string | null;
-  canonical_sector: string | null;
-  canonical_industry: string | null;
-  sector: string | null;
-  industry: string | null;
+  close: number | null;
+  pct_change_1d: number | null;
+  created_at: string | null;
 }
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
@@ -442,8 +436,7 @@ function buildDirectScannerStock(
   row: DirectScannerRow,
   nowIso: string,
   payload: ScannerPayload | null,
-  profile: SymbolProfileRow | null,
-  symbolNames: Record<string, string>,
+  latestIndicator: IndicatorSnapshotRow | null,
   sectorTrends: Record<string, boolean>,
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
@@ -471,25 +464,23 @@ function buildDirectScannerStock(
   const volumeValid = Number(p.volume_ratio) >= 2;
   const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid, mansfieldValid].filter(Boolean).length;
   const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && effectivePattern === 'climbing';
-  const scannerScore = wspCriteriaPassCount;
-  const scannerPattern = effectivePattern ?? 'base';
-  const scannerRecommendation = allWspCriteriaPass
+  const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : wspCriteriaPassCount;
+  const scannerPattern = row.pattern ?? effectivePattern ?? 'base';
+  const scannerRecommendation = row.recommendation ?? (allWspCriteriaPass
     ? 'KÖP'
-    : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA');
+    : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA'));
   const normalizedPattern = toWspPattern(scannerPattern);
-  const sectorValue = row.canonical_sector ?? row.sector ?? 'Unknown';
-  const normalizedSector = row.canonical_sector ?? row.sector ?? '';
-  const normalizedIndustry = profile?.canonical_industry
-    ?? (row.industry && row.industry !== 'Unknown' ? row.industry : null)
-    ?? profile?.industry
-    ?? 'Unknown';
-  const rawPrice = Number(p.close ?? p.ma50 ?? 0);
+  const sectorValue = row.sector ?? 'Unknown';
+  const normalizedSector = row.sector ?? '';
+  const normalizedIndustry = row.industry ?? 'Unknown';
+  const rawPrice = Number(latestIndicator?.close ?? p.close ?? p.ma50 ?? 0);
   const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
-  const changePercent = typeof p.pct_change_1d === 'number' && Number.isFinite(p.pct_change_1d)
-    ? Number(p.pct_change_1d.toFixed(2))
+  const indicatorChange = latestIndicator?.pct_change_1d;
+  const changePercent = typeof indicatorChange === 'number' && Number.isFinite(indicatorChange)
+    ? Number(indicatorChange.toFixed(2))
     : 0;
-  const updatedAt = row.scan_date ?? nowIso;
-  const companyName = row.name ?? profile?.name ?? symbolNames[row.symbol] ?? '';
+  const updatedAt = latestIndicator?.created_at ?? nowIso;
+  const companyName = row.symbol;
 
   return {
     symbol: row.symbol,
@@ -547,7 +538,7 @@ function buildDirectScannerStock(
       mansfieldValid,
       sectorAligned: false,
       marketFavorable: false,
-      patternAllowsEntry: wspPattern === 'climbing',
+      patternAllowsEntry: normalizedPattern === 'climbing',
     },
     isValidWspEntry: allWspCriteriaPass,
     finalRecommendation: scannerRecommendation,
@@ -610,7 +601,7 @@ function buildDirectScannerStock(
     scannerPattern,
     scannerRecommendation,
     scannerScore,
-    trendState: row.trend_state,
+    trendState: null,
     sectorBullish: sectorTrends[normalizedSector] ?? false,
     ...(hasWspIndicators ? { lastUpdated: updatedAt } : {}),
   };
@@ -661,14 +652,15 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50):
   const sectorTrends = await fetchSectorTrends();
   const normalizedPage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
   const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 50;
-  const offset = normalizedPage * normalizedPageSize;
+  const effectivePageSize = Math.min(normalizedPageSize, 50);
+  const offset = normalizedPage * effectivePageSize;
 
   const { data, error } = await (supabase as any)
     .from('market_scan_results_latest')
-    .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
+    .select('symbol, sector, industry, pattern, recommendation, score, payload')
     .order('score', { ascending: false })
-    .range(offset, offset + normalizedPageSize - 1)
-    .limit(normalizedPageSize);
+    .range(offset, offset + effectivePageSize - 1)
+    .limit(effectivePageSize);
 
   if (error) {
     throw new Error(error.message);
@@ -676,75 +668,31 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50):
 
   const allRows = (data ?? []) as DirectScannerRow[];
   console.log(`[WSP] Supabase direct fetch page ${normalizedPage + 1}: ${allRows.length} rows`);
-  allRows.sort((a, b) => {
-    const scoreA = Number((a.payload as ScannerPayload | null)?.wsp_score ?? 0);
-    const scoreB = Number((b.payload as ScannerPayload | null)?.wsp_score ?? 0);
-    const volA = Number((a.payload as ScannerPayload | null)?.volume_ratio ?? 0);
-    const volB = Number((b.payload as ScannerPayload | null)?.volume_ratio ?? 0);
-
-    if (scoreB !== scoreA) return scoreB - scoreA;
-    return volB - volA;
-  });
   console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
   const validRows = allRows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
-  const profileSymbols = [...new Set(validRows.map((row) => row.symbol))];
-  const symbolNames: Record<string, string> = {};
-  const payloadBySymbol = new Map<string, ScannerPayload>();
-  const profilesBySymbol = new Map<string, SymbolProfileRow>();
+  const symbols = [...new Set(validRows.map((row) => row.symbol))];
+  const latestIndicatorsBySymbol = new Map<string, IndicatorSnapshotRow>();
+  if (symbols.length > 0) {
+    const { data: indicatorRows, error: indicatorError } = await (supabase as any)
+      .from('wsp_indicators')
+      .select('symbol, close, pct_change_1d, created_at')
+      .in('symbol', symbols)
+      .order('symbol', { ascending: true })
+      .order('created_at', { ascending: false });
 
-  if (profileSymbols.length > 0) {
-    const latestPayloadMetaBySymbol = new Map<string, { payload: ScannerPayload; scanDate: string }>();
-    for (const row of allRows) {
-      if (!row.symbol) continue;
-      const payload = row.payload && typeof row.payload === 'object'
-        ? row.payload as ScannerPayload
-        : null;
-      if (!payload) continue;
-      const currentScanDate = row.scan_date ?? '';
-      const existing = latestPayloadMetaBySymbol.get(row.symbol);
-      if (!existing || currentScanDate > existing.scanDate) {
-        latestPayloadMetaBySymbol.set(row.symbol, { payload, scanDate: currentScanDate });
-      }
+    if (indicatorError) {
+      throw new Error(indicatorError.message);
     }
 
-    for (const [symbol, meta] of latestPayloadMetaBySymbol.entries()) {
-      payloadBySymbol.set(symbol, meta.payload);
-    }
-
-    const { data: profileRows, error: profileError } = await (supabase as any)
-      .from('symbols')
-      .select('symbol, name, canonical_sector, canonical_industry, sector, industry')
-      .in('symbol', profileSymbols);
-
-    if (profileError) {
-      throw new Error(profileError.message);
-    }
-
-    for (const profileRow of (profileRows ?? []) as SymbolProfileRow[]) {
-      if (!profileRow.symbol) continue;
-      profilesBySymbol.set(profileRow.symbol, profileRow);
-      if (profileRow.name) {
-        symbolNames[profileRow.symbol] = profileRow.name;
-      }
+    for (const indicatorRow of (indicatorRows ?? []) as IndicatorSnapshotRow[]) {
+      if (!indicatorRow.symbol || latestIndicatorsBySymbol.has(indicatorRow.symbol)) continue;
+      latestIndicatorsBySymbol.set(indicatorRow.symbol, indicatorRow);
     }
   }
 
   const nowIso = new Date().toISOString();
   return allRows
-    .sort((left, right) => {
-      const leftPayload = left.payload && typeof left.payload === 'object' ? left.payload as ScannerPayload : null;
-      const rightPayload = right.payload && typeof right.payload === 'object' ? right.payload as ScannerPayload : null;
-      const leftVolume = typeof leftPayload?.volume_ratio === 'number' && Number.isFinite(leftPayload.volume_ratio)
-        ? leftPayload.volume_ratio
-        : Number.NEGATIVE_INFINITY;
-      const rightVolume = typeof rightPayload?.volume_ratio === 'number' && Number.isFinite(rightPayload.volume_ratio)
-        ? rightPayload.volume_ratio
-        : Number.NEGATIVE_INFINITY;
-      const volumeDiff = rightVolume - leftVolume;
-      if (volumeDiff !== 0) return volumeDiff;
-      return String(left.symbol ?? '').localeCompare(String(right.symbol ?? ''));
-    })
     .map((row) => {
       const rowPayload = row.payload && typeof row.payload === 'object'
         ? row.payload as ScannerPayload
@@ -752,9 +700,8 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50):
       return buildDirectScannerStock(
         row,
         nowIso,
-        rowPayload ?? (row.symbol ? payloadBySymbol.get(row.symbol) ?? null : null),
-        row.symbol ? profilesBySymbol.get(row.symbol) ?? null : null,
-        symbolNames,
+        rowPayload,
+        row.symbol ? latestIndicatorsBySymbol.get(row.symbol) ?? null : null,
         sectorTrends,
       );
     })
