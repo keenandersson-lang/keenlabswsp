@@ -793,6 +793,11 @@ async function handleSymbolBackfill(body: Record<string, any>) {
 async function handleYahooBackfill(body: Record<string, any>) {
   const { symbols, batchSize = 50, offset = 0 } = body;
 
+  const seedSymbolsResult = await seedSymbolsTable();
+  if (!seedSymbolsResult.ok) {
+    return jsonRes({ ok: false, error: `seed-symbols failed: ${seedSymbolsResult.error}` });
+  }
+
   let symbolsToProcess: string[] = [];
   if (Array.isArray(symbols) && symbols.length > 0) {
     symbolsToProcess = symbols
@@ -911,6 +916,24 @@ async function handleYahooBackfill(body: Record<string, any>) {
     }
   }
 
+  const asOfDate = getYesterdayNYT();
+  let indicatorMaterialization: Record<string, unknown> | null = null;
+  const { data: materializationData, error: materializationError } = await supabase.rpc(
+    "materialize_wsp_indicators_from_prices",
+    {
+      p_symbols: selectedSymbols,
+      p_as_of_date: asOfDate,
+      p_min_bars: 200,
+    },
+  );
+
+  if (materializationError) {
+    indicatorMaterialization = { ok: false, error: materializationError.message };
+    console.error("Indicator materialization failed:", materializationError.message);
+  } else {
+    indicatorMaterialization = { ok: true, ...(materializationData as Record<string, unknown>) };
+  }
+
   const nextOffset = offset + selectedSymbols.length;
   return jsonRes({
     fetched,
@@ -919,7 +942,42 @@ async function handleYahooBackfill(body: Record<string, any>) {
     failedSymbols,
     nextOffset,
     hasMore: nextOffset < total,
+    indicatorMaterialization,
+    seedSymbols: seedSymbolsResult,
   });
+}
+
+async function seedSymbolsTable(): Promise<{ ok: true; status: number } | { ok: false; status?: number; error: string }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const syncSecret = Deno.env.get("SYNC_SECRET_KEY") ?? "";
+
+  if (!supabaseUrl) {
+    return { ok: false, error: "SUPABASE_URL is not set" };
+  }
+
+  if (!syncSecret) {
+    return { ok: false, error: "SYNC_SECRET_KEY is not set" };
+  }
+
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/seed-symbols`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${syncSecret}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ trigger: "historical_backfill_yahoo" }),
+    });
+
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 500);
+      return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body}` };
+    }
+
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, error: safeReason(String(err)) };
+  }
 }
 
 async function handleFinnhubBackfill(body: Record<string, any>) {
