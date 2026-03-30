@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern } from '@/lib/wsp-types';
+import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern, SmaSlopeDirection, MansfieldTrend } from '@/lib/wsp-types';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indicators';
