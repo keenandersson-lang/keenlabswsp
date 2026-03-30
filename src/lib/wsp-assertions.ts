@@ -38,7 +38,7 @@ export function createBlockedReasons(pattern: WSPPattern, gate: EntryGate, indic
   if (!gate.mansfieldValid) blocked.add('mansfield_not_valid');
   if (!gate.sectorAligned) blocked.add('sector_not_aligned');
   if (!gate.marketFavorable) blocked.add('market_not_aligned');
-  if (pattern !== 'CLIMBING') blocked.add('pattern_not_climbing');
+  if (pattern !== 'climbing') blocked.add('pattern_not_climbing');
 
   return BLOCKED_REASON_ORDER.filter((reason) => blocked.has(reason));
 }
@@ -129,7 +129,7 @@ export function getLogicViolationRuleIds(stock: Pick<EvaluatedStock, 'pattern' |
   if (!stock.audit.mansfieldValid) violations.add('mansfield_not_valid');
   if (!stock.audit.sectorAligned) violations.add('sector_not_aligned');
   if (!stock.audit.marketAligned) violations.add('market_not_aligned');
-  if (stock.pattern !== 'CLIMBING') violations.add('pattern_not_climbing');
+  if (stock.pattern !== 'climbing') violations.add('pattern_not_climbing');
 
   return BLOCKED_REASON_ORDER.filter((reason) => violations.has(reason));
 }
@@ -158,7 +158,7 @@ export const BLOCKED_REASON_LABELS: Record<WSPBlockedReason, string> = {
   mansfield_not_valid: 'Mansfield ej bullish',
   sector_not_aligned: 'Sektor ej i upptrend',
   market_not_aligned: 'Marknad ej i upptrend',
-  pattern_not_climbing: 'Mönster ej CLIMBING',
+  pattern_not_climbing: 'Mönster ej climbing',
 };
 
 export const BLOCKED_REASON_ORDERED = BLOCKED_REASON_ORDER;

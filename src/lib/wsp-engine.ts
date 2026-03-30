@@ -46,7 +46,7 @@ export function computeEntryGate(
   const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout, WSP_CONFIG.wsp.staleBreakoutBars);
   const volumeSufficient = indicators.volumeMultiple !== null && indicators.volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
   const mansfieldValid = indicators.mansfieldValid;
-  const patternAllowsEntry = pattern === 'CLIMBING';
+  const patternAllowsEntry = pattern === 'climbing';
 
   const isValidWspEntry =
     patternAllowsEntry &&
@@ -80,11 +80,11 @@ export function mapRecommendation(
   gate: EntryGate,
 ): WSPRecommendation {
   if (!gate.priceAboveMA150) return 'SÄLJ';
-  if (pattern === 'CLIMBING' && gate.isValidWspEntry) return 'KÖP';
-  if (pattern === 'TIRED') return 'SÄLJ';
-  if (pattern === 'DOWNHILL') return 'UNDVIK';
+  if (pattern === 'climbing' && gate.isValidWspEntry) return 'KÖP';
+  if (pattern === 'tired') return 'SÄLJ';
+  if (pattern === 'downhill') return 'UNDVIK';
   if (!gate.priceAboveMA50 && !gate.ma50Rising) return 'UNDVIK';
-  if (pattern === 'CLIMBING' || pattern === 'BASE') return 'BEVAKA';
+  if (pattern === 'climbing' || pattern === 'base_or_climbing' || pattern === 'base') return 'BEVAKA';
   return 'UNDVIK';
 }
 

@@ -44,7 +44,7 @@ interface WspIndicatorSnapshot {
   close: number | null;
   ma50: number | null;
   ma150: number | null;
-  ma50_slope: number | null;
+  ma50_slope: string | null;
   above_ma50: boolean | null;
   above_ma150: boolean | null;
   volume: number | null;
@@ -87,7 +87,6 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
   const { data, error } = await supabase
     .from("market_scan_results_latest")
     .select("symbol, pattern, recommendation, score, sector, canonical_sector, name, payload")
-    .in("pattern", ["climbing", "base_or_climbing"])
     .range(from, to);
 
   if (error) {
@@ -104,7 +103,7 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
 
   const latestRows = allRows;
   if (latestRows.length === 0) {
-    console.warn("wsp-screener no rows from market_scan_results_latest for climbing/base_or_climbing cohort");
+    console.warn("wsp-screener no rows from market_scan_results_latest");
     return [];
   }
 
@@ -302,7 +301,7 @@ async function fetchLatestWspIndicators(
         close: row.close === null ? null : Number(row.close),
         ma50: row.ma50 === null ? null : Number(row.ma50),
         ma150: row.ma150 === null ? null : Number(row.ma150),
-        ma50_slope: row.ma50_slope === null ? null : Number(row.ma50_slope),
+        ma50_slope: row.ma50_slope === null ? null : String(row.ma50_slope),
         above_ma50: row.above_ma50,
         above_ma150: row.above_ma150,
         volume: row.volume === null ? null : Number(row.volume),
