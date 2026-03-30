@@ -12,6 +12,7 @@ import StockDetail from "./pages/StockDetail";
 import NotFound from "./pages/NotFound";
 import Admin from "./pages/Admin";
 import Backtest from "./pages/Backtest";
+import MarketSummary from "./pages/MarketSummary";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/stock/:symbol" element={<StockDetail />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/backtest" element={<Backtest />} />
+            <Route path="/market-summary" element={<MarketSummary />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
