@@ -1,8 +1,8 @@
 provider:
-  name: disabled # eodhd | local_csv | disabled
+  name: local_csv # eodhd | local_csv | disabled
   api_key_env_var: WSP_EODHD_API_KEY
   endpoint: https://eodhd.com/api/eod
-  local_csv_input_dir: data/input
+  local_csv_input_dir: data/raw
   timeout_seconds: 30
   retry:
     max_attempts: 2
