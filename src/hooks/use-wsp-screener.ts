@@ -197,6 +197,7 @@ interface WspIndicatorRow {
   symbol: string | null;
   above_ma50: boolean | null;
   ma50_slope: string | null;
+  created_at: string | null;
 }
 
 const MA50_SLOPE_COLUMN = 'ma50_slope' as const;
@@ -609,9 +610,10 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
   const etfSymbols = [...new Set(Object.values(SECTOR_ETF_MAP))];
   const { data, error } = await (supabase as any)
     .from('wsp_indicators')
-    .select(`symbol, above_ma50, ${MA50_SLOPE_COLUMN}`)
+    .select(`distinct on (symbol) symbol, above_ma50, ${MA50_SLOPE_COLUMN}, created_at`)
     .in('symbol', etfSymbols)
-    .order('calc_date', { ascending: false });
+    .order('symbol', { ascending: true })
+    .order('created_at', { ascending: false });
 
   if (error) {
     throw new Error(error.message);
@@ -620,7 +622,7 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
   const latestTrendByEtf = new Map<string, boolean>();
   for (const row of (data ?? []) as WspIndicatorRow[]) {
     const symbol = row.symbol ?? '';
-    if (!symbol || latestTrendByEtf.has(symbol)) continue;
+    if (!symbol) continue;
     const aboveMa50 = Boolean(row.above_ma50);
     const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].trim().toLowerCase() : null;
     latestTrendByEtf.set(symbol, aboveMa50 && (ma50Slope === 'rising' || ma50Slope === 'flat'));
