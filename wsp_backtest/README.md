@@ -18,14 +18,88 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Sector-ETF Data Requirements (Validation Phase)
+## Provider Credentials (Environment Variables)
 
-Validation in this phase targets **SPY + sector ETFs**:
+No secrets are committed.
+
+1. Copy `.env.example` and set credentials:
+
+```bash
+cp .env.example .env
+```
+
+2. Export values in your shell (or load via your environment manager):
+
+```bash
+export WSP_EODHD_API_KEY="..."
+```
+
+Required env vars:
+
+- `WSP_EODHD_API_KEY` (required only when `provider.name: eodhd`)
+
+## Default Validation Universe
 
 - Benchmark: `SPY`
-- Universe: `XLB, XLE, XLF, XLI, XLK, XLP, XLU, XLV, XLY, XLC, XLRE`
+- Sectors: `XLB, XLE, XLF, XLI, XLK, XLP, XLU, XLV, XLY, XLC, XLRE`
 
-Expected daily OHLCV schema:
+These are configured by default in `config/data_sources.yaml` and can be overridden there.
+
+## Data Ingestion
+
+Historical ingestion is provider-based via `config/data_sources.yaml`.
+
+Supported provider modes:
+
+- `eodhd`: HTTP EOD fetcher (requires API key)
+- `local_csv`: local drop-in CSV mode (`provider.local_csv_input_dir`)
+- `disabled`: explicit no-provider mode (fails loudly)
+
+Run ingestion from `wsp_backtest/`:
+
+```bash
+python -m src.cli ingest-sector-data --config config/data_sources.yaml
+python -m src.cli refresh-sector-data --config config/data_sources.yaml
+```
+
+- `ingest-sector-data`: overwrite mode
+- `refresh-sector-data`: update mode (merge new rows with local files)
+
+## First Full Validation Run
+
+End-to-end orchestration command:
+
+```bash
+python -m src.cli first-validation-run --config config/base.yaml --data-sources-config config/data_sources.yaml
+```
+
+This command performs:
+
+1. data ingestion/refresh
+2. ingestion data validation
+3. preprocess/validation pipeline execution (`validate-strategy` equivalent)
+4. artifact export
+5. first-run summary generation
+
+If data is incomplete or provider fails, run status stays incomplete and blockers are written explicitly.
+
+## Expected Local File Layout
+
+CSV mode (default):
+
+- `data/benchmark/SPY.csv`
+- `data/sectors/XLB.csv` ... `data/sectors/XLRE.csv`
+- `data/raw/ohlcv.csv`
+
+Parquet mode (if configured):
+
+- `data/benchmark/SPY.parquet`
+- `data/sectors/XLB.parquet` ... `data/sectors/XLRE.parquet`
+- `data/raw/ohlcv.parquet`
+
+## Input Schema
+
+Expected normalized daily schema:
 
 - `date`
 - `open`
@@ -39,40 +113,11 @@ Optional:
 
 - `adjusted_close`
 
-Supported load patterns:
+## Artifacts
 
-1. One combined CSV/Parquet
-2. One file per symbol (`format: per_symbol`)
+Generated under `outputs/`.
 
-Benchmark and source paths are configured in `config/base.yaml`.
-
-## Validation CLI
-
-Run from `wsp_backtest/`:
-
-```bash
-python -m src.cli validate-data --config config/base.yaml
-python -m src.cli validate-engine --config config/base.yaml
-python -m src.cli validate-signals --config config/base.yaml
-python -m src.cli validate-strategy --config config/base.yaml
-```
-
-`validate-strategy` orchestrates:
-
-- data validation
-- engine validation
-- baseline signal/trade validation
-- ablation tests
-- parameter sweep
-- slippage sensitivity
-- walk-forward optimization and OOS stitching
-- artifact export + report generation
-
-## Validation Artifacts
-
-Generated under `outputs/`:
-
-Core Module 1 contract artifacts (unchanged):
+Core Module 1-compatible artifact contract (unchanged):
 
 - `summary_metrics.json`
 - `run_metadata.json`
@@ -85,40 +130,35 @@ Core Module 1 contract artifacts (unchanged):
 - `report.md`
 - `artifact_bundle.json`
 
-Validation-specific artifacts:
+Additional first-run artifacts:
 
-- `validation_status.json`
+- `ingestion_summary.json`
 - `data_validation.json`
-- `engine_validation.json`
-- `signal_validation.csv`
-- `signal_validation_summary.json`
-- `trade_validation.csv`
-- `portfolio_validation_summary.json`
-- `slippage_sensitivity.csv`
-- `robustness_summary.json`
-- `walkforward_summary.json`
-- `stitched_oos_equity.csv`
-- `validation_report.md`
+- `first_run_summary.json`
+- `first_run_summary.md`
 
-## Validation Complete Criteria
+Validation pipeline artifacts remain available (`engine_validation.json`, `validation_status.json`, etc.).
 
-`validation_status.json` marks `validation_complete=true` **only when all are true**:
+## Local CSV-only Mode
 
-1. data validation passed on real input data
-2. engine validation passed
-3. baseline signal validation ran successfully
-4. baseline trade validation ran successfully
-5. ablation and parameter sweep ran
-6. walk-forward ran and passed
-7. no critical blockers remain
+To run without remote fetching:
 
-If real data is missing/incomplete, the status remains **incomplete**.
+1. set `provider.name: local_csv`
+2. place one file per symbol in `provider.local_csv_input_dir`
+3. run `first-validation-run`
 
-## Known Limitations
+If symbols are missing, the run is marked incomplete with blockers.
 
-- No in-repo market data downloader; local data files are required.
-- Sector and market filters are config-driven toggles and rely on daily-bar approximations.
-- Validation quality is bounded by date coverage and survivorship of supplied datasets.
+## What “First Validation Run Complete” Means
+
+A run is only considered complete when:
+
+1. required benchmark + sector files were ingested and validated
+2. `validate-strategy` actually executed
+3. `validation_status.validation_complete` is true
+4. first-run summary reports no blocking missing symbols/provider failures
+
+If any condition fails, status remains **incomplete**.
 
 ## Testing
 

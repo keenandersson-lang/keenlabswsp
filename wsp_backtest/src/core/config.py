@@ -34,6 +34,7 @@ class RootConfig(BaseModel):
     execution: dict[str, Any]
     stops: dict[str, Any]
     analytics: dict[str, Any]
+    validation: dict[str, Any] = Field(default_factory=dict)
 
 
 def load_config(path: str | Path) -> RootConfig:

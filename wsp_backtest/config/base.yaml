@@ -13,7 +13,7 @@ run:
 data:
   format: "combined_csv"
   path: "data/raw/ohlcv.csv"
-  benchmark_path: "data/benchmark/spy.csv"
+  benchmark_path: "data/benchmark/SPY.csv"
   sector_path: "data/sectors/sectors.csv"
   sector_map_path: "data/sectors/symbol_sector_map.csv"
 
@@ -81,3 +81,7 @@ stops:
 
 analytics:
   forward_windows: [5, 10, 20, 40]
+
+
+validation:
+  universe: ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY", "XLC", "XLRE"]
