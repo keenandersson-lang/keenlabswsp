@@ -11,6 +11,7 @@ import Watchlist from "./pages/Watchlist";
 import StockDetail from "./pages/StockDetail";
 import NotFound from "./pages/NotFound";
 import Admin from "./pages/Admin";
+import Backtest from "./pages/Backtest";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/stock/:symbol" element={<StockDetail />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/backtest" element={<Backtest />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
