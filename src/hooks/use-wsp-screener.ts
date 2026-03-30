@@ -630,19 +630,23 @@ async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
   });
 }
 
-async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
+async function fetchDirectFromSupabase(maxRows: number = 200): Promise<EvaluatedStock[]> {
   const sectorTrends = await fetchSectorTrends();
-  const PAGE_SIZE = 1000;
+  const PAGE_SIZE = 200;
+  const targetRows = Math.max(PAGE_SIZE, maxRows);
   let allRows: DirectScannerRow[] = [];
   let from = 0;
   let totalPagesFetched = 0;
 
-  while (true) {
+  while (allRows.length < targetRows) {
+    const pageLimit = Math.min(PAGE_SIZE, targetRows - allRows.length);
     const { data, error } = await (supabase as any)
       .from('market_scan_results_latest')
       .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
       .in('pattern', ['climbing', 'base_or_climbing'])
-      .range(from, from + PAGE_SIZE - 1);
+      .order('score', { ascending: false })
+      .range(from, from + pageLimit - 1)
+      .limit(pageLimit);
 
     if (error) {
       throw new Error(error.message);
@@ -655,31 +659,8 @@ async function fetchDirectFromSupabase(): Promise<EvaluatedStock[]> {
     totalPagesFetched += 1;
     console.log(`[WSP] Supabase direct fetch page ${totalPagesFetched}: ${pageRows.length} rows`);
     allRows = [...allRows, ...pageRows];
-    if (pageRows.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  const symbols = [...new Set(allRows.map((row) => row.symbol).filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 0))];
-  if (symbols.length > 0) {
-    const { data: symbolMeta, error: symbolMetaError } = await (supabase as any)
-      .from('symbols')
-      .select('symbol, name, canonical_sector')
-      .in('symbol', symbols);
-
-    if (symbolMetaError) {
-      throw new Error(symbolMetaError.message);
-    }
-
-    const symbolMetaMap = Object.fromEntries(
-      ((symbolMeta ?? []) as Array<Pick<SymbolProfileRow, 'symbol' | 'name' | 'canonical_sector'>>)
-        .filter((row): row is { symbol: string; name: string | null; canonical_sector: string | null } => typeof row.symbol === 'string' && row.symbol.length > 0)
-        .map((row) => [row.symbol, row]),
-    );
-
-    allRows = allRows.map((row) => ({
-      ...row,
-      name: symbolMetaMap[row.symbol ?? '']?.name ?? '',
-      canonical_sector: symbolMetaMap[row.symbol ?? '']?.canonical_sector ?? row.sector ?? 'Unknown',
-    }));
+    if (pageRows.length < pageLimit) break;
+    from += pageLimit;
   }
   allRows.sort((a, b) => {
     const scoreA = Number((a.payload as ScannerPayload | null)?.wsp_score ?? 0);
@@ -1032,7 +1013,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   };
 }
 
-export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean }): Promise<ScreenerApiResponse> {
+export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean; stockLimit?: number }): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
     if (qualifiedScanCount === null) return payload;
@@ -1047,7 +1028,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
 
   const now = new Date().toISOString();
   try {
-    const directStocks = await fetchDirectFromSupabase();
+    const directStocks = await fetchDirectFromSupabase(options?.stockLimit ?? 200);
     const directSectorStatuses = await buildSectorStatusesFromIndicators();
     return {
       market: {
@@ -1152,10 +1133,10 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   }
 }
 
-export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval) {
+export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, stockLimit: number = 200) {
   return useQuery({
-    queryKey: ['wsp-screener', intervalMs],
-    queryFn: () => fetchWspScreenerData({ intervalMs }),
+    queryKey: ['wsp-screener', intervalMs, stockLimit],
+    queryFn: () => fetchWspScreenerData({ intervalMs, stockLimit }),
     refetchInterval: intervalMs,
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
