@@ -132,9 +132,9 @@ export function MarketRegime({ market }: MarketRegimeProps) {
       const payload = await response.json();
 
       setCrypto([
-        { id: 'bitcoin', symbol: 'BTC', price: Number(payload?.bitcoin?.usd), change24h: Number(payload?.bitcoin?.usd_24h_change) },
-        { id: 'ethereum', symbol: 'ETH', price: Number(payload?.ethereum?.usd), change24h: Number(payload?.ethereum?.usd_24h_change) },
-        { id: 'solana', symbol: 'SOL', price: Number(payload?.solana?.usd), change24h: Number(payload?.solana?.usd_24h_change) },
+        { id: 'bitcoin' as const, symbol: 'BTC' as const, price: Number(payload?.bitcoin?.usd), change24h: Number(payload?.bitcoin?.usd_24h_change) },
+        { id: 'ethereum' as const, symbol: 'ETH' as const, price: Number(payload?.ethereum?.usd), change24h: Number(payload?.ethereum?.usd_24h_change) },
+        { id: 'solana' as const, symbol: 'SOL' as const, price: Number(payload?.solana?.usd), change24h: Number(payload?.solana?.usd_24h_change) },
       ].map((item) => ({
         ...item,
         price: Number.isFinite(item.price) ? item.price : null,

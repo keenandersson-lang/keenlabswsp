@@ -54,7 +54,7 @@ export default function StockDetail() {
     queryFn: async () => {
       const { data: scannerData, error } = await supabase
         .from('market_scan_results_latest')
-        .select('symbol, pattern, recommendation, score, payload, sector, canonical_sector, name')
+        .select('symbol, pattern, recommendation, score, payload, sector')
         .eq('symbol', requestedSymbol)
         .maybeSingle();
       if (error) throw error;
@@ -152,8 +152,8 @@ export default function StockDetail() {
   const symbolMeta = symbolMetaQuery.data;
   const scannerData = scannerDataQuery.data;
   const hasScannerData = Boolean(scannerData);
-  const resolvedCompanyName = scannerData?.name ?? symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
-  const resolvedSector = scannerData?.canonical_sector ?? symbolMeta?.canonical_sector ?? 'Unknown';
+  const resolvedCompanyName = symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
+  const resolvedSector = symbolMeta?.canonical_sector ?? scannerData?.sector ?? 'Unknown';
   const resolvedDailyBars = useMemo(() => {
     if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
     return detailData?.barsDaily ?? [];
