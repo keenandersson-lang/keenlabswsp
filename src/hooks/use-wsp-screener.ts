@@ -190,6 +190,7 @@ interface ScannerPayload {
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
   mansfield_rs?: number | string | null;
+  pattern?: string | null;
   wsp_pattern?: string | null;
   wsp_score?: number | null;
   pct_change_1d?: number | null;
@@ -456,18 +457,22 @@ function buildDirectScannerStock(
   const ma50SlopeTrend = typeof p[MA50_SLOPE_COLUMN] === 'string'
     ? p[MA50_SLOPE_COLUMN].trim().toLowerCase()
     : null;
-  const wspPattern = typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null;
+  const rowPattern = typeof row.pattern === 'string' ? row.pattern.toLowerCase() : null;
+  const payloadPattern = typeof p.pattern === 'string'
+    ? p.pattern.toLowerCase()
+    : (typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null);
   const hasWspIndicators = payload !== null;
   const aboveMa50 = p.above_ma50 === true;
   const aboveMa150 = p.above_ma150 === true;
   const slope50Positive = ma50SlopeTrend === 'rising';
-  const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
+  const effectivePattern = rowPattern ?? payloadPattern;
+  const hasBreakout = effectivePattern === 'climbing' || effectivePattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= 2;
   const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid, mansfieldValid].filter(Boolean).length;
-  const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && wspPattern === 'climbing';
+  const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && effectivePattern === 'climbing';
   const scannerScore = wspCriteriaPassCount;
-  const scannerPattern = wspPattern ?? row.pattern ?? 'base';
+  const scannerPattern = effectivePattern ?? 'base';
   const scannerRecommendation = allWspCriteriaPass
     ? 'KÖP'
     : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA');
