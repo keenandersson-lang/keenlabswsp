@@ -630,13 +630,21 @@ async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
   });
 }
 
-async function fetchDirectFromSupabase(maxRows: number = 200): Promise<EvaluatedStock[]> {
+async function fetchDirectFromSupabase(stockLimit: number = 200): Promise<EvaluatedStock[]> {
+  console.log('[WSP] fetchDirectFromSupabase called, limit:', stockLimit);
   const sectorTrends = await fetchSectorTrends();
   const PAGE_SIZE = 200;
-  const targetRows = Math.max(PAGE_SIZE, maxRows);
+  const normalizedStockLimit = Number.isFinite(stockLimit) && stockLimit > 0
+    ? Math.floor(stockLimit)
+    : PAGE_SIZE;
+  const targetRows = Math.min(PAGE_SIZE, normalizedStockLimit);
+  if (!Number.isFinite(stockLimit) || stockLimit <= 0) {
+    console.log('[WSP] Invalid stockLimit provided, defaulting to 200:', stockLimit);
+  }
   let allRows: DirectScannerRow[] = [];
   let from = 0;
   let totalPagesFetched = 0;
+  let isFirstPage = true;
 
   while (allRows.length < targetRows) {
     const pageLimit = Math.min(PAGE_SIZE, targetRows - allRows.length);
@@ -647,6 +655,10 @@ async function fetchDirectFromSupabase(maxRows: number = 200): Promise<Evaluated
       .order('score', { ascending: false })
       .range(from, from + pageLimit - 1)
       .limit(pageLimit);
+    if (isFirstPage) {
+      console.log('[WSP] First page query result:', data?.length, error);
+      isFirstPage = false;
+    }
 
     if (error) {
       throw new Error(error.message);
