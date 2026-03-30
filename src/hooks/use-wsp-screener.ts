@@ -1160,30 +1160,18 @@ export async function fetchWspPatternCounts(): Promise<WspPatternCounts> {
     downhill: 0,
   };
 
-  const { data: latestDateRows, error: latestDateError } = await (supabase as any)
-    .from('wsp_indicators')
-    .select('calc_date')
-    .order('calc_date', { ascending: false })
-    .limit(1);
+  const { data, error } = await supabase.rpc('get_scanner_funnel_counts');
+  if (error || !data || typeof data !== 'object' || Array.isArray(data)) return counts;
 
-  if (latestDateError || !latestDateRows?.length) return counts;
+  const payload = data as {
+    climbing?: number | null;
+    base?: number | null;
+    downhill?: number | null;
+  };
 
-  const latestCalcDate = latestDateRows[0]?.calc_date;
-  if (!latestCalcDate) return counts;
-
-  const { data, error } = await (supabase as any)
-    .from('wsp_indicators')
-    .select('wsp_pattern')
-    .eq('calc_date', latestCalcDate);
-
-  if (error || !data) return counts;
-
-  for (const row of data as Array<{ wsp_pattern: string | null }>) {
-    const pattern = (row.wsp_pattern ?? '').trim().toLowerCase() as WSPPattern;
-    if (pattern in counts) {
-      counts[pattern] += 1;
-    }
-  }
+  counts.climbing = Number(payload.climbing ?? 0);
+  counts.base_or_climbing = Number(payload.base ?? 0);
+  counts.downhill = Number(payload.downhill ?? 0);
 
   return counts;
 }
