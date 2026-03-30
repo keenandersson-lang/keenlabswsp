@@ -26,16 +26,18 @@ export default function Screener() {
 
   useEffect(() => {
     if (!payload?.stocks) return;
+
     setLoadedStocks((previous) => {
-      if (page === 0) return payload.stocks;
-      const existingSymbols = new Set(previous.map((stock) => stock.symbol));
+      const baseStocks = page === 0 ? [] : previous;
+      const existingSymbols = new Set(baseStocks.map((stock) => stock.symbol));
       const nextUnique = payload.stocks.filter((stock) => !existingSymbols.has(stock.symbol));
-      return [...previous, ...nextUnique];
+      return [...baseStocks, ...nextUnique];
     });
   }, [payload?.stocks, page]);
 
   useEffect(() => {
     setPage(0);
+    setLoadedStocks([]);
   }, [pollingIntervalMs]);
 
   const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
@@ -99,20 +101,22 @@ export default function Screener() {
       </div>
 
       <PatternSummary stocks={filteredStocks} />
-      <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
+      <div className="relative">
+        <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
 
-      {canLoadMore && (
-        <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => setPage((previous) => previous + 1)}
-            className="rounded-md border border-border bg-card px-4 py-2 text-xs font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isFetching}
-          >
-            {isFetching ? 'Laddar...' : 'Ladda fler'}
-          </button>
-        </div>
-      )}
+        {canLoadMore && (
+          <div className="sticky bottom-3 z-20 flex justify-center pt-3">
+            <button
+              type="button"
+              onClick={() => setPage((previous) => previous + 1)}
+              className="rounded-md border border-border bg-card/95 px-4 py-2 text-xs font-semibold text-foreground shadow-sm backdrop-blur hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isFetching}
+            >
+              {isFetching ? 'Laddar...' : 'Ladda fler'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

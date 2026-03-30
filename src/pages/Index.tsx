@@ -13,7 +13,7 @@ import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+import type { EvaluatedStock, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
 
 interface TopSetup {
@@ -30,37 +30,10 @@ interface TopSetup {
   volumeMultiple: number | null;
 }
 
-function toWspPattern(value: string | null | undefined): WSPPattern {
-  switch ((value ?? '').toLowerCase()) {
-    case 'climbing':
-      return 'CLIMBING';
-    case 'base_or_climbing':
-    case 'base':
-      return 'BASE';
-    case 'downhill':
-      return 'DOWNHILL';
-    case 'tired':
-      return 'TIRED';
-    default:
-      return 'BASE';
-  }
-}
-
-function toWspRecommendation(value: string | null | undefined, pattern: WSPPattern): WSPRecommendation {
-  const normalized = (value ?? '').toUpperCase();
-  if (normalized === 'KÖP' || normalized === 'BEVAKA' || normalized === 'SÄLJ' || normalized === 'UNDVIK') {
-    return normalized;
-  }
-
-  if (pattern === 'CLIMBING') return 'KÖP';
-  if (pattern === 'TIRED') return 'SÄLJ';
-  if (pattern === 'DOWNHILL') return 'UNDVIK';
-  return 'BEVAKA';
-}
-
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
   const [topSetups, setTopSetups] = useState<TopSetup[]>([]);
+  const [topSetupsLoading, setTopSetupsLoading] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isFetching, isLoading, isError } = useWspScreener(pollingIntervalMs);
@@ -84,69 +57,77 @@ const Index = () => {
   }), [stocks]);
 
   useEffect(() => {
+    if (!providerStatus) return;
+
+    let cancelled = false;
+    const PAGE_SIZE = 50;
+
     const fetchTopSetups = async () => {
-      const { data: topSetupsData, error: topSetupsError } = await supabase
-        .rpc('get_top_wsp_setups');
+      setTopSetupsLoading(true);
+      try {
+        const expectedStocks = providerStatus.symbolCount > 0 ? providerStatus.symbolCount : PAGE_SIZE;
+        const totalPages = Math.max(1, Math.ceil(expectedStocks / PAGE_SIZE));
+        const pagedStocks: EvaluatedStock[] = [];
 
-      console.log('TOP SETUPS DATA:', topSetupsData);
-      console.log('TOP SETUPS ERROR:', topSetupsError);
+        for (let page = 0; page < totalPages; page += 1) {
+          const pagedPayload = await fetchWspScreenerData({ intervalMs: pollingIntervalMs, page, pageSize: PAGE_SIZE });
+          const currentPageStocks = pagedPayload.stocks ?? [];
+          pagedStocks.push(...currentPageStocks);
 
-      if (topSetupsError) {
-        console.log('[Index] Failed to load top setups:', topSetupsError);
-        setTopSetups([]);
-        return;
+          if (currentPageStocks.length < PAGE_SIZE) break;
+        }
+
+        const uniqueStocks = Array.from(
+          new Map(pagedStocks.map((stock) => [stock.symbol, stock])).values()
+        );
+
+        const mappedTopSetups = uniqueStocks
+          .filter((stock) => (
+            stock.audit.above50MA
+            && stock.audit.slope50Positive
+            && stock.audit.above150MA
+            && (stock.audit.volumeMultiple ?? 0) >= 2
+          ))
+          .sort((left, right) => {
+            const scoreDiff = (right.score ?? 0) - (left.score ?? 0);
+            if (scoreDiff !== 0) return scoreDiff;
+            return (right.audit.volumeMultiple ?? 0) - (left.audit.volumeMultiple ?? 0);
+          })
+          .slice(0, 10)
+          .map((stock) => ({
+            symbol: stock.symbol,
+            sector: stock.sector,
+            industry: stock.industry,
+            pattern: stock.pattern,
+            recommendation: stock.finalRecommendation,
+            score: stock.score ?? 0,
+            maxScore: stock.maxScore ?? 4,
+            name: stock.name || stock.symbol,
+            price: Number.isFinite(stock.price) && stock.price > 0 ? stock.price : null,
+            changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,
+            volumeMultiple: stock.audit.volumeMultiple ?? null,
+          }));
+
+        if (!cancelled) {
+          setTopSetups(mappedTopSetups);
+        }
+      } catch {
+        if (!cancelled) {
+          setTopSetups([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setTopSetupsLoading(false);
+        }
       }
-
-      if (!topSetupsData || topSetupsData.length === 0) {
-        console.log('[Index] topSetupsData is null or empty:', topSetupsData);
-        setTopSetups([]);
-        return;
-      }
-
-      const mappedTopSetups = (topSetupsData ?? []).flatMap((row) => {
-        if (!row.symbol) return [];
-
-        const payload = (row.payload ?? {}) as Record<string, unknown>;
-        const scannerPattern = toWspPattern(row.pattern);
-        const pattern = scannerPattern;
-        const recommendation = toWspRecommendation(row.recommendation, pattern);
-        const maxScore = typeof payload.maxScore === 'number'
-          ? payload.maxScore
-          : typeof payload.max_score === 'number'
-            ? payload.max_score
-            : 4;
-        const price = typeof payload.price === 'number'
-          ? payload.price
-          : typeof payload.currentClose === 'number'
-            ? payload.currentClose
-            : typeof payload.current_close === 'number'
-              ? payload.current_close
-              : null;
-        const changePercent = typeof payload.changePercent === 'number'
-          ? payload.changePercent
-          : typeof payload.pct_change_1d === 'number'
-            ? payload.pct_change_1d
-            : 0;
-        return {
-          symbol: row.symbol,
-          sector: row.sector ?? 'Unknown',
-          industry: row.industry ?? 'Unknown',
-          pattern,
-          recommendation,
-          score: row.score ?? 0,
-          maxScore,
-          name: typeof payload.name === 'string' ? payload.name : row.symbol,
-          price,
-          changePercent,
-          volumeMultiple: row.vol_ratio ?? null,
-        };
-      });
-
-      setTopSetups(mappedTopSetups);
     };
 
     void fetchTopSetups();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pollingIntervalMs, providerStatus]);
 
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
@@ -243,7 +224,7 @@ const Index = () => {
           <div className="flex items-center gap-2">
             <TrendingUp className="h-3.5 w-3.5 text-primary" />
             <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS</h3>
-            <span className="text-[8px] font-mono text-muted-foreground">({topSetups.length})</span>
+            <span className="text-[8px] font-mono text-muted-foreground">({topSetupsLoading ? '…' : topSetups.length})</span>
           </div>
           <Link
             to="/screener"
