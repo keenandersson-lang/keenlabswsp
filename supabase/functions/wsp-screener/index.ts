@@ -86,12 +86,11 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
   const to = MAX_SCANNER_SYMBOLS - 1;
   const { data, error } = await supabase
     .from("market_scan_results_latest")
-    .select("symbol, pattern, recommendation, score, sector, canonical_sector, name, payload")
+    .select("symbol, pattern, recommendation, score, sector, industry, payload")
     .range(from, to);
 
   if (error) {
-    console.warn("wsp-screener live cohort query failed", error.message);
-    return [];
+    throw new Error(`wsp-screener live cohort query failed: ${error.message}`);
   }
 
   const allRows = (data ?? []) as any[];
@@ -109,14 +108,13 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
 
   const uniqueRows = latestRows.filter((row, index, arr) => arr.findIndex((item) => item.symbol === row.symbol) === index);
   return uniqueRows.map((row: any) => {
-    const resolvedSector = row?.canonical_sector
-      ?? (row?.sector && row.sector !== "Unknown" ? row.sector : null)
+    const resolvedSector = (row?.sector && row.sector !== "Unknown" ? row.sector : null)
       ?? "Unknown";
     return {
       symbol: row.symbol,
-      name: row?.name ?? row.symbol,
+      name: row.symbol,
       sector: resolvedSector,
-      industry: "Unknown",
+      industry: row?.industry && row.industry !== "Unknown" ? row.industry : "Unknown",
       pattern: row?.pattern ?? null,
       recommendation: row?.recommendation ?? null,
       scannerScore: Number.isFinite(Number(row?.score))
