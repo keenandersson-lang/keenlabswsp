@@ -1,0 +1,36 @@
+{
+  "run": {
+    "runId": "sample-run",
+    "strategyVersion": "wsp-v1",
+    "dateRange": "2020-01-01 to 2020-12-31",
+    "universe": "US Equities",
+    "benchmark": "SPY",
+    "status": "partial",
+    "generatedAt": "2026-03-30T00:00:00Z"
+  },
+  "metrics": {
+    "totalTrades": 0,
+    "winRate": 0.0,
+    "profitFactor": 0.0,
+    "expectancy": 0.0,
+    "cagr": 0.0,
+    "sharpe": 0.0,
+    "maxDrawdown": 0.0,
+    "exposure": 0.0,
+    "averageHoldTime": "0.0 trading days"
+  },
+  "files": [
+    {"name": "summary_metrics.json", "path": "outputs/summary_metrics.json", "kind": "json"},
+    {"name": "run_metadata.json", "path": "outputs/run_metadata.json", "kind": "json"},
+    {"name": "trades.csv", "path": "outputs/trades.csv", "kind": "csv"},
+    {"name": "signals.csv", "path": "outputs/signals.csv", "kind": "csv"},
+    {"name": "daily_equity.csv", "path": "outputs/daily_equity.csv", "kind": "csv"},
+    {"name": "ablation_results.csv", "path": "outputs/ablation_results.csv", "kind": "csv"},
+    {"name": "parameter_grid_results.csv", "path": "outputs/parameter_grid_results.csv", "kind": "csv"},
+    {"name": "walkforward_results.csv", "path": "outputs/walkforward_results.csv", "kind": "csv"},
+    {"name": "report.md", "path": "outputs/report.md", "kind": "markdown"}
+  ],
+  "chartImages": [],
+  "notes": ["Sample bundle for Module 1 contract alignment"],
+  "source": "artifact-loader"
+}

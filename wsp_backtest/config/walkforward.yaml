@@ -1,0 +1,9 @@
+base_config: "config/base.yaml"
+train_years: 3
+test_years: 1
+step_years: 1
+optimize_parameters:
+  volume.min_multiplier: [1.5, 2.0, 2.5, 3.0]
+  stops.fixed_stop_pct: [0.04, 0.05, 0.06, 0.08]
+  resistance.breakout_buffer: [0.0, 0.005, 0.01, 0.015]
+objective: "sharpe"
