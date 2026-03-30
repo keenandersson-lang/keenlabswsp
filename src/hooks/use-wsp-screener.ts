@@ -1,5 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ScreenerApiResponse, Bar, EvaluatedStock, MarketOverview, SectorStatus, ScreenerUiState, DiscoveryBuckets, DiscoveryMeta, StockIndicators, WSPPattern, SmaSlopeDirection, MansfieldTrend } from '@/lib/wsp-types';
+import type {
+  ScreenerApiResponse,
+  Bar,
+  EvaluatedStock,
+  MarketOverview,
+  SectorStatus,
+  ScreenerUiState,
+  DiscoveryBuckets,
+  DiscoveryMeta,
+  StockIndicators,
+  WSPPattern,
+  SmaSlopeDirection,
+  MansfieldTrend,
+  EntryGate,
+  StockAudit,
+  WSPRecommendation,
+} from '@/lib/wsp-types';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { evaluateStock } from '@/lib/wsp-engine';
 import { computeIndicators, normalizeBarsChronologically } from '@/lib/wsp-indicators';
@@ -210,6 +226,181 @@ function parseOptionalNumericValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function sanitizeNumber(value: unknown, fallback: number = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function sanitizePattern(value: unknown): WSPPattern {
+  return toWspPattern(typeof value === 'string' ? value : null);
+}
+
+function sanitizeRecommendation(value: unknown): WSPRecommendation {
+  if (value === 'KÖP' || value === 'BEVAKA' || value === 'SÄLJ' || value === 'UNDVIK') return value;
+  return 'BEVAKA';
+}
+
+function buildDefaultIndicators(): StockIndicators {
+  return {
+    sma20: null,
+    sma50: null,
+    sma150: null,
+    sma200: null,
+    sma50Slope: null,
+    sma50SlopeDirection: 'flat',
+    resistanceZone: null,
+    resistanceUpperBound: null,
+    resistanceTouches: 0,
+    resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+    resistanceTouchIndices: [],
+    resistanceMostRecentTouchDate: null,
+    breakoutLevel: null,
+    currentClose: null,
+    breakoutCloseDelta: null,
+    closeAboveResistancePct: null,
+    breakoutConfirmed: false,
+    breakoutQualityPass: false,
+    breakoutQualityReasons: [],
+    breakoutClv: null,
+    recentFalseBreakoutsCount: 0,
+    barsSinceBreakout: null,
+    breakoutStale: false,
+    averageVolumeReference: null,
+    volumeMultiple: null,
+    mansfieldRS: null,
+    mansfieldRSPrev: null,
+    mansfieldRSTrend: 'flat',
+    mansfieldTransition: false,
+    mansfieldUptrend: false,
+    mansfieldValid: false,
+    indicatorWarnings: [],
+    chronologyNormalized: false,
+  };
+}
+
+function buildDefaultGate(): EntryGate {
+  return {
+    isValidWspEntry: false,
+    priceAboveMA50: false,
+    ma50Rising: false,
+    priceAboveMA150: false,
+    breakoutValid: false,
+    breakoutFresh: false,
+    volumeSufficient: false,
+    mansfieldValid: false,
+    sectorAligned: false,
+    marketFavorable: false,
+    patternAllowsEntry: false,
+  };
+}
+
+function buildDefaultAudit(overrides?: Partial<StockAudit>): StockAudit {
+  return {
+    pattern: 'base',
+    finalRecommendation: 'BEVAKA',
+    isValidWspEntry: false,
+    above50MA: false,
+    above150MA: false,
+    slope50Positive: false,
+    sma20: null,
+    sma50: null,
+    sma150: null,
+    sma200: null,
+    sma50SlopeValue: null,
+    sma50SlopeDirection: 'flat',
+    breakoutValid: false,
+    breakoutStale: false,
+    breakoutQualityPass: false,
+    breakoutQualityReasons: [],
+    resistanceLevel: null,
+    resistanceUpperBound: null,
+    resistanceTouches: 0,
+    resistanceTolerancePct: WSP_CONFIG.wsp.resistanceTolerancePct,
+    resistanceMostRecentTouchDate: null,
+    breakoutLevel: null,
+    currentClose: null,
+    breakoutCloseDelta: null,
+    closeAboveResistancePct: null,
+    breakoutClv: null,
+    recentFalseBreakoutsCount: 0,
+    breakoutAgeBars: null,
+    currentVolume: 0,
+    averageVolumeReference: null,
+    volumeMultiple: null,
+    volumeValid: false,
+    mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
+    mansfieldValue: null,
+    mansfieldValuePrev: null,
+    mansfieldTrend: 'flat',
+    mansfieldUptrend: false,
+    mansfieldRecentTransition: false,
+    mansfieldValid: false,
+    staleBreakoutBars: WSP_CONFIG.wsp.staleBreakoutBars,
+    sectorAligned: false,
+    marketAligned: false,
+    chronologyNormalized: false,
+    indicatorWarnings: [],
+    score: 0,
+    blockedReasons: [],
+    exitReasons: [],
+    wspSpec: { ...WSP_CONFIG.wsp },
+    ...overrides,
+  };
+}
+
+function sanitizeStock(stock: Partial<EvaluatedStock> | null | undefined, index: number): EvaluatedStock {
+  const safeSymbol = typeof stock?.symbol === 'string' && stock.symbol.trim() ? stock.symbol.trim() : `UNKNOWN_${index + 1}`;
+  const safePrice = sanitizeNumber(stock?.price, 0);
+  const safePattern = sanitizePattern(stock?.pattern);
+  const safeRecommendation = sanitizeRecommendation(stock?.finalRecommendation);
+  const safeIndicators = { ...buildDefaultIndicators(), ...(stock?.indicators ?? {}) };
+  const safeGate = { ...buildDefaultGate(), ...(stock?.gate ?? {}) };
+  const safeAudit = buildDefaultAudit({ ...(stock?.audit ?? {}), pattern: safePattern, finalRecommendation: safeRecommendation });
+  const safeLastUpdated = typeof stock?.lastUpdated === 'string' && stock.lastUpdated.trim()
+    ? stock.lastUpdated
+    : new Date().toISOString();
+
+  return {
+    symbol: safeSymbol,
+    name: typeof stock?.name === 'string' && stock.name.trim() ? stock.name : safeSymbol,
+    companyName: typeof stock?.companyName === 'string' && stock.companyName.trim() ? stock.companyName : undefined,
+    sector: typeof stock?.sector === 'string' && stock.sector.trim() ? stock.sector : 'Unknown',
+    industry: typeof stock?.industry === 'string' && stock.industry.trim() ? stock.industry : 'Unknown',
+    exchange: typeof stock?.exchange === 'string' ? stock.exchange : '',
+    assetClass: stock?.assetClass ?? 'equity',
+    supportsFullWsp: typeof stock?.supportsFullWsp === 'boolean' ? stock.supportsFullWsp : true,
+    wspSupport: stock?.wspSupport ?? 'full',
+    price: safePrice,
+    changePercent: sanitizeNumber(stock?.changePercent, 0),
+    volume: sanitizeNumber(stock?.volume, 0),
+    pattern: safePattern,
+    indicators: safeIndicators,
+    gate: safeGate,
+    isValidWspEntry: typeof stock?.isValidWspEntry === 'boolean' ? stock.isValidWspEntry : safeGate.isValidWspEntry,
+    finalRecommendation: safeRecommendation,
+    audit: safeAudit,
+    blockedReasons: Array.isArray(stock?.blockedReasons) ? stock.blockedReasons : [],
+    logicViolations: Array.isArray(stock?.logicViolations) ? stock.logicViolations : [],
+    score: sanitizeNumber(stock?.score, 0),
+    maxScore: sanitizeNumber(stock?.maxScore, 4),
+    dataSource: stock?.dataSource === 'fallback' ? 'fallback' : 'live',
+    lastUpdated: safeLastUpdated,
+    scannerPattern: typeof stock?.scannerPattern === 'string' ? stock.scannerPattern : null,
+    scannerRecommendation: typeof stock?.scannerRecommendation === 'string' ? stock.scannerRecommendation : null,
+    scannerScore: sanitizeNullableNumber(stock?.scannerScore),
+    trendState: typeof stock?.trendState === 'string' ? stock.trendState : null,
+    sectorBullish: typeof stock?.sectorBullish === 'boolean' ? stock.sectorBullish : false,
+  };
+}
+
+function sanitizeStocks(stocks: Partial<EvaluatedStock>[] | null | undefined): EvaluatedStock[] {
+  if (!Array.isArray(stocks)) return [];
+  return stocks.map((stock, index) => sanitizeStock(stock, index));
 }
 
 interface IndicatorSnapshotRow {
@@ -984,7 +1175,6 @@ export async function fetchWspScreenerData(options?: {
   forceRefresh?: boolean;
   page?: number;
   pageSize?: number;
-  filters?: ScannerUiFilters;
 }): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
@@ -1000,7 +1190,18 @@ export async function fetchWspScreenerData(options?: {
 
   const now = new Date().toISOString();
   try {
-    const directStocks = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize);
+    let directStocks: EvaluatedStock[] = [];
+    try {
+      const directResult = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize);
+      directStocks = sanitizeStocks(directResult);
+    } catch {
+      directStocks = [];
+    }
+
+    if (directStocks.length === 0) {
+      throw new Error('No screener stocks returned from Supabase.');
+    }
+
     const directSectorStatuses = await buildSectorStatusesFromIndicators();
     return {
       market: {
@@ -1011,7 +1212,7 @@ export async function fetchWspScreenerData(options?: {
         lastUpdated: now,
         pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
       },
-      stocks: directStocks,
+      stocks: sanitizeStocks(directStocks),
       ...buildDiscoverySnapshot(directStocks, 'LIVE'),
       sectorStatuses: directSectorStatuses,
       providerStatus: {
@@ -1062,7 +1263,7 @@ export async function fetchWspScreenerData(options?: {
         benchmarkLastUpdated: now,
         lastUpdated: now,
       },
-      stocks: fallbackStocks,
+      stocks: sanitizeStocks(fallbackStocks),
       ...buildDiscoverySnapshot(fallbackStocks, 'FALLBACK'),
       sectorStatuses: [],
       providerStatus: {
@@ -1107,8 +1308,67 @@ export async function fetchWspScreenerData(options?: {
 
 export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, page: number = 0, pageSize?: number) {
   return useQuery({
-    queryKey: ['wsp-screener', intervalMs, page, pageSize, filters?.pattern ?? null, filters?.sector ?? null, filters?.recommendation ?? null],
-    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize, filters }),
+    queryKey: ['wsp-screener', intervalMs, page, pageSize],
+    queryFn: async () => {
+      try {
+        const result = await fetchWspScreenerData({ intervalMs, page, pageSize });
+        return {
+          ...result,
+          stocks: sanitizeStocks(result?.stocks),
+        };
+      } catch {
+        const now = new Date().toISOString();
+        const fallbackStocks = sanitizeStocks(demoStocks.map((stock) => ({ ...stock, lastUpdated: now, dataSource: 'fallback' as const })));
+        return {
+          market: {
+            ...demoMarket,
+            dataSource: 'fallback',
+            benchmarkState: 'stale',
+            benchmarkLastUpdated: now,
+            lastUpdated: now,
+          },
+          stocks: fallbackStocks,
+          ...buildDiscoverySnapshot(fallbackStocks, 'FALLBACK'),
+          sectorStatuses: [],
+          providerStatus: {
+            provider: 'demo',
+            isLive: false,
+            uiState: 'FALLBACK',
+            lastFetch: now,
+            failedSymbols: [],
+            successCount: 0,
+            errorMessage: 'Unexpected screener render-safe fallback.',
+            isFallback: true,
+            fallbackActive: true,
+            symbolCount: 0,
+            benchmarkSymbol: WSP_CONFIG.benchmark,
+            benchmarkFetchStatus: 'failed',
+            refreshIntervalMs: intervalMs,
+            readiness: {
+              envVarPresent: true,
+              routeReachable: false,
+              benchmarkSymbolConfigured: true,
+              trackedSymbolsCount: 0,
+              symbolsFetchedSuccessfully: 0,
+              symbolsFailed: 0,
+              lastSuccessfulLiveFetch: null,
+            },
+            runtimeDiagnostics: {
+              envKeyPresent: true,
+              edgeFunctionReachable: false,
+              fetchTarget: 'supabase:market_scan_results_latest',
+              authOutcome: 'failed',
+              benchmarkFetch: 'failed',
+              routeVersion: 'direct_supabase_query',
+              buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
+              finalModeReason: 'Query failed in hook; returned render-safe fallback payload.',
+              fallbackCause: 'necessary',
+            },
+          },
+          debugSummary: buildScreenerDebugSummary(fallbackStocks),
+        } as ScreenerApiResponse;
+      }
+    },
     refetchInterval: intervalMs,
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
