@@ -19,6 +19,7 @@ from analytics.walkforward import build_windows
 from analytics.reports import build_markdown_report
 from analytics.charts import plot_equity
 from analytics.artifact_export import export_bundle
+from analytics.validation import run_full_validation
 from utils.io import write_csv, write_json
 
 app = typer.Typer(help="WSP isolated backtest engine")
@@ -144,6 +145,30 @@ def export_artifacts(config: str = "config/base.yaml"):
     bundle = export_bundle(out_dir, cfg.run.model_dump(), summary, trades, signals, daily_equity, ablation, grid, walkforward)
     write_json(out_dir / "artifact_bundle.json", bundle)
     typer.echo("Artifacts exported")
+
+
+@app.command("validate-data")
+def validate_data(config: str = "config/base.yaml"):
+    run_full_validation(base_config_path=config)
+    typer.echo("Data validation complete")
+
+
+@app.command("validate-engine")
+def validate_engine(config: str = "config/base.yaml"):
+    run_full_validation(base_config_path=config)
+    typer.echo("Engine validation complete")
+
+
+@app.command("validate-signals")
+def validate_signals(config: str = "config/base.yaml"):
+    run_full_validation(base_config_path=config)
+    typer.echo("Signal validation complete")
+
+
+@app.command("validate-strategy")
+def validate_strategy(config: str = "config/base.yaml", grid_config: str = "config/parameter_grid.yaml", walkforward_config: str = "config/walkforward.yaml"):
+    run_full_validation(base_config_path=config, grid_config_path=grid_config, walkforward_config_path=walkforward_config)
+    typer.echo("Full strategy validation complete")
 
 
 if __name__ == "__main__":
