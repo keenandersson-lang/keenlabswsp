@@ -647,20 +647,57 @@ async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
   });
 }
 
-async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50): Promise<EvaluatedStock[]> {
+interface ScannerUiFilters {
+  pattern?: string | null;
+  sector?: string | null;
+  recommendation?: string | null;
+}
+
+async function fetchDirectFromSupabase(
+  page: number = 0,
+  pageSize?: number,
+  filters?: ScannerUiFilters,
+): Promise<EvaluatedStock[]> {
   console.log('[WSP] fetchDirectFromSupabase called, page:', page, 'pageSize:', pageSize);
   const sectorTrends = await fetchSectorTrends();
   const normalizedPage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
-  const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 50;
-  const effectivePageSize = Math.min(normalizedPageSize, 50);
-  const offset = normalizedPage * effectivePageSize;
+  const hasPagination = typeof pageSize === 'number' && Number.isFinite(pageSize) && pageSize > 0;
+  const normalizedPageSize = hasPagination ? Math.floor(pageSize as number) : null;
+  const offset = hasPagination && normalizedPageSize !== null ? normalizedPage * normalizedPageSize : 0;
+  const patternFilter = typeof filters?.pattern === 'string' && filters.pattern.trim().length > 0
+    ? filters.pattern.trim()
+    : null;
+  const sectorFilter = typeof filters?.sector === 'string' && filters.sector.trim().length > 0
+    ? filters.sector.trim()
+    : null;
+  const recommendationFilter = typeof filters?.recommendation === 'string' && filters.recommendation.trim().length > 0
+    ? filters.recommendation.trim()
+    : null;
 
-  const { data, error } = await (supabase as any)
+  let query = (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol, sector, industry, pattern, recommendation, score, payload')
-    .order('score', { ascending: false })
-    .range(offset, offset + effectivePageSize - 1)
-    .limit(effectivePageSize);
+    .order('score', { ascending: false });
+
+  // IMPORTANT: no implicit scanner eligibility WHERE clauses are applied here.
+  // We only add filters when the UI explicitly sends one.
+  if (patternFilter) {
+    query = query.eq('pattern', patternFilter);
+  }
+  if (sectorFilter) {
+    query = query.eq('sector', sectorFilter);
+  }
+  if (recommendationFilter) {
+    query = query.eq('recommendation', recommendationFilter);
+  }
+
+  if (hasPagination && normalizedPageSize !== null) {
+    query = query
+      .range(offset, offset + normalizedPageSize - 1)
+      .limit(normalizedPageSize);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
@@ -973,7 +1010,13 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   };
 }
 
-export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean; page?: number; pageSize?: number }): Promise<ScreenerApiResponse> {
+export async function fetchWspScreenerData(options?: {
+  intervalMs?: number;
+  forceRefresh?: boolean;
+  page?: number;
+  pageSize?: number;
+  filters?: ScannerUiFilters;
+}): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
     if (qualifiedScanCount === null) return payload;
@@ -988,7 +1031,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
 
   const now = new Date().toISOString();
   try {
-    const directStocks = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize ?? 50);
+    const directStocks = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize, options?.filters);
     const directSectorStatuses = await buildSectorStatusesFromIndicators();
     return {
       market: {
@@ -1093,10 +1136,15 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   }
 }
 
-export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, page: number = 0, pageSize: number = 50) {
+export function useWspScreener(
+  intervalMs: number = WSP_CONFIG.refreshInterval,
+  page: number = 0,
+  pageSize?: number,
+  filters?: ScannerUiFilters,
+) {
   return useQuery({
-    queryKey: ['wsp-screener', intervalMs, page, pageSize],
-    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize }),
+    queryKey: ['wsp-screener', intervalMs, page, pageSize, filters?.pattern ?? null, filters?.sector ?? null, filters?.recommendation ?? null],
+    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize, filters }),
     refetchInterval: intervalMs,
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
