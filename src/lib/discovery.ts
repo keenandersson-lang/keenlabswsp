@@ -283,7 +283,7 @@ function isStrictBreakout(stock: EvaluatedStock): boolean {
 }
 
 function isConstructiveStock(stock: EvaluatedStock): boolean {
-  return stock.pattern === 'CLIMBING'
+  return stock.pattern === 'climbing'
     && stock.audit.above50MA
     && stock.audit.above150MA
     && stock.audit.slope50Positive
@@ -292,8 +292,8 @@ function isConstructiveStock(stock: EvaluatedStock): boolean {
 }
 
 function isWeakeningStock(stock: EvaluatedStock): boolean {
-  return stock.pattern === 'DOWNHILL'
-    || stock.pattern === 'TIRED'
+  return stock.pattern === 'downhill'
+    || stock.pattern === 'tired'
     || stock.finalRecommendation === 'SÄLJ'
     || stock.finalRecommendation === 'UNDVIK';
 }

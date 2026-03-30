@@ -97,10 +97,10 @@ export function TrendsDashboard({ discovery, discoveryMeta }: { discovery: Disco
 
 function patternClass(pattern: string): string {
   switch (pattern) {
-    case 'CLIMBING': return 'bg-signal-climbing/10 text-signal-climbing border border-signal-climbing/20';
-    case 'BASE': return 'bg-signal-base/10 text-signal-base border border-signal-base/20';
-    case 'TIRED': return 'bg-signal-tired/10 text-signal-tired border border-signal-tired/20';
-    case 'DOWNHILL': return 'bg-signal-downhill/10 text-signal-downhill border border-signal-downhill/20';
+    case 'climbing': return 'bg-signal-climbing/10 text-signal-climbing border border-signal-climbing/20';
+    case 'base': return 'bg-signal-base/10 text-signal-base border border-signal-base/20';
+    case 'tired': return 'bg-signal-tired/10 text-signal-tired border border-signal-tired/20';
+    case 'downhill': return 'bg-signal-downhill/10 text-signal-downhill border border-signal-downhill/20';
     default: return 'bg-muted text-muted-foreground border border-border';
   }
 }

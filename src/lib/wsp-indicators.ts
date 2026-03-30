@@ -560,8 +560,8 @@ export function classifyPattern(
   sma50Val: number | null,
   sma150Val: number | null,
   sma50SlopeVal: number | null,
-): 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL' {
-  if (bars.length < 20) return 'BASE';
+): 'base' | 'climbing' | 'tired' | 'downhill' {
+  if (bars.length < 20) return 'base';
 
   const price = bars[bars.length - 1].close;
   const recentBars = bars.slice(-20);
@@ -579,15 +579,15 @@ export function classifyPattern(
   const slopeValue = sma50SlopeVal ?? 0;
 
   if (sma50Val !== null && sma150Val !== null && price < sma50Val && price < sma150Val && slopeValue < 0 && trendDirection < 0 && (!higherHighs && !higherLows)) {
-    return 'DOWNHILL';
+    return 'downhill';
   }
   if (sma50Val !== null && price > sma50Val && Math.abs(slopeValue) < 0.5 && priceLevel < 0.06 && trendDirection < 0) {
-    return 'TIRED';
+    return 'tired';
   }
   if (sma50Val !== null && price > sma50Val && slopeValue > 0 && (higherHighs || higherLows) && trendDirection > 0) {
-    return 'CLIMBING';
+    return 'climbing';
   }
-  return 'BASE';
+  return 'base';
 }
 
 export function computeIndicators(bars: Bar[], benchmarkBars: Bar[]): StockIndicators {

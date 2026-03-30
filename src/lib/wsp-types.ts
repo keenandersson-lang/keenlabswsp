@@ -3,7 +3,7 @@
  * Strict 3-layer model: Pattern → Entry Gate → Recommendation
  */
 
-export type WSPPattern = 'BASE' | 'CLIMBING' | 'TIRED' | 'DOWNHILL';
+export type WSPPattern = 'climbing' | 'base_or_climbing' | 'base' | 'tired' | 'downhill';
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
 export type TrendBucket = 'HOT' | 'BREAKOUT' | 'BULLISH' | 'BEARISH';

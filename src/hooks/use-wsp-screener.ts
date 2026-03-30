@@ -11,6 +11,8 @@ import { buildDiscoverySnapshot } from '@/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '@/lib/benchmarks';
 import { supabase } from '@/integrations/supabase/client';
 
+export type WspPatternCounts = Record<WSPPattern, number>;
+
 interface QuoteData {
   price: number;
   change: number;
@@ -96,17 +98,17 @@ interface EdgeFunctionResponse {
 function toWspPattern(value: string | null | undefined): WSPPattern {
   switch ((value ?? '').toLowerCase()) {
     case 'climbing':
-      return 'CLIMBING';
+      return 'climbing';
     case 'base_or_climbing':
-      return 'BASE';
+      return 'base_or_climbing';
     case 'downhill':
-      return 'DOWNHILL';
+      return 'downhill';
     case 'base':
-      return 'BASE';
+      return 'base';
     case 'tired':
-      return 'TIRED';
+      return 'tired';
     default:
-      return 'BASE';
+      return 'base';
   }
 }
 
@@ -205,9 +207,9 @@ const MA50_SLOPE_COLUMN = 'ma50_slope' as const;
 function parseOptionalNumericValue(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
-    const trimmed = value.trim();
+    const trimmed = String(value).trim();
     if (!trimmed) return null;
-    const parsed = Number(trimmed);
+    const parsed = parseFloat(trimmed);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
@@ -226,7 +228,7 @@ async function fetchQualifiedScanCount(): Promise<number | null> {
   const { count, error } = await (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol', { count: 'exact', head: true })
-    .in('pattern', ['climbing', 'base_or_climbing']);
+;
 
   if (error) {
     return null;
@@ -239,6 +241,7 @@ const SCANNER_PATTERN_PRIORITY: Record<string, number> = {
   climbing: 4,
   base_or_climbing: 3,
   base: 2,
+  tired: 2,
   downhill: 1,
 };
 
@@ -278,8 +281,8 @@ function getScannerPatternPriority(stock: EvaluatedStock): number {
   }
 
   const wspPattern = stock.pattern;
-  if (wspPattern === 'CLIMBING') return SCANNER_PATTERN_PRIORITY.climbing;
-  if (wspPattern === 'DOWNHILL') return SCANNER_PATTERN_PRIORITY.downhill;
+  if (wspPattern === 'climbing') return SCANNER_PATTERN_PRIORITY.climbing;
+  if (wspPattern === 'downhill') return SCANNER_PATTERN_PRIORITY.downhill;
   return SCANNER_PATTERN_PRIORITY.base;
 }
 
@@ -461,11 +464,13 @@ function buildDirectScannerStock(
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= 2;
-  const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid].filter(Boolean).length;
-  const allWspCriteriaPass = wspCriteriaPassCount === 4;
+  const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid, mansfieldValid].filter(Boolean).length;
+  const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && wspPattern === 'climbing';
   const scannerScore = wspCriteriaPassCount;
-  const scannerPattern = allWspCriteriaPass ? 'climbing' : 'base_or_climbing';
-  const scannerRecommendation = allWspCriteriaPass ? 'KÖP' : 'BEVAKA';
+  const scannerPattern = wspPattern ?? row.pattern ?? 'base';
+  const scannerRecommendation = allWspCriteriaPass
+    ? 'KÖP'
+    : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA');
   const normalizedPattern = toWspPattern(scannerPattern);
   const sectorValue = row.canonical_sector ?? row.sector ?? 'Unknown';
   const normalizedSector = row.canonical_sector ?? row.sector ?? '';
@@ -537,7 +542,7 @@ function buildDirectScannerStock(
       mansfieldValid,
       sectorAligned: false,
       marketFavorable: false,
-      patternAllowsEntry: allWspCriteriaPass,
+      patternAllowsEntry: wspPattern === 'climbing',
     },
     isValidWspEntry: allWspCriteriaPass,
     finalRecommendation: scannerRecommendation,
@@ -625,7 +630,7 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
     if (!symbol) continue;
     const aboveMa50 = Boolean(row.above_ma50);
     const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].trim().toLowerCase() : null;
-    latestTrendByEtf.set(symbol, aboveMa50 && (ma50Slope === 'rising' || ma50Slope === 'flat'));
+    latestTrendByEtf.set(symbol, aboveMa50 && ma50Slope === 'rising');
   }
 
   return Object.fromEntries(
@@ -656,7 +661,6 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50):
   const { data, error } = await (supabase as any)
     .from('market_scan_results_latest')
     .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
-    .in('pattern', ['climbing', 'base_or_climbing'])
     .order('score', { ascending: false })
     .range(offset, offset + normalizedPageSize - 1)
     .limit(normalizedPageSize);
@@ -1145,4 +1149,41 @@ export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, 
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
   });
+}
+
+export async function fetchWspPatternCounts(): Promise<WspPatternCounts> {
+  const counts: WspPatternCounts = {
+    climbing: 0,
+    base_or_climbing: 0,
+    base: 0,
+    tired: 0,
+    downhill: 0,
+  };
+
+  const { data: latestDateRows, error: latestDateError } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('calc_date')
+    .order('calc_date', { ascending: false })
+    .limit(1);
+
+  if (latestDateError || !latestDateRows?.length) return counts;
+
+  const latestCalcDate = latestDateRows[0]?.calc_date;
+  if (!latestCalcDate) return counts;
+
+  const { data, error } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('wsp_pattern')
+    .eq('calc_date', latestCalcDate);
+
+  if (error || !data) return counts;
+
+  for (const row of data as Array<{ wsp_pattern: string | null }>) {
+    const pattern = (row.wsp_pattern ?? '').trim().toLowerCase() as WSPPattern;
+    if (pattern in counts) {
+      counts[pattern] += 1;
+    }
+  }
+
+  return counts;
 }

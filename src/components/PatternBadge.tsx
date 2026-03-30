@@ -2,10 +2,11 @@ import type { WSPPattern } from '@/lib/wsp-types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const patternConfig: Record<WSPPattern, { label: string; description: string; colorClass: string; bgClass: string; borderClass: string }> = {
-  BASE: { label: 'BASE', description: 'Sidledes konsolidering — väntar på breakout', colorClass: 'text-accent', bgClass: 'bg-signal-base\/10', borderClass: 'border-accent' },
-  CLIMBING: { label: 'CLIMBING', description: 'Upptrend med stigande 50MA — potentiell köpsignal vid breakout', colorClass: 'text-signal-buy', bgClass: 'bg-signal-buy\/10', borderClass: 'border-signal-buy' },
-  TIRED: { label: 'TIRED', description: 'Topp-konsolidering nära ATH med flat momentum — säljsignal', colorClass: 'text-signal-caution', bgClass: 'bg-signal-caution\/10', borderClass: 'border-signal-caution' },
-  DOWNHILL: { label: 'DOWNHILL', description: 'Pris under 150MA — nedtrend, undvik', colorClass: 'text-signal-sell', bgClass: 'bg-signal-sell\/10', borderClass: 'border-signal-sell' },
+  base_or_climbing: { label: 'BASE/CLIMBING', description: 'Sidledes konsolidering — väntar på breakout', colorClass: 'text-accent', bgClass: 'bg-signal-base\/10', borderClass: 'border-accent' },
+  base: { label: 'BASE', description: 'Basformation utan tydlig trend — bevaka', colorClass: 'text-accent', bgClass: 'bg-signal-base\/10', borderClass: 'border-accent' },
+  climbing: { label: 'CLIMBING', description: 'Upptrend med stigande 50MA — potentiell köpsignal vid breakout', colorClass: 'text-signal-buy', bgClass: 'bg-signal-buy\/10', borderClass: 'border-signal-buy' },
+  tired: { label: 'TIRED', description: 'Topp-konsolidering nära ATH med flat momentum — säljsignal', colorClass: 'text-signal-caution', bgClass: 'bg-signal-caution\/10', borderClass: 'border-signal-caution' },
+  downhill: { label: 'DOWNHILL', description: 'Pris under 150MA — nedtrend, undvik', colorClass: 'text-signal-sell', bgClass: 'bg-signal-sell\/10', borderClass: 'border-signal-sell' },
 };
 
 interface PatternBadgeProps {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useWspScreener } from '@/hooks/use-wsp-screener';
+import { fetchWspPatternCounts, useWspScreener, type WspPatternCounts } from '@/hooks/use-wsp-screener';
 import { StockTable } from '@/components/StockTable';
 import { PatternSummary } from '@/components/PatternSummary';
 import { CreditsBadge } from '@/components/CreditsBadge';
@@ -9,6 +9,7 @@ import { WSP_CONFIG } from '@/lib/wsp-config';
 import type { EvaluatedStock } from '@/lib/wsp-types';
 import { useQueryClient } from '@tanstack/react-query';
 import { Scan } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 
 export default function Screener() {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
@@ -17,6 +18,12 @@ export default function Screener() {
   const PAGE_SIZE = 50;
   const queryClient = useQueryClient();
   const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs, page, PAGE_SIZE);
+  const { data: patternCounts } = useQuery<WspPatternCounts>({
+    queryKey: ['wsp-pattern-counts'],
+    queryFn: fetchWspPatternCounts,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
 
   const payload = data;
   const stocks = loadedStocks;
@@ -100,7 +107,7 @@ export default function Screener() {
         <CreditsBadge />
       </div>
 
-      <PatternSummary stocks={filteredStocks} />
+      <PatternSummary counts={patternCounts ?? { climbing: 0, base_or_climbing: 0, base: 0, tired: 0, downhill: 0 }} />
       <div className="relative">
         <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
 

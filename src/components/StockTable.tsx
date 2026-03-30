@@ -46,14 +46,11 @@ const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'sector_not_aligned', label: 'Blockerad: svag sektor' },
   { value: 'market_not_aligned', label: 'Blockerad: svag marknad' },
   { value: 'pattern_not_climbing', label: 'Blockerad: ej CLIMBING' },
-  { value: 'CLIMBING', label: 'Climbing' },
-  { value: 'BASE', label: 'Base' },
-  { value: 'TIRED', label: 'Tired' },
-  { value: 'DOWNHILL', label: 'Downhill' },
-  { value: 'climbing', label: 'climbing' },
-  { value: 'base_or_climbing', label: 'base_or_climbing' },
-  { value: 'base', label: 'base' },
-  { value: 'downhill', label: 'downhill' },
+  { value: 'climbing', label: 'Climbing' },
+  { value: 'base_or_climbing', label: 'Base/Climbing' },
+  { value: 'base', label: 'Base' },
+  { value: 'tired', label: 'Tired' },
+  { value: 'downhill', label: 'Downhill' },
   { value: 'BEVAKA', label: 'Bevaka' },
   { value: 'SÄLJ', label: 'Sälj' },
   { value: 'UNDVIK', label: 'Undvik' },
@@ -90,14 +87,15 @@ const scannerPatternPriority: Record<string, number> = {
 function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPPattern | null {
   switch ((pattern ?? '').toLowerCase()) {
     case 'climbing':
-      return 'CLIMBING';
+      return 'climbing';
     case 'base_or_climbing':
+      return 'base_or_climbing';
     case 'base':
-      return 'BASE';
+      return 'base';
     case 'tired':
-      return 'TIRED';
+      return 'tired';
     case 'downhill':
-      return 'DOWNHILL';
+      return 'downhill';
     default:
       return null;
   }
@@ -113,8 +111,8 @@ function getPatternPriority(stock: EvaluatedStock): number {
     return scannerPatternPriority[scannerPattern];
   }
   const effectivePattern = getEffectiveWspPattern(stock);
-  if (effectivePattern === 'CLIMBING') return scannerPatternPriority.climbing;
-  if (effectivePattern === 'DOWNHILL') return scannerPatternPriority.downhill;
+  if (effectivePattern === 'climbing') return scannerPatternPriority.climbing;
+  if (effectivePattern === 'downhill') return scannerPatternPriority.downhill;
   return scannerPatternPriority.base;
 }
 
@@ -150,7 +148,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
         return (stock.scannerRecommendation ?? 'BEVAKA') === filter;
       }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
-      if (filter === 'CLIMBING' || filter === 'BASE' || filter === 'TIRED' || filter === 'DOWNHILL') {
+      if (filter === 'climbing' || filter === 'base_or_climbing' || filter === 'base' || filter === 'tired' || filter === 'downhill') {
         return getEffectiveWspPattern(stock) === filter;
       }
       return stock.scannerPattern === filter;
