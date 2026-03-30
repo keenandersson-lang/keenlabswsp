@@ -67,6 +67,24 @@ export async function searchSearchableSymbols(query: string, limit = 25): Promis
   return activeRows.map((row) => mapSearchableSymbol(row));
 }
 
+export async function fetchSearchableSymbolsPage(offset = 0, limit = 50): Promise<SearchableSymbol[]> {
+  const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
+
+  const { data: rows, error } = await supabase
+    .from('symbols')
+    .select(SEARCHABLE_SYMBOL_COLUMNS)
+    .eq('is_active', true)
+    .order('symbol', { ascending: true })
+    .range(safeOffset, safeOffset + safeLimit - 1)
+    .limit(safeLimit);
+
+  if (error) throw new Error(error.message);
+
+  const activeRows = ((rows ?? []) as unknown as SymbolRegistryRow[]).filter((row) => row.is_active !== false);
+  return activeRows.map((row) => mapSearchableSymbol(row));
+}
+
 export async function fetchSearchableSymbolByTicker(symbol: string): Promise<SearchableSymbol | null> {
   const normalized = symbol.trim().toUpperCase();
   if (!normalized) return null;
