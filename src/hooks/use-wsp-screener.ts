@@ -199,6 +199,8 @@ interface WspIndicatorRow {
   ma50_slope: string | null;
 }
 
+const MA50_SLOPE_COLUMN = 'ma50_slope' as const;
+
 interface SymbolProfileRow {
   symbol: string | null;
   name: string | null;
@@ -438,14 +440,14 @@ function buildDirectScannerStock(
   const volumeMultiple = typeof p.volume_ratio === 'number' && Number.isFinite(p.volume_ratio)
     ? p.volume_ratio
     : null;
-  const ma50SlopeTrend = typeof p.ma50_slope === 'string'
-    ? p.ma50_slope
+  const ma50SlopeTrend = typeof p[MA50_SLOPE_COLUMN] === 'string'
+    ? p[MA50_SLOPE_COLUMN]
     : null;
   const wspPattern = typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null;
   const hasWspIndicators = payload !== null;
   const aboveMa50 = p.above_ma50 === true;
   const aboveMa150 = p.above_ma150 === true;
-  const slope50Positive = p.ma50_slope === 'rising';
+  const slope50Positive = p[MA50_SLOPE_COLUMN] === 'rising';
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= 2;
@@ -598,7 +600,7 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
   const etfSymbols = [...new Set(Object.values(SECTOR_ETF_MAP))];
   const { data, error } = await (supabase as any)
     .from('wsp_indicators')
-    .select('symbol, above_ma50, ma50_slope')
+    .select(`symbol, above_ma50, ${MA50_SLOPE_COLUMN}`)
     .in('symbol', etfSymbols)
     .order('calc_date', { ascending: false });
 
@@ -611,7 +613,7 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
     const symbol = row.symbol ?? '';
     if (!symbol || latestTrendByEtf.has(symbol)) continue;
     const aboveMa50 = Boolean(row.above_ma50);
-    const ma50Slope = typeof row.ma50_slope === 'string' ? row.ma50_slope.toLowerCase() : null;
+    const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].toLowerCase() : null;
     latestTrendByEtf.set(symbol, aboveMa50 && (ma50Slope === 'rising' || ma50Slope === 'flat'));
   }
 
