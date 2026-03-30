@@ -49,7 +49,7 @@ interface EdgeFunctionResponse {
       above_ma50: boolean;
       above_ma150: boolean;
       volume_ratio: number | null;
-      mansfield_rs: number | null;
+      mansfield_rs: number | string | null;
       wsp_pattern: string | null;
       wsp_score: number | null;
       pct_change_1d: number | null;
@@ -113,7 +113,7 @@ function toWspPattern(value: string | null | undefined): WSPPattern {
 function buildFallbackIndicators(fallback: NonNullable<EdgeFunctionResponse['data']>['indicatorFallback'][string]): StockIndicators {
   const ma50 = typeof fallback.ma50 === 'number' && Number.isFinite(fallback.ma50) ? fallback.ma50 : null;
   const ma150 = typeof fallback.ma150 === 'number' && Number.isFinite(fallback.ma150) ? fallback.ma150 : null;
-  const mansfieldRs = typeof fallback.mansfield_rs === 'number' && Number.isFinite(fallback.mansfield_rs) ? fallback.mansfield_rs : null;
+  const mansfieldRs = parseOptionalNumericValue(fallback.mansfield_rs);
   const volumeRatio = typeof fallback.volume_ratio === 'number' && Number.isFinite(fallback.volume_ratio) ? fallback.volume_ratio : null;
 
   return {
@@ -187,7 +187,7 @@ interface ScannerPayload {
   above_ma50?: boolean | null;
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
-  mansfield_rs?: number | null;
+  mansfield_rs?: number | string | null;
   wsp_pattern?: string | null;
   wsp_score?: number | null;
   pct_change_1d?: number | null;
@@ -200,6 +200,17 @@ interface WspIndicatorRow {
 }
 
 const MA50_SLOPE_COLUMN = 'ma50_slope' as const;
+
+function parseOptionalNumericValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
 
 interface SymbolProfileRow {
   symbol: string | null;
@@ -434,20 +445,18 @@ function buildDirectScannerStock(
   const p = payload ?? {};
   const ma50 = typeof p.ma50 === 'number' && Number.isFinite(p.ma50) ? p.ma50 : null;
   const ma150 = typeof p.ma150 === 'number' && Number.isFinite(p.ma150) ? p.ma150 : null;
-  const mansfieldRs = typeof p.mansfield_rs === 'number' && Number.isFinite(p.mansfield_rs)
-    ? p.mansfield_rs
-    : null;
+  const mansfieldRs = parseOptionalNumericValue(p.mansfield_rs);
   const volumeMultiple = typeof p.volume_ratio === 'number' && Number.isFinite(p.volume_ratio)
     ? p.volume_ratio
     : null;
   const ma50SlopeTrend = typeof p[MA50_SLOPE_COLUMN] === 'string'
-    ? p[MA50_SLOPE_COLUMN]
+    ? p[MA50_SLOPE_COLUMN].trim().toLowerCase()
     : null;
   const wspPattern = typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null;
   const hasWspIndicators = payload !== null;
   const aboveMa50 = p.above_ma50 === true;
   const aboveMa150 = p.above_ma150 === true;
-  const slope50Positive = p[MA50_SLOPE_COLUMN] === 'rising';
+  const slope50Positive = ma50SlopeTrend === 'rising';
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= 2;
@@ -613,7 +622,7 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
     const symbol = row.symbol ?? '';
     if (!symbol || latestTrendByEtf.has(symbol)) continue;
     const aboveMa50 = Boolean(row.above_ma50);
-    const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].toLowerCase() : null;
+    const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].trim().toLowerCase() : null;
     latestTrendByEtf.set(symbol, aboveMa50 && (ma50Slope === 'rising' || ma50Slope === 'flat'));
   }
 

@@ -39,7 +39,8 @@ export function computeEntryGate(
   marketFavorable: boolean,
 ): EntryGate {
   const priceAboveMA50 = indicators.sma50 !== null && price > indicators.sma50;
-  const ma50Rising = indicators.sma50Slope !== null && indicators.sma50Slope > 0;
+  const ma50Rising = (indicators.sma50Slope !== null && indicators.sma50Slope > 0)
+    || indicators.sma50SlopeDirection === 'rising';
   const priceAboveMA150 = indicators.sma150 !== null && price > indicators.sma150;
   const breakoutValid = indicators.breakoutConfirmed && indicators.breakoutQualityPass;
   const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout, WSP_CONFIG.wsp.staleBreakoutBars);
