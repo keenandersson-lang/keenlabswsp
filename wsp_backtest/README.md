@@ -160,6 +160,14 @@ A run is only considered complete when:
 
 If any condition fails, status remains **incomplete**.
 
+## EODHD Historical Depth Caveat
+
+If `provider.name` is `eodhd` and your account is on the **free plan**, EODHD limits EOD history depth to roughly the most recent year even if `from`/`to` request a wider range.
+
+That means a config like `start_date: "2020-01-01"` and `end_date: "2025-12-31"` can still return data starting around late March 2025 when queried in late March 2026.
+
+In that case, ingestion code is working as written; the fix is to use a paid plan/API key with deeper historical access.
+
 ## Testing
 
 ```bash
