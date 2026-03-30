@@ -430,9 +430,6 @@ function buildDirectScannerStock(
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const p = payload ?? {};
-  const scannerScore = typeof p.wsp_score === 'number' && Number.isFinite(p.wsp_score)
-    ? p.wsp_score
-    : null;
   const ma50 = typeof p.ma50 === 'number' && Number.isFinite(p.ma50) ? p.ma50 : null;
   const ma150 = typeof p.ma150 === 'number' && Number.isFinite(p.ma150) ? p.ma150 : null;
   const mansfieldRs = typeof p.mansfield_rs === 'number' && Number.isFinite(p.mansfield_rs)
@@ -452,6 +449,12 @@ function buildDirectScannerStock(
   const hasBreakout = wspPattern === 'climbing' || wspPattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= 2;
+  const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid].filter(Boolean).length;
+  const allWspCriteriaPass = wspCriteriaPassCount === 4;
+  const scannerScore = wspCriteriaPassCount;
+  const scannerPattern = allWspCriteriaPass ? 'climbing' : 'base_or_climbing';
+  const scannerRecommendation = allWspCriteriaPass ? 'KÖP' : 'BEVAKA';
+  const normalizedPattern = toWspPattern(scannerPattern);
   const sectorValue = row.canonical_sector ?? row.sector ?? 'Unknown';
   const normalizedSector = row.canonical_sector ?? row.sector ?? '';
   const normalizedIndustry = profile?.canonical_industry
@@ -475,7 +478,7 @@ function buildDirectScannerStock(
     price: currentPrice,
     changePercent,
     volume: 0,
-    pattern: 'BASE',
+    pattern: normalizedPattern,
     indicators: {
       sma20: null,
       sma50: ma50,
@@ -512,7 +515,7 @@ function buildDirectScannerStock(
       chronologyNormalized: false,
     },
     gate: {
-      isValidWspEntry: false,
+      isValidWspEntry: allWspCriteriaPass,
       priceAboveMA50: aboveMa50,
       ma50Rising: slope50Positive,
       priceAboveMA150: aboveMa150,
@@ -522,14 +525,14 @@ function buildDirectScannerStock(
       mansfieldValid,
       sectorAligned: false,
       marketFavorable: false,
-      patternAllowsEntry: false,
+      patternAllowsEntry: allWspCriteriaPass,
     },
-    isValidWspEntry: false,
-    finalRecommendation: 'BEVAKA',
+    isValidWspEntry: allWspCriteriaPass,
+    finalRecommendation: scannerRecommendation,
     audit: {
-      pattern: 'BASE',
-      finalRecommendation: 'BEVAKA',
-      isValidWspEntry: false,
+      pattern: normalizedPattern,
+      finalRecommendation: scannerRecommendation,
+      isValidWspEntry: allWspCriteriaPass,
       above50MA: aboveMa50,
       above150MA: aboveMa150,
       slope50Positive,
@@ -571,19 +574,19 @@ function buildDirectScannerStock(
       marketAligned: false,
       chronologyNormalized: false,
       indicatorWarnings: [],
-      score: scannerScore ?? 0,
+      score: scannerScore,
       blockedReasons: [],
       exitReasons: [],
       wspSpec: { ...WSP_CONFIG.wsp },
     },
     blockedReasons: [],
     logicViolations: [],
-    score: scannerScore ?? 0,
+    score: scannerScore,
     maxScore: 4,
     dataSource: 'live',
     lastUpdated: updatedAt,
-    scannerPattern: row.pattern,
-    scannerRecommendation: row.recommendation ?? 'BEVAKA',
+    scannerPattern,
+    scannerRecommendation,
     scannerScore,
     trendState: row.trend_state,
     sectorBullish: sectorTrends[normalizedSector] ?? false,
@@ -630,50 +633,27 @@ async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
   });
 }
 
-async function fetchDirectFromSupabase(stockLimit: number = 200): Promise<EvaluatedStock[]> {
-  console.log('[WSP] fetchDirectFromSupabase called, limit:', stockLimit);
+async function fetchDirectFromSupabase(page: number = 0, pageSize: number = 50): Promise<EvaluatedStock[]> {
+  console.log('[WSP] fetchDirectFromSupabase called, page:', page, 'pageSize:', pageSize);
   const sectorTrends = await fetchSectorTrends();
-  const PAGE_SIZE = 200;
-  const normalizedStockLimit = Number.isFinite(stockLimit) && stockLimit > 0
-    ? Math.floor(stockLimit)
-    : PAGE_SIZE;
-  const targetRows = Math.min(PAGE_SIZE, normalizedStockLimit);
-  if (!Number.isFinite(stockLimit) || stockLimit <= 0) {
-    console.log('[WSP] Invalid stockLimit provided, defaulting to 200:', stockLimit);
+  const normalizedPage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
+  const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 50;
+  const offset = normalizedPage * normalizedPageSize;
+
+  const { data, error } = await (supabase as any)
+    .from('market_scan_results_latest')
+    .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
+    .in('pattern', ['climbing', 'base_or_climbing'])
+    .order('score', { ascending: false })
+    .range(offset, offset + normalizedPageSize - 1)
+    .limit(normalizedPageSize);
+
+  if (error) {
+    throw new Error(error.message);
   }
-  let allRows: DirectScannerRow[] = [];
-  let from = 0;
-  let totalPagesFetched = 0;
-  let isFirstPage = true;
 
-  while (allRows.length < targetRows) {
-    const pageLimit = Math.min(PAGE_SIZE, targetRows - allRows.length);
-    const { data, error } = await (supabase as any)
-      .from('market_scan_results_latest')
-      .select('symbol, sector, industry, pattern, recommendation, score, payload, scan_date')
-      .in('pattern', ['climbing', 'base_or_climbing'])
-      .order('score', { ascending: false })
-      .range(from, from + pageLimit - 1)
-      .limit(pageLimit);
-    if (isFirstPage) {
-      console.log('[WSP] First page query result:', data?.length, error);
-      isFirstPage = false;
-    }
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const pageRows = (data ?? []) as DirectScannerRow[];
-    if (pageRows.length === 0) {
-      break;
-    }
-    totalPagesFetched += 1;
-    console.log(`[WSP] Supabase direct fetch page ${totalPagesFetched}: ${pageRows.length} rows`);
-    allRows = [...allRows, ...pageRows];
-    if (pageRows.length < pageLimit) break;
-    from += pageLimit;
-  }
+  const allRows = (data ?? []) as DirectScannerRow[];
+  console.log(`[WSP] Supabase direct fetch page ${normalizedPage + 1}: ${allRows.length} rows`);
   allRows.sort((a, b) => {
     const scoreA = Number((a.payload as ScannerPayload | null)?.wsp_score ?? 0);
     const scoreB = Number((b.payload as ScannerPayload | null)?.wsp_score ?? 0);
@@ -683,7 +663,6 @@ async function fetchDirectFromSupabase(stockLimit: number = 200): Promise<Evalua
     if (scoreB !== scoreA) return scoreB - scoreA;
     return volB - volA;
   });
-  console.log(`[WSP] Supabase direct fetch total pages: ${totalPagesFetched}`);
   console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
   const validRows = allRows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
@@ -1025,7 +1004,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   };
 }
 
-export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean; stockLimit?: number }): Promise<ScreenerApiResponse> {
+export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean; page?: number; pageSize?: number }): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
     if (qualifiedScanCount === null) return payload;
@@ -1040,7 +1019,7 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
 
   const now = new Date().toISOString();
   try {
-    const directStocks = await fetchDirectFromSupabase(options?.stockLimit ?? 200);
+    const directStocks = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize ?? 50);
     const directSectorStatuses = await buildSectorStatusesFromIndicators();
     return {
       market: {
@@ -1145,10 +1124,10 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
   }
 }
 
-export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, stockLimit: number = 200) {
+export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, page: number = 0, pageSize: number = 50) {
   return useQuery({
-    queryKey: ['wsp-screener', intervalMs, stockLimit],
-    queryFn: () => fetchWspScreenerData({ intervalMs, stockLimit }),
+    queryKey: ['wsp-screener', intervalMs, page, pageSize],
+    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize }),
     refetchInterval: intervalMs,
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
