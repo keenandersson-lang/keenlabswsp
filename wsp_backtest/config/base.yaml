@@ -1,0 +1,83 @@
+run:
+  run_id: "wsp-baseline"
+  strategy_version: "wsp-v1"
+  start_date: "2020-01-01"
+  end_date: "2025-12-31"
+  initial_equity: 100000
+  risk_per_trade: 0.01
+  max_positions: 10
+  max_portfolio_risk: 0.02
+  benchmark_symbol: "SPY"
+  universe_name: "US Equities"
+
+data:
+  format: "combined_csv"
+  path: "data/raw/ohlcv.csv"
+  benchmark_path: "data/benchmark/spy.csv"
+  sector_path: "data/sectors/sectors.csv"
+  sector_map_path: "data/sectors/symbol_sector_map.csv"
+
+filters:
+  market_enabled: true
+  sector_enabled: true
+  stock_ma_enabled: true
+  mansfield_enabled: true
+  clean_breakout_enabled: true
+  breakout_freshness_enabled: true
+  volume_enabled: true
+
+market_regime:
+  ma_short: 50
+  ma_long: 150
+  slope_lookback: 10
+
+sector_regime:
+  ma_short: 50
+  ma_long: 150
+  slope_lookback: 10
+
+stock_ma:
+  ma_short: 50
+  ma_long: 150
+  slope_lookback: 10
+
+mansfield:
+  lookback: 200
+  cross_window: 10
+  mode: "positive_or_recent_cross"
+
+resistance:
+  pivot_left: 3
+  pivot_right: 3
+  tolerance: 0.02
+  lookback_window: 120
+  min_touches: 3
+  breakout_buffer: 0.005
+  breakout_freshness_bars: 3
+
+clean_breakout:
+  min_body_ratio: 0.5
+  max_upper_wick_ratio: 0.3
+  max_failed_attempts: 1
+  failed_attempt_lookback: 20
+  failed_attempt_reversal_bars: 3
+
+volume:
+  lookback: 5
+  min_multiplier: 2.0
+
+execution:
+  entry_slippage_bps: 5
+  exit_slippage_bps: 5
+  commission_per_share: 0.005
+  min_commission: 1.0
+
+stops:
+  fixed_stop_pct: 0.06
+  swing_lookback: 30
+  swing_buffer: 0.0025
+  max_holding_bars: 40
+  ma_exit_mode: "next_open"
+
+analytics:
+  forward_windows: [5, 10, 20, 40]

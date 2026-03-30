@@ -1,0 +1,10 @@
+data_sources:
+  ohlcv:
+    type: local
+    format: csv_or_parquet
+    description: "Daily OHLCV with date, open, high, low, close, volume, symbol"
+  benchmark:
+    symbol: SPY
+    description: "Benchmark daily OHLCV"
+  sector_map:
+    description: "CSV mapping symbol -> sector_symbol"
