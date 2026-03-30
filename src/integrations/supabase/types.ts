@@ -882,6 +882,8 @@ export type Database = {
           symbol: string
         }[]
       }
+      backfill_symbol_yahoo: { Args: { p_symbol: string }; Returns: Json }
+      bulk_enrich_sectors_from_data: { Args: never; Returns: number }
       consume_credit: {
         Args: { p_amount?: number; p_description?: string; p_user_id: string }
         Returns: Json
@@ -894,9 +896,26 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
-      get_scanner_funnel_counts: {
+      get_scanner_funnel_counts: { Args: never; Returns: Json }
+      get_symbols_needing_backfill: {
+        Args: { p_limit?: number; p_offset?: number }
+        Returns: {
+          bars: number
+          symbol: string
+        }[]
+      }
+      get_top_wsp_setups: {
         Args: never
-        Returns: Json
+        Returns: {
+          industry: string
+          pattern: string
+          payload: Json
+          recommendation: string
+          score: number
+          sector: string
+          symbol: string
+          vol_ratio: number
+        }[]
       }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
@@ -928,11 +947,11 @@ export type Database = {
         }[]
       }
       refresh_scanner_universe_snapshot: {
-        Args: { p_as_of_date?: string; p_run_label?: string }
+        Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
       }
       run_broad_market_scan: {
-        Args: { p_as_of_date?: string; p_run_label?: string }
+        Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
       }
       scanner_operator_snapshot: { Args: never; Returns: Json }
