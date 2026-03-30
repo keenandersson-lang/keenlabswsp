@@ -12,8 +12,9 @@ import { Scan } from 'lucide-react';
 
 export default function Screener() {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
+  const [stockLimit, setStockLimit] = useState(200);
   const queryClient = useQueryClient();
-  const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs);
+  const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs, stockLimit);
 
   const payload = data;
   const stocks = payload?.stocks ?? [];
@@ -25,6 +26,7 @@ export default function Screener() {
   const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
 
   const filteredStocks = useMemo(() => equityStocks, [equityStocks]);
+  const canLoadMore = (providerStatus?.symbolCount ?? 0) > stocks.length;
 
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
@@ -35,8 +37,8 @@ export default function Screener() {
 
   const handleManualRefresh = async () => {
     await queryClient.fetchQuery({
-      queryKey: ['wsp-screener', pollingIntervalMs],
-      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true }),
+      queryKey: ['wsp-screener', pollingIntervalMs, stockLimit],
+      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, stockLimit }),
     });
   };
 
@@ -83,6 +85,19 @@ export default function Screener() {
 
       <PatternSummary stocks={filteredStocks} />
       <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
+
+      {canLoadMore && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => setStockLimit((previous) => previous + 200)}
+            className="rounded-md border border-border bg-card px-4 py-2 text-xs font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isFetching}
+          >
+            {isFetching ? 'Laddar...' : 'Ladda fler'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
