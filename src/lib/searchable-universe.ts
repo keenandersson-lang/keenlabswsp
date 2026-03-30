@@ -25,15 +25,24 @@ interface SymbolRegistryRow {
   symbol: string;
   name: string | null;
   canonical_sector: string | null;
-  is_active: boolean | null;
 }
 
 const SEARCHABLE_SYMBOL_COLUMNS = [
   'symbol',
   'name',
   'canonical_sector',
+].join(', ');
+
+const ACTIVE_SYMBOL_COLUMNS = [
+  'symbol',
+  'name',
+  'canonical_sector',
   'is_active',
 ].join(', ');
+
+interface ActiveSymbolRegistryRow extends SymbolRegistryRow {
+  is_active: boolean | null;
+}
 
 function mapSearchableSymbol(row: SymbolRegistryRow): SearchableSymbol {
   return {
@@ -53,7 +62,6 @@ export async function searchSearchableSymbols(query: string, limit = 25): Promis
   const { data: rows, error } = await supabase
     .from('symbols')
     .select(SEARCHABLE_SYMBOL_COLUMNS)
-    .eq('is_active', true)
     .or([
       `symbol.ilike.%${symbolQuery}%`,
       `name.ilike.${textQuery}`,
@@ -63,8 +71,7 @@ export async function searchSearchableSymbols(query: string, limit = 25): Promis
 
   if (error) throw new Error(error.message);
 
-  const activeRows = ((rows ?? []) as unknown as SymbolRegistryRow[]).filter((row) => row.is_active !== false);
-  return activeRows.map((row) => mapSearchableSymbol(row));
+  return ((rows ?? []) as unknown as SymbolRegistryRow[]).map((row) => mapSearchableSymbol(row));
 }
 
 export async function fetchSearchableSymbolsPage(offset = 0, limit = 50): Promise<SearchableSymbol[]> {
@@ -73,7 +80,7 @@ export async function fetchSearchableSymbolsPage(offset = 0, limit = 50): Promis
 
   const { data: rows, error } = await supabase
     .from('symbols')
-    .select(SEARCHABLE_SYMBOL_COLUMNS)
+    .select(ACTIVE_SYMBOL_COLUMNS)
     .eq('is_active', true)
     .order('symbol', { ascending: true })
     .range(safeOffset, safeOffset + safeLimit - 1)
@@ -81,7 +88,7 @@ export async function fetchSearchableSymbolsPage(offset = 0, limit = 50): Promis
 
   if (error) throw new Error(error.message);
 
-  const activeRows = ((rows ?? []) as unknown as SymbolRegistryRow[]).filter((row) => row.is_active !== false);
+  const activeRows = ((rows ?? []) as unknown as ActiveSymbolRegistryRow[]).filter((row) => row.is_active !== false);
   return activeRows.map((row) => mapSearchableSymbol(row));
 }
 
@@ -91,14 +98,14 @@ export async function fetchSearchableSymbolByTicker(symbol: string): Promise<Sea
 
   const { data: row, error } = await supabase
     .from('symbols')
-    .select(SEARCHABLE_SYMBOL_COLUMNS)
+    .select(ACTIVE_SYMBOL_COLUMNS)
     .eq('symbol', normalized)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
   if (!row) return null;
 
-  const typed = row as unknown as SymbolRegistryRow;
+  const typed = row as unknown as ActiveSymbolRegistryRow;
   if (typed.is_active === false) return null;
 
   return mapSearchableSymbol(typed);
