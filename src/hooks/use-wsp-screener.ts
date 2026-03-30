@@ -979,7 +979,13 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   };
 }
 
-export async function fetchWspScreenerData(options?: { intervalMs?: number; forceRefresh?: boolean; page?: number; pageSize?: number }): Promise<ScreenerApiResponse> {
+export async function fetchWspScreenerData(options?: {
+  intervalMs?: number;
+  forceRefresh?: boolean;
+  page?: number;
+  pageSize?: number;
+  filters?: ScannerUiFilters;
+}): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
     if (qualifiedScanCount === null) return payload;
@@ -1101,8 +1107,8 @@ export async function fetchWspScreenerData(options?: { intervalMs?: number; forc
 
 export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, page: number = 0, pageSize?: number) {
   return useQuery({
-    queryKey: ['wsp-screener', intervalMs, page, pageSize],
-    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize }),
+    queryKey: ['wsp-screener', intervalMs, page, pageSize, filters?.pattern ?? null, filters?.sector ?? null, filters?.recommendation ?? null],
+    queryFn: () => fetchWspScreenerData({ intervalMs, page, pageSize, filters }),
     refetchInterval: intervalMs,
     staleTime: Math.max(15_000, intervalMs / 2),
     retry: 1,
