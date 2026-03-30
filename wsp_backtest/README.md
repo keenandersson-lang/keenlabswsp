@@ -18,9 +18,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Expected Data Format
+## Sector-ETF Data Requirements (Validation Phase)
 
-Daily OHLCV schema:
+Validation in this phase targets **SPY + sector ETFs**:
+
+- Benchmark: `SPY`
+- Universe: `XLB, XLE, XLF, XLI, XLK, XLP, XLU, XLV, XLY, XLC, XLRE`
+
+Expected daily OHLCV schema:
 
 - `date`
 - `open`
@@ -33,42 +38,41 @@ Daily OHLCV schema:
 Optional:
 
 - `adjusted_close`
-- `sector_symbol`
 
 Supported load patterns:
 
 1. One combined CSV/Parquet
 2. One file per symbol (`format: per_symbol`)
 
-Benchmark and sector mapping are configured in `config/base.yaml`.
+Benchmark and source paths are configured in `config/base.yaml`.
 
-## Config Files
-
-- `config/base.yaml`: baseline strategy and run config
-- `config/data_sources.yaml`: input source documentation
-- `config/parameter_grid.yaml`: parameter sweeps
-- `config/walkforward.yaml`: walk-forward schedule + optimization knobs
-
-All key thresholds are config-driven and rule toggles live under `filters` and component sections.
-
-## CLI Commands
+## Validation CLI
 
 Run from `wsp_backtest/`:
 
 ```bash
-python -m src.cli preprocess-data --config config/base.yaml
-python -m src.cli run-signal-study --config config/base.yaml
-python -m src.cli run-backtest --config config/base.yaml
-python -m src.cli run-ablation --config config/base.yaml
-python -m src.cli run-grid --config config/parameter_grid.yaml
-python -m src.cli run-walkforward --config config/walkforward.yaml
-python -m src.cli build-report --config config/base.yaml
-python -m src.cli export-artifacts --config config/base.yaml
+python -m src.cli validate-data --config config/base.yaml
+python -m src.cli validate-engine --config config/base.yaml
+python -m src.cli validate-signals --config config/base.yaml
+python -m src.cli validate-strategy --config config/base.yaml
 ```
 
-## Output Artifacts
+`validate-strategy` orchestrates:
 
-Primary artifact contract files generated under `outputs/`:
+- data validation
+- engine validation
+- baseline signal/trade validation
+- ablation tests
+- parameter sweep
+- slippage sensitivity
+- walk-forward optimization and OOS stitching
+- artifact export + report generation
+
+## Validation Artifacts
+
+Generated under `outputs/`:
+
+Core Module 1 contract artifacts (unchanged):
 
 - `summary_metrics.json`
 - `run_metadata.json`
@@ -78,35 +82,43 @@ Primary artifact contract files generated under `outputs/`:
 - `ablation_results.csv`
 - `parameter_grid_results.csv`
 - `walkforward_results.csv`
-- `reports/report.md`
-- `artifact_bundle.json` (frontend contract bundle)
+- `report.md`
+- `artifact_bundle.json`
 
-The artifact bundle includes `run`, `metrics`, `files`, and `chartImages` so Module 1 can map directly to the `/backtest` loader contract.
+Validation-specific artifacts:
 
-## Strategy Coverage (V1)
+- `validation_status.json`
+- `data_validation.json`
+- `engine_validation.json`
+- `signal_validation.csv`
+- `signal_validation_summary.json`
+- `trade_validation.csv`
+- `portfolio_validation_summary.json`
+- `slippage_sensitivity.csv`
+- `robustness_summary.json`
+- `walkforward_summary.json`
+- `stitched_oos_equity.csv`
+- `validation_report.md`
 
-Implemented objectively and testably:
+## Validation Complete Criteria
 
-- MA regime/filter logic
-- Mansfield RS with configurable modes
-- Pivot-based resistance zone detection
-- Breakout + clean breakout + volume confirmation
-- Next-open execution with slippage/commission
-- Initial stop logic and max-hold exits
-- Signal studies with forward returns
-- Core trade/performance metrics
-- Parameter grid skeleton and walk-forward windowing
-- Artifact export contract
+`validation_status.json` marks `validation_complete=true` **only when all are true**:
 
-## Limitations / Placeholders
+1. data validation passed on real input data
+2. engine validation passed
+3. baseline signal validation ran successfully
+4. baseline trade validation ran successfully
+5. ablation and parameter sweep ran
+6. walk-forward ran and passed
+7. no critical blockers remain
 
-- Partial exit on trendline break is not enabled (placeholder by design).
-- Ablation/grid currently scaffold outputs with deterministic placeholders for comparative table plumbing.
-- No external data downloader in-repo; local files only.
+If real data is missing/incomplete, the status remains **incomplete**.
 
-## Module 1 Consumption Notes
+## Known Limitations
 
-Module 1 `/backtest` expects specific filenames and summary fields. This engine exports those names and a bundle (`artifact_bundle.json`) that can be wired by loader logic later.
+- No in-repo market data downloader; local data files are required.
+- Sector and market filters are config-driven toggles and rely on daily-bar approximations.
+- Validation quality is bounded by date coverage and survivorship of supplied datasets.
 
 ## Testing
 
