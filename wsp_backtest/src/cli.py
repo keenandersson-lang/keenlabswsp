@@ -7,8 +7,10 @@ import yaml
 import pandas as pd
 
 from core.config import load_config
+from data.ingestion import ingest_sector_etf_data
 from data.loaders import load_ohlcv
 from data.preprocess import preprocess
+from data.validators import validate_ingested_universe
 from signals.signal_engine import generate_signals
 from signals.signal_study import compute_forward_returns
 from portfolio.trade_engine import simulate_trades
@@ -27,6 +29,151 @@ app = typer.Typer(help="WSP isolated backtest engine")
 
 def _cfg_dict(cfg):
     return cfg.model_dump()
+
+
+def _load_data_sources_config(path: str) -> dict:
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def _build_first_run_summary(
+    data_sources_cfg: dict,
+    ingest_summary: dict,
+    data_validation: dict,
+    run_result: dict | None,
+    output_dir: Path,
+) -> dict:
+    final_status = run_result["validation_status"] if run_result else {"validation_complete": False, "states": ["validation_incomplete"]}
+    symbols_failed = ingest_summary.get("symbols_failed", {})
+    summary = {
+        "provider_used": data_sources_cfg.get("provider", {}).get("name", "disabled"),
+        "symbols_requested": ingest_summary.get("symbols_requested", []),
+        "symbols_fetched_successfully": ingest_summary.get("symbols_fetched", []),
+        "symbols_failed": symbols_failed,
+        "missing_symbols": ingest_summary.get("missing_sector_symbols", []),
+        "local_files_written": ingest_summary.get("written_files", []),
+        "date_coverage": ingest_summary.get("date_coverage", {}),
+        "adjusted_data_used": ingest_summary.get("adjusted", False),
+        "validate_strategy_completed": bool(run_result),
+        "validation_status": final_status,
+        "data_validation": data_validation,
+        "artifacts_dir": str(output_dir.as_posix()),
+        "key_blockers": data_validation.get("blockers", []) + [f"{k}: {v}" for k, v in symbols_failed.items()],
+        "first_run_complete": bool(run_result) and bool(final_status.get("validation_complete")),
+    }
+    return summary
+
+
+def _write_first_run_markdown(path: Path, summary: dict) -> None:
+    lines = [
+        "# First Validation Run Summary",
+        "",
+        f"- Provider used: `{summary.get('provider_used')}`",
+        f"- Requested symbols: {', '.join(summary.get('symbols_requested', []))}",
+        f"- Successfully fetched: {', '.join(summary.get('symbols_fetched_successfully', [])) or 'none'}",
+        f"- Failed symbols: {json.dumps(summary.get('symbols_failed', {}), indent=2)}",
+        f"- Missing symbols: {', '.join(summary.get('missing_symbols', [])) or 'none'}",
+        f"- Adjusted data used: {summary.get('adjusted_data_used')}",
+        f"- validate-strategy completed: {summary.get('validate_strategy_completed')}",
+        f"- Final validation complete: {summary.get('validation_status', {}).get('validation_complete')}",
+        f"- Artifacts dir: `{summary.get('artifacts_dir')}`",
+        "",
+        "## Date Coverage",
+        "",
+    ]
+    coverage = summary.get("date_coverage", {})
+    if coverage:
+        for symbol, details in coverage.items():
+            lines.append(f"- {symbol}: {details.get('start')} -> {details.get('end')} ({details.get('rows')} rows)")
+    else:
+        lines.append("- none")
+
+    blockers = summary.get("key_blockers", [])
+    lines.extend(["", "## Key Blockers", ""])
+    if blockers:
+        lines.extend([f"- {b}" for b in blockers])
+    else:
+        lines.append("- none")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+@app.command("ingest-sector-data")
+def ingest_sector_data(config: str = "config/data_sources.yaml"):
+    cfg = _load_data_sources_config(config)
+    summary = ingest_sector_etf_data(cfg, refresh_mode="overwrite")
+    out = Path(cfg.get("paths", {}).get("outputs_dir", "outputs"))
+    write_json(out / "ingestion_summary.json", summary)
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command("refresh-sector-data")
+def refresh_sector_data(config: str = "config/data_sources.yaml"):
+    cfg = _load_data_sources_config(config)
+    summary = ingest_sector_etf_data(cfg, refresh_mode="update")
+    out = Path(cfg.get("paths", {}).get("outputs_dir", "outputs"))
+    write_json(out / "ingestion_summary.json", summary)
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command("first-validation-run")
+def first_validation_run(
+    config: str = "config/base.yaml",
+    data_sources_config: str = "config/data_sources.yaml",
+    grid_config: str = "config/parameter_grid.yaml",
+    walkforward_config: str = "config/walkforward.yaml",
+):
+    data_cfg = _load_data_sources_config(data_sources_config)
+    ingest_summary = ingest_sector_etf_data(data_cfg, refresh_mode=data_cfg.get("ingestion", {}).get("mode", "update"))
+
+    format_name = data_cfg.get("ingestion", {}).get("output_format", "csv")
+    paths = data_cfg.get("paths", {})
+    ext = "parquet" if format_name == "parquet" else "csv"
+    benchmark_symbol = data_cfg.get("ingestion", {}).get("benchmark_symbol", "SPY")
+
+    benchmark_path = Path(paths.get("benchmark_dir", "data/benchmark")) / f"{benchmark_symbol}.{ext}"
+    sectors_dir = Path(paths.get("sectors_dir", "data/sectors"))
+    sector_files = sorted(sectors_dir.glob(f"*.{ext}"))
+    frames: list[pd.DataFrame] = []
+
+    if benchmark_path.exists():
+        frames.append(pd.read_parquet(benchmark_path) if ext == "parquet" else pd.read_csv(benchmark_path))
+    for fp in sector_files:
+        frames.append(pd.read_parquet(fp) if ext == "parquet" else pd.read_csv(fp))
+
+    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "symbol"])
+    data_validation = validate_ingested_universe(
+        universe_df=combined,
+        benchmark_symbol=benchmark_symbol,
+        required_symbols=[s for s in data_cfg.get("ingestion", {}).get("symbols", []) if s != benchmark_symbol],
+        start_date=data_cfg.get("ingestion", {}).get("start_date"),
+        end_date=data_cfg.get("ingestion", {}).get("end_date"),
+    ) if not combined.empty else {
+        "passed": False,
+        "benchmark_symbol": benchmark_symbol,
+        "required_symbols": data_cfg.get("ingestion", {}).get("symbols", []),
+        "missing_symbols": data_cfg.get("ingestion", {}).get("symbols", []),
+        "coverage": {},
+        "blockers": ["no local data files available for validation"],
+    }
+
+    outputs_dir = Path(paths.get("outputs_dir", "outputs"))
+    write_json(outputs_dir / "ingestion_summary.json", ingest_summary)
+    write_json(outputs_dir / "data_validation.json", data_validation)
+
+    run_result = None
+    if data_validation.get("passed"):
+        run_result = run_full_validation(
+            base_config_path=config,
+            grid_config_path=grid_config,
+            walkforward_config_path=walkforward_config,
+            output_dir=str(outputs_dir),
+        )
+
+    first_run_summary = _build_first_run_summary(data_cfg, ingest_summary, data_validation, run_result, outputs_dir)
+    write_json(outputs_dir / "first_run_summary.json", first_run_summary)
+    _write_first_run_markdown(outputs_dir / "first_run_summary.md", first_run_summary)
+    typer.echo(json.dumps(first_run_summary, indent=2))
 
 
 @app.command("preprocess-data")

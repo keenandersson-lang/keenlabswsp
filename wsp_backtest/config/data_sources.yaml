@@ -1,10 +1,36 @@
-data_sources:
-  ohlcv:
-    type: local
-    format: csv_or_parquet
-    description: "Daily OHLCV with date, open, high, low, close, volume, symbol"
-  benchmark:
-    symbol: SPY
-    description: "Benchmark daily OHLCV"
-  sector_map:
-    description: "CSV mapping symbol -> sector_symbol"
+provider:
+  name: disabled # eodhd | local_csv | disabled
+  api_key_env_var: WSP_EODHD_API_KEY
+  endpoint: https://eodhd.com/api/eod
+  local_csv_input_dir: data/input
+  timeout_seconds: 30
+  retry:
+    max_attempts: 2
+    backoff_seconds: 1.0
+
+ingestion:
+  benchmark_symbol: SPY
+  symbols:
+    - SPY
+    - XLB
+    - XLE
+    - XLF
+    - XLI
+    - XLK
+    - XLP
+    - XLU
+    - XLV
+    - XLY
+    - XLC
+    - XLRE
+  start_date: "2020-01-01"
+  end_date: "2025-12-31"
+  adjusted: false
+  output_format: csv # csv | parquet
+  mode: update # overwrite | update
+
+paths:
+  benchmark_dir: data/benchmark
+  sectors_dir: data/sectors
+  combined_path: data/raw/ohlcv.csv
+  outputs_dir: outputs
