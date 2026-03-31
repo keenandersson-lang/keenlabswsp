@@ -17,6 +17,14 @@ type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 't
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
 type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
+interface RowPresentationTruth {
+  recommendation: WSPRecommendation;
+  score: number;
+  maxScore: number;
+  passedGateCount: number;
+  gateCount: number;
+}
+
 const blockedReasonFilters: WSPBlockedReason[] = [
   'below_50ma',
   'below_150ma',
@@ -145,7 +153,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
       if (filter === 'all') return true;
       if (filter === 'valid-wsp') return stock.isValidWspEntry;
       if (filter === 'KÖP' || filter === 'BEVAKA' || filter === 'SÄLJ' || filter === 'UNDVIK') {
-        return (stock.scannerRecommendation ?? 'BEVAKA') === filter;
+        return getRowPresentationTruth(stock).recommendation === filter;
       }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
       if (filter === 'climbing' || filter === 'base_or_climbing' || filter === 'base' || filter === 'tired' || filter === 'downhill') {
@@ -162,7 +170,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
       if (sortBy === 'breakoutAge') return dir * ((normalizeBreakoutAge(a.audit) ?? Number.POSITIVE_INFINITY) - (normalizeBreakoutAge(b.audit) ?? Number.POSITIVE_INFINITY));
       if (sortBy === 'missingIndicators') return dir * (getMissingIndicatorScore(a) - getMissingIndicatorScore(b));
       if (sortBy === 'score') {
-        const scoreDiff = (a.score - b.score);
+        const scoreDiff = (getRowPresentationTruth(a).score - getRowPresentationTruth(b).score);
         if (scoreDiff !== 0) return dir * scoreDiff;
 
         const volumeDiff = (a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY);
@@ -289,13 +297,14 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
               const rowWarnings = getRowWarnings(stock);
               const hasPartialData = rowWarnings.length > 0 || getMissingIndicatorScore(stock) > 0;
               const companyName = stock.companyName || stock.name;
+              const rowTruth = getRowPresentationTruth(stock);
 
               return (
                 <Fragment key={stock.symbol}>
                   <tr
                     onClick={() => navigate(`/stock/${stock.symbol}`)}
                     className={`cursor-pointer border-b border-border/50 align-top transition-colors hover:bg-[#1a1a24] ${
-                      stock.finalRecommendation === 'KÖP' ? 'bg-signal-buy/5' : stock.finalRecommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
+                      rowTruth.recommendation === 'KÖP' ? 'bg-signal-buy/5' : rowTruth.recommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
                     } ${hasPartialData ? 'ring-1 ring-inset ring-signal-caution/20' : ''}`}
                   >
                     <td className="px-3 py-2.5">
@@ -340,11 +349,14 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                     </td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={stock.sectorBullish ?? audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
-                      <WSPScoreRing score={stock.scannerScore ?? 0} maxScore={stock.maxScore ?? 4} size={36} />
+                      <div className="space-y-1">
+                        <WSPScoreRing score={rowTruth.score} maxScore={rowTruth.maxScore} size={36} />
+                        <p className="text-center font-mono text-[9px] text-muted-foreground">Gate {rowTruth.passedGateCount}/{rowTruth.gateCount}</p>
+                      </div>
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="space-y-1">
-                        {renderScannerRecommendation(stock)}
+                        {renderScannerRecommendation(rowTruth.recommendation)}
                         {hasPartialData && <span className="inline-flex rounded border border-signal-caution/30 bg-signal-caution/10 px-1.5 py-0.5 text-[10px] font-medium text-signal-caution">Partial data</span>}
                       </div>
                     </td>
@@ -421,7 +433,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                               <Row label="Indicator warnings" value={formatIndicatorWarnings(audit?.indicatorWarnings)} warn={(audit?.indicatorWarnings?.length ?? 0) > 0} />
                               <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
                               <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
-                              <Row label="Score" value={`${stock.scannerScore ?? 0}/${stock.maxScore ?? 4}`} />
+                              <Row label="Score" value={`${rowTruth.score}/${rowTruth.maxScore} (gate pass)`} />
                             </div>
                           </div>
 
@@ -430,7 +442,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decision Summary</h4>
                               <div className="space-y-1.5 text-xs">
                                 <Row label="WSP valid entry" value={stock.isValidWspEntry ? 'Ja' : 'Nej'} highlight={stock.isValidWspEntry} />
-                                <Row label="Score role" value="Rankning endast" />
+                                <Row label="Score role" value="Gate-pass score (drives row signal)" />
                                 <Row label="Sector" value={stock.sector || '—'} />
                                 <Row label="Industry" value={stock.industry || '—'} />
                                 <Row label="Data source" value={stock.dataSource === 'live' ? '🟢 Live' : '🟡 Fallback'} />
@@ -650,19 +662,48 @@ function formatList(values: string[] | undefined, emptyText: string) {
   return values.join(', ');
 }
 
+
+function getRowPresentationTruth(stock: EvaluatedStock): RowPresentationTruth {
+  const audit = stock.audit;
+  const breakoutGate = audit?.breakoutValid ?? stock.gate.breakoutValid;
+  const gateChecks = [
+    audit?.above50MA ?? stock.gate.priceAboveMA50,
+    audit?.slope50Positive ?? stock.gate.ma50Rising,
+    audit?.above150MA ?? stock.gate.priceAboveMA150,
+    breakoutGate,
+    audit?.volumeValid ?? stock.gate.volumeSufficient,
+    audit?.mansfieldValid ?? stock.gate.mansfieldValid,
+    stock.sectorBullish ?? audit?.sectorAligned ?? stock.gate.sectorAligned,
+  ];
+
+  const passedGateCount = gateChecks.filter(Boolean).length;
+  const gateCount = gateChecks.length;
+  const maxScore = gateCount;
+  const score = passedGateCount;
+
+  const effectivePattern = getEffectiveWspPattern(stock);
+  const recommendation: WSPRecommendation = passedGateCount === gateCount && effectivePattern === 'climbing'
+    ? 'KÖP'
+    : effectivePattern === 'downhill'
+      ? 'UNDVIK'
+      : effectivePattern === 'tired'
+        ? 'SÄLJ'
+        : 'BEVAKA';
+
+  return {
+    recommendation,
+    score,
+    maxScore,
+    passedGateCount,
+    gateCount,
+  };
+}
+
 function renderScannerPattern(stock: EvaluatedStock) {
   const mappedPattern = mapScannerPatternToWspPattern(stock.scannerPattern);
   return <PatternBadge pattern={mappedPattern ?? stock.pattern} />;
 }
 
-function renderScannerRecommendation(stock: EvaluatedStock) {
-  const recommendation = stock.scannerRecommendation ?? 'BEVAKA';
-  if (recommendation === 'KÖP' || recommendation === 'BEVAKA' || recommendation === 'UNDVIK' || recommendation === 'SÄLJ') {
-    return <RecommendationBadge recommendation={recommendation} />;
-  }
-  return (
-    <span className="inline-flex items-center rounded-full border border-muted-foreground/40 bg-muted/30 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-      {recommendation}
-    </span>
-  );
+function renderScannerRecommendation(recommendation: WSPRecommendation) {
+  return <RecommendationBadge recommendation={recommendation} />;
 }
