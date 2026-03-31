@@ -1,5 +1,5 @@
 import { Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Wifi, WifiOff, Clock3, ServerCrash, AlertTriangle } from 'lucide-react';
-import type { MarketOverview, ScreenerUiState } from '@/lib/wsp-types';
+import type { MarketOverview, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
 
 interface MarketHeaderProps {
   market: MarketOverview;
@@ -9,6 +9,7 @@ interface MarketHeaderProps {
   avoidCount: number;
   totalStocks: number;
   uiState: ScreenerUiState;
+  sectorStatuses?: SectorStatus[];
   isFetching: boolean;
   pollingIntervalMs: number;
   onRefresh: () => void;
@@ -25,6 +26,7 @@ export function MarketHeader({
   avoidCount,
   totalStocks,
   uiState,
+  sectorStatuses = [],
   isFetching,
   pollingIntervalMs,
   onRefresh,
@@ -32,6 +34,12 @@ export function MarketHeader({
 }: MarketHeaderProps) {
   const stateMeta = getStateMeta(uiState);
   const stateLabel = uiState === 'FALLBACK' ? 'STALE' : uiState;
+
+  const rankedSectors = sectorStatuses
+    .slice()
+    .sort((left, right) => right.changePercent - left.changePercent)
+    .slice(0, 3);
+  const showSectorSummary = rankedSectors.length > 0;
 
   return (
     <header className="border-b border-border bg-card/90 backdrop-blur-md">
@@ -57,9 +65,19 @@ export function MarketHeader({
           {/* Benchmarks + Signals + Controls */}
           <div className="flex flex-col gap-1.5 lg:items-end">
             <div className="flex flex-wrap items-center gap-3">
-              <BenchmarkChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-              <div className="hidden h-5 w-px bg-border lg:block" />
-              <BenchmarkChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+              {showSectorSummary ? (
+                <>
+                  {rankedSectors.map((sector) => (
+                    <SectorChip key={sector.sector} status={sector} />
+                  ))}
+                </>
+              ) : (
+                <>
+                  <BenchmarkChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+                  <div className="hidden h-5 w-px bg-border lg:block" />
+                  <BenchmarkChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+                </>
+              )}
               <div className="hidden h-5 w-px bg-border lg:block" />
               <div className="flex items-center gap-2">
                 <SignalDot label="KÖP" count={buyCount} color="hsl(var(--signal-buy))" pulse />
@@ -96,6 +114,18 @@ export function MarketHeader({
         </div>
       </div>
     </header>
+  );
+}
+
+function SectorChip({ status }: { status: SectorStatus }) {
+  const positive = status.changePercent >= 0;
+  return (
+    <div className="rounded border border-border/60 bg-background/60 px-2 py-1">
+      <div className="text-[8px] font-mono text-muted-foreground tracking-wider">{status.sector}</div>
+      <div className={`font-mono text-[10px] font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
+        {positive ? '+' : ''}{status.changePercent.toFixed(2)}%
+      </div>
+    </div>
   );
 }
 

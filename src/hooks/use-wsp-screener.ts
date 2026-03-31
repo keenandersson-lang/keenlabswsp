@@ -823,7 +823,12 @@ async function fetchLatestSectorEtfIndicators(): Promise<Map<string, WspIndicato
 }
 
 async function fetchSectorTrends(): Promise<Record<string, boolean>> {
-  const latestByEtf = await fetchLatestSectorEtfIndicators();
+  let latestByEtf: Map<string, WspIndicatorRow>;
+  try {
+    latestByEtf = await fetchLatestSectorEtfIndicators();
+  } catch {
+    return {};
+  }
   const latestTrendByEtf = new Map<string, boolean>();
   for (const [symbol, row] of latestByEtf.entries()) {
     const aboveMa50 = Boolean(row.above_ma50);
@@ -837,7 +842,12 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
 }
 
 async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
-  const latestByEtf = await fetchLatestSectorEtfIndicators();
+  let latestByEtf: Map<string, WspIndicatorRow>;
+  try {
+    latestByEtf = await fetchLatestSectorEtfIndicators();
+  } catch {
+    latestByEtf = new Map<string, WspIndicatorRow>();
+  }
   return Object.keys(MARKET_HEATMAP_SECTOR_ETFS).map((sector) => {
     const etf = MARKET_HEATMAP_SECTOR_ETFS[sector];
     const latest = latestByEtf.get(etf);
@@ -852,6 +862,23 @@ async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
       isBullish,
       changePercent,
       sma50AboveSma200: isBullish,
+    };
+  });
+}
+
+function buildSectorStatusesFromStocks(stocks: EvaluatedStock[]): SectorStatus[] {
+  return Object.keys(MARKET_HEATMAP_SECTOR_ETFS).map((sector) => {
+    const sectorStocks = stocks.filter((stock) => stock.sector === sector);
+    const bullishCount = sectorStocks.filter((stock) => stock.audit.sectorAligned).length;
+    const changePercent = sectorStocks.length > 0
+      ? Number((sectorStocks.reduce((sum, stock) => sum + stock.changePercent, 0) / sectorStocks.length).toFixed(2))
+      : 0;
+
+    return {
+      sector,
+      isBullish: sectorStocks.length > 0 && bullishCount >= Math.ceil(sectorStocks.length / 2),
+      changePercent,
+      sma50AboveSma200: sectorStocks.length > 0 && bullishCount > 0,
     };
   });
 }
@@ -1220,7 +1247,10 @@ export async function fetchWspScreenerData(options?: {
       throw new Error('No screener stocks returned from Supabase.');
     }
 
-    const directSectorStatuses = await buildSectorStatusesFromIndicators();
+    const directSectorStatusesRaw = await buildSectorStatusesFromIndicators();
+    const directSectorStatuses = directSectorStatusesRaw.some((status) => Number.isFinite(status.changePercent) && status.changePercent !== 0)
+      ? directSectorStatusesRaw
+      : buildSectorStatusesFromStocks(directStocks);
     return {
       market: {
         ...demoMarket,

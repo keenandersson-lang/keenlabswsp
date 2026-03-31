@@ -190,6 +190,7 @@ const Index = () => {
         avoidCount={counts.avoidCount}
         totalStocks={stocks.length}
         uiState={providerStatus.uiState}
+        sectorStatuses={sectorStatuses}
         isFetching={isFetching}
         pollingIntervalMs={pollingIntervalMs}
         onRefresh={handleManualRefresh}

@@ -30,6 +30,7 @@ export default function Screener() {
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
   const discoveryMeta = payload?.discoveryMeta;
+  const sectorStatuses = payload?.sectorStatuses ?? [];
 
   useEffect(() => {
     if (!payload?.stocks) return;
@@ -87,6 +88,7 @@ export default function Screener() {
         avoidCount={counts.avoidCount}
         totalStocks={stocks.length}
         uiState={providerStatus.uiState}
+        sectorStatuses={sectorStatuses}
         isFetching={isFetching}
         pollingIntervalMs={pollingIntervalMs}
         onRefresh={handleManualRefresh}
