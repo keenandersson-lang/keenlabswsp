@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { useMarketCommand } from '@/hooks/use-market-command';
@@ -14,7 +14,7 @@ import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { EvaluatedStock, WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
 
 interface TopSetup {
@@ -33,8 +33,6 @@ interface TopSetup {
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
-  const [topSetups, setTopSetups] = useState<TopSetup[]>([]);
-  const [topSetupsLoading, setTopSetupsLoading] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: commandSnapshot, isFetching, isLoading, isError } = useMarketCommand({ intervalMs: pollingIntervalMs });
@@ -69,78 +67,25 @@ const Index = () => {
     };
   }, [commandSnapshot, stocks]);
 
-  useEffect(() => {
-    if (!providerStatus) return;
+  const topSetups = useMemo<TopSetup[]>(() => (
+    stocks
+      .slice(0, 10)
+      .map((stock) => ({
+        symbol: stock.symbol,
+        sector: stock.sector,
+        industry: stock.industry,
+        pattern: stock.pattern,
+        recommendation: stock.finalRecommendation,
+        score: stock.score ?? 0,
+        maxScore: stock.maxScore ?? 4,
+        name: stock.name || stock.symbol,
+        price: Number.isFinite(stock.price) && stock.price > 0 ? stock.price : null,
+        changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,
+        volumeMultiple: stock.audit.volumeMultiple ?? null,
+      }))
+  ), [stocks]);
 
-    let cancelled = false;
-    const PAGE_SIZE = 50;
-
-    const fetchTopSetups = async () => {
-      setTopSetupsLoading(true);
-      try {
-        const expectedStocks = providerStatus.symbolCount > 0 ? providerStatus.symbolCount : PAGE_SIZE;
-        const totalPages = Math.max(1, Math.ceil(expectedStocks / PAGE_SIZE));
-        const pagedStocks: EvaluatedStock[] = [];
-
-        for (let page = 0; page < totalPages; page += 1) {
-          const pagedPayload = await fetchWspScreenerData({ intervalMs: pollingIntervalMs, page, pageSize: PAGE_SIZE });
-          const currentPageStocks = pagedPayload.stocks ?? [];
-          pagedStocks.push(...currentPageStocks);
-
-          if (currentPageStocks.length < PAGE_SIZE) break;
-        }
-
-        const uniqueStocks = Array.from(
-          new Map(pagedStocks.map((stock) => [stock.symbol, stock])).values()
-        );
-
-        const mappedTopSetups = uniqueStocks
-          .filter((stock) => (
-            stock.audit.above50MA
-            && stock.audit.slope50Positive
-            && stock.audit.above150MA
-            && (stock.audit.volumeMultiple ?? 0) >= 2
-          ))
-          .sort((left, right) => {
-            const scoreDiff = (right.score ?? 0) - (left.score ?? 0);
-            if (scoreDiff !== 0) return scoreDiff;
-            return (right.audit.volumeMultiple ?? 0) - (left.audit.volumeMultiple ?? 0);
-          })
-          .slice(0, 10)
-          .map((stock) => ({
-            symbol: stock.symbol,
-            sector: stock.sector,
-            industry: stock.industry,
-            pattern: stock.pattern,
-            recommendation: stock.finalRecommendation,
-            score: stock.score ?? 0,
-            maxScore: stock.maxScore ?? 4,
-            name: stock.name || stock.symbol,
-            price: Number.isFinite(stock.price) && stock.price > 0 ? stock.price : null,
-            changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,
-            volumeMultiple: stock.audit.volumeMultiple ?? null,
-          }));
-
-        if (!cancelled) {
-          setTopSetups(mappedTopSetups);
-        }
-      } catch {
-        if (!cancelled) {
-          setTopSetups([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setTopSetupsLoading(false);
-        }
-      }
-    };
-
-    void fetchTopSetups();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pollingIntervalMs, providerStatus]);
+  const topSetupsLoading = isLoading || (isFetching && topSetups.length === 0);
 
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
