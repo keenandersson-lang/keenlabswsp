@@ -63,6 +63,7 @@ export const StockChartModule = memo(function StockChartModule({
   hideBlockers = false,
 }: StockChartModuleProps) {
   const [showBollinger, setShowBollinger] = useState(false);
+  const dataStateLabel = dataState === 'FALLBACK' ? 'STALE' : dataState;
 
   const { bars, cadence } = useMemo(() => barsForTimeframe(timeframe, dailyBars, weeklyBars), [timeframe, dailyBars, weeklyBars]);
 
@@ -198,7 +199,7 @@ export const StockChartModule = memo(function StockChartModule({
           {stock.finalRecommendation}
         </span>
         <span className={`rounded border px-1.5 py-0.5 ${dataState === 'LIVE' ? 'border-signal-buy/25 bg-signal-buy/10 text-signal-buy' : 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution'}`}>
-          {dataState}
+          {dataStateLabel}
         </span>
         {!hideBlockers && stock.blockedReasons.length > 0 && <span className="rounded border border-signal-caution/25 bg-signal-caution/10 px-1.5 py-0.5 text-signal-caution">{stock.blockedReasons.length} blockers</span>}
         {currentPrice !== null && (

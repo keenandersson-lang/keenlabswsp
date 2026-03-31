@@ -134,10 +134,10 @@ export default function StockDetail() {
     queryKey: ['stock-detail-indicator', requestedSymbol],
     enabled: Boolean(requestedSymbol),
     staleTime: 60_000,
-    queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null } | null> => {
+    queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null; pct_change_1d: number | null } | null> => {
       const { data, error } = await supabase
         .from('wsp_indicators')
-        .select('volume_ratio, mansfield_rs')
+        .select('volume_ratio, mansfield_rs, pct_change_1d')
         .eq('symbol', requestedSymbol)
         .order('calc_date', { ascending: false })
         .limit(1)
@@ -359,6 +359,10 @@ export default function StockDetail() {
   const volMultiple = stockWithMeta.audit.volumeMultiple;
   const indicatorVolumeRatio = scannerPayload?.volume_ratio ?? indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null;
   const indicatorMansfieldRs = scannerPayload?.mansfield_rs ?? indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null;
+  const indicatorDailyChange = indicatorQuery.data?.pct_change_1d;
+  const headerChangePercent = typeof indicatorDailyChange === 'number' && Number.isFinite(indicatorDailyChange)
+    ? indicatorDailyChange
+    : stockWithMeta.changePercent;
   const sectorEtfBars = sectorEtfDailyPricesQuery.data ?? [];
   const sectorEtfClose = sectorEtfBars.length > 0 ? sectorEtfBars[sectorEtfBars.length - 1].close : null;
   const sectorEtfMa50 = sectorEtfBars.length > 0 ? sma(sectorEtfBars, 50) : null;
@@ -419,8 +423,8 @@ export default function StockDetail() {
 
           <div className="flex items-baseline gap-2 mt-2">
             <span className="text-3xl font-bold font-mono text-foreground">${stockWithMeta.price.toFixed(2)}</span>
-            <span className={`text-lg font-mono font-semibold ${stockWithMeta.changePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-              {stockWithMeta.changePercent >= 0 ? '+' : ''}{stockWithMeta.changePercent.toFixed(2)}%
+            <span className={`text-lg font-mono font-semibold ${headerChangePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+              {headerChangePercent >= 0 ? '+' : ''}{headerChangePercent.toFixed(2)}%
             </span>
           </div>
 

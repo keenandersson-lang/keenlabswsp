@@ -96,7 +96,7 @@ export function buildSectorHeatmap(
         valueMode,
         displayValue: Number(displayValue.toFixed(2)),
         confidence,
-        valueLabel: valueMode === 'proxy_return' ? 'ETF proxy return' : 'Tracked strength score',
+        valueLabel: valueMode === 'proxy_return' ? 'ETF 1D % change' : 'Tracked strength score',
       };
     })
     .sort((a, b) => b.strengthScore - a.strengthScore);
@@ -245,7 +245,7 @@ export function buildDiscoverySnapshot(stocks: EvaluatedStock[], uiState: Screen
       ranking: {
         sectorMode: uiState === 'FALLBACK' ? 'tracked_strength' : 'proxy_return',
         industryMode: 'tracked_strength',
-        sectorValueLabel: uiState === 'FALLBACK' ? 'Tracked strength score' : 'ETF proxy return',
+        sectorValueLabel: uiState === 'FALLBACK' ? 'Tracked strength score' : 'ETF 1D % change',
         industryValueLabel: 'Tracked strength score',
         usesProxyReturns: uiState !== 'FALLBACK' && hasSectorCoverage,
       },

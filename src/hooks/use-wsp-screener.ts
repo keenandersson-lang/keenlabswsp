@@ -212,6 +212,7 @@ interface WspIndicatorRow {
   symbol: string | null;
   above_ma50: boolean | null;
   ma50_slope: string | null;
+  pct_change_1d?: number | null;
   created_at: string | null;
 }
 
@@ -798,11 +799,11 @@ function buildDirectScannerStock(
   };
 }
 
-async function fetchSectorTrends(): Promise<Record<string, boolean>> {
+async function fetchLatestSectorEtfIndicators(): Promise<Map<string, WspIndicatorRow>> {
   const etfSymbols = [...new Set(Object.values(SECTOR_ETF_MAP))];
   const { data, error } = await (supabase as any)
     .from('wsp_indicators')
-    .select(`distinct on (symbol) symbol, above_ma50, ${MA50_SLOPE_COLUMN}, created_at`)
+    .select(`distinct on (symbol) symbol, above_ma50, ${MA50_SLOPE_COLUMN}, pct_change_1d, created_at`)
     .in('symbol', etfSymbols)
     .order('symbol', { ascending: true })
     .order('created_at', { ascending: false });
@@ -811,10 +812,20 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
     throw new Error(error.message);
   }
 
-  const latestTrendByEtf = new Map<string, boolean>();
+  const latestByEtf = new Map<string, WspIndicatorRow>();
   for (const row of (data ?? []) as WspIndicatorRow[]) {
     const symbol = row.symbol ?? '';
-    if (!symbol) continue;
+    if (!symbol || latestByEtf.has(symbol)) continue;
+    latestByEtf.set(symbol, row);
+  }
+
+  return latestByEtf;
+}
+
+async function fetchSectorTrends(): Promise<Record<string, boolean>> {
+  const latestByEtf = await fetchLatestSectorEtfIndicators();
+  const latestTrendByEtf = new Map<string, boolean>();
+  for (const [symbol, row] of latestByEtf.entries()) {
     const aboveMa50 = Boolean(row.above_ma50);
     const ma50Slope = typeof row[MA50_SLOPE_COLUMN] === 'string' ? row[MA50_SLOPE_COLUMN].trim().toLowerCase() : null;
     latestTrendByEtf.set(symbol, aboveMa50 && ma50Slope === 'rising');
@@ -826,13 +837,20 @@ async function fetchSectorTrends(): Promise<Record<string, boolean>> {
 }
 
 async function buildSectorStatusesFromIndicators(): Promise<SectorStatus[]> {
-  const sectorTrends = await fetchSectorTrends();
+  const latestByEtf = await fetchLatestSectorEtfIndicators();
   return Object.keys(MARKET_HEATMAP_SECTOR_ETFS).map((sector) => {
-    const isBullish = sectorTrends[sector] ?? false;
+    const etf = MARKET_HEATMAP_SECTOR_ETFS[sector];
+    const latest = latestByEtf.get(etf);
+    const aboveMa50 = Boolean(latest?.above_ma50);
+    const ma50Slope = typeof latest?.[MA50_SLOPE_COLUMN] === 'string' ? latest[MA50_SLOPE_COLUMN].trim().toLowerCase() : null;
+    const isBullish = aboveMa50 && ma50Slope === 'rising';
+    const changePercent = typeof latest?.pct_change_1d === 'number' && Number.isFinite(latest.pct_change_1d)
+      ? Number(latest.pct_change_1d.toFixed(2))
+      : 0;
     return {
       sector,
       isBullish,
-      changePercent: 0,
+      changePercent,
       sma50AboveSma200: isBullish,
     };
   });
