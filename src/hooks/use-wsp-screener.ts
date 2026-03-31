@@ -414,6 +414,15 @@ interface IndicatorSnapshotRow {
   close: number | null;
   pct_change_1d: number | null;
   created_at: string | null;
+  above_ma50?: boolean | null;
+  ma50_slope?: string | null;
+}
+
+interface BenchmarkSnapshot {
+  price: number | null;
+  changePercent: number | null;
+  isBullish: boolean | null;
+  lastUpdated: string | null;
 }
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
@@ -427,6 +436,83 @@ async function fetchQualifiedScanCount(): Promise<number | null> {
   }
 
   return typeof count === 'number' ? count : null;
+}
+
+function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): BenchmarkSnapshot {
+  const latest = rows.find((row) => row.symbol === symbol) ?? null;
+  if (!latest) {
+    return { price: null, changePercent: null, isBullish: null, lastUpdated: null };
+  }
+
+  const slope = typeof latest.ma50_slope === 'string' ? latest.ma50_slope.trim().toLowerCase() : null;
+  const isBullish = typeof latest.above_ma50 === 'boolean'
+    ? latest.above_ma50 && slope === 'rising'
+    : null;
+
+  return {
+    price: typeof latest.close === 'number' && Number.isFinite(latest.close) ? latest.close : null,
+    changePercent: typeof latest.pct_change_1d === 'number' && Number.isFinite(latest.pct_change_1d)
+      ? Number(latest.pct_change_1d.toFixed(2))
+      : null,
+    isBullish,
+    lastUpdated: latest.created_at ?? null,
+  };
+}
+
+async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
+  market: MarketOverview;
+  benchmarkFetchStatus: 'success' | 'stale' | 'failed';
+}> {
+  const { data, error } = await (supabase as any)
+    .from('wsp_indicators')
+    .select('symbol, close, pct_change_1d, created_at, above_ma50, ma50_slope')
+    .in('symbol', [SP500_BENCHMARK.symbol, NASDAQ_BENCHMARK.symbol])
+    .order('symbol', { ascending: true })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as IndicatorSnapshotRow[];
+  const sp500 = buildBenchmarkSnapshot(rows, SP500_BENCHMARK.symbol);
+  const nasdaq = buildBenchmarkSnapshot(rows, NASDAQ_BENCHMARK.symbol);
+
+  const hasPriceCoverage = sp500.price !== null && nasdaq.price !== null;
+  const hasChangeCoverage = sp500.changePercent !== null && nasdaq.changePercent !== null;
+  const hasTrendCoverage = sp500.isBullish !== null && nasdaq.isBullish !== null;
+  const hasAnyCoverage = hasPriceCoverage || hasChangeCoverage;
+  const benchmarkFetchStatus: 'success' | 'stale' | 'failed' = hasPriceCoverage && hasChangeCoverage
+    ? 'success'
+    : hasAnyCoverage
+      ? 'stale'
+      : 'failed';
+
+  const fallbackTrend = demoMarket.marketTrend;
+  const marketTrend = hasTrendCoverage
+    ? (sp500.isBullish && nasdaq.isBullish ? 'bullish' : (!sp500.isBullish && !nasdaq.isBullish ? 'bearish' : 'neutral'))
+    : fallbackTrend;
+
+  const latestUpdate = [sp500.lastUpdated, nasdaq.lastUpdated].filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? nowIso;
+
+  return {
+    market: {
+      sp500Change: sp500.changePercent ?? demoMarket.sp500Change,
+      nasdaqChange: nasdaq.changePercent ?? demoMarket.nasdaqChange,
+      sp500Price: sp500.price ?? demoMarket.sp500Price,
+      nasdaqPrice: nasdaq.price ?? demoMarket.nasdaqPrice,
+      sp500Symbol: SP500_BENCHMARK.symbol,
+      nasdaqSymbol: NASDAQ_BENCHMARK.symbol,
+      benchmarkState: benchmarkFetchStatus === 'success' ? 'live' : (benchmarkFetchStatus === 'stale' ? 'stale' : 'fallback'),
+      benchmarkLastUpdated: latestUpdate,
+      marketTrend,
+      lastUpdated: latestUpdate,
+      dataSource: benchmarkFetchStatus === 'failed' ? 'fallback' : 'live',
+    },
+    benchmarkFetchStatus,
+  };
 }
 
 const SCANNER_PATTERN_PRIORITY: Record<string, number> = {
@@ -1281,19 +1367,20 @@ export async function fetchWspScreenerData(options?: {
     const directSectorStatuses = directSectorStatusesRaw.some((status) => Number.isFinite(status.changePercent) && status.changePercent !== 0)
       ? directSectorStatusesRaw
       : buildSectorStatusesFromStocks(directStocks);
+    const { market: liveMarketOverview, benchmarkFetchStatus } = await fetchMarketOverviewFromIndicators(now);
+    const uiState: ScreenerUiState = benchmarkFetchStatus === 'success'
+      ? 'LIVE'
+      : (benchmarkFetchStatus === 'stale' ? 'STALE' : 'FALLBACK');
     const trust = resolveScreenerTrustState({
-      uiState: 'LIVE',
-      benchmarkFetchStatus: 'stale',
-      fallbackActive: false,
+      uiState,
+      benchmarkFetchStatus,
+      fallbackActive: benchmarkFetchStatus === 'failed',
       dataProvenance: CANONICAL_SCREENER_RUNTIME_PATH,
     });
     return {
       market: {
-        ...demoMarket,
-        dataSource: 'live',
+        ...liveMarketOverview,
         benchmarkState: trust.benchmarkState,
-        benchmarkLastUpdated: now,
-        lastUpdated: now,
         pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
       },
       stocks: sanitizeStocks(directStocks),
@@ -1311,7 +1398,7 @@ export async function fetchWspScreenerData(options?: {
         fallbackActive: trust.fallbackActive,
         symbolCount: qualifiedScanCount ?? directStocks.length,
         benchmarkSymbol: WSP_CONFIG.benchmark,
-        benchmarkFetchStatus: 'stale',
+        benchmarkFetchStatus,
         refreshIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
         readiness: {
           envVarPresent: true,
@@ -1327,11 +1414,13 @@ export async function fetchWspScreenerData(options?: {
           edgeFunctionReachable: false,
           fetchTarget: 'supabase:market_scan_results_latest',
           authOutcome: 'success',
-          benchmarkFetch: 'stale',
+          benchmarkFetch: benchmarkFetchStatus,
           routeVersion: `canonical_${CANONICAL_SCREENER_RUNTIME_PATH}`,
           buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
-          finalModeReason: `Direct Supabase scanner snapshot used (${directStocks.length} rows).`,
-          fallbackCause: 'none',
+          finalModeReason: benchmarkFetchStatus === 'success'
+            ? `Direct Supabase scanner snapshot used (${directStocks.length} rows) with live benchmark context.`
+            : `Direct Supabase scanner snapshot used (${directStocks.length} rows); benchmark context ${benchmarkFetchStatus}.`,
+          fallbackCause: benchmarkFetchStatus === 'failed' ? 'necessary' : 'none',
         },
       },
       trust,
