@@ -54,10 +54,10 @@ export function MarketHeader({
                 <h1 className="text-sm font-bold tracking-widest text-foreground font-mono">WSP</h1>
                 <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider ${stateMeta.className}`}>
                   <stateMeta.icon className="h-2 w-2" />
-                  {trust.displayState}
+                  {stateMeta.label}
                 </span>
               </div>
-              <p className="text-[9px] text-muted-foreground font-mono tracking-wider">WALL STREET PROTOCOL · STRICT 3-LAYER ENGINE</p>
+              <p className="text-[9px] text-muted-foreground font-mono tracking-wider">WALL STREET PROTOCOL · {stateMeta.description}</p>
             </div>
           </div>
 
@@ -131,15 +131,40 @@ function SectorChip({ status }: { status: SectorStatus }) {
 function getStateMeta(uiState: ScreenerUiState) {
   switch (uiState) {
     case 'LIVE':
-      return { icon: Wifi, className: 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' };
+      return {
+        icon: Wifi,
+        className: 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy',
+        label: 'LIVE',
+        description: 'Data uppdaterad',
+      };
     case 'STALE':
-      return { icon: Clock3, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+      return {
+        icon: Clock3,
+        className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution',
+        label: 'FÖRDRÖJD',
+        description: 'Visar senast kända data',
+      };
     case 'FALLBACK':
-      return { icon: AlertTriangle, className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' };
+      return {
+        icon: AlertTriangle,
+        className: 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution',
+        label: 'RESERVLÄGE',
+        description: 'Alternativ datakälla används',
+      };
     case 'ERROR':
-      return { icon: ServerCrash, className: 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' };
+      return {
+        icon: ServerCrash,
+        className: 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell',
+        label: 'DATAPROBLEM',
+        description: 'Nya signaler kan saknas',
+      };
     default:
-      return { icon: WifiOff, className: 'border-border bg-background text-muted-foreground' };
+      return {
+        icon: WifiOff,
+        className: 'border-border bg-background text-muted-foreground',
+        label: uiState,
+        description: 'Status okänd',
+      };
   }
 }
 
