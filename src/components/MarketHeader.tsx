@@ -31,6 +31,7 @@ export function MarketHeader({
   onPollingIntervalChange,
 }: MarketHeaderProps) {
   const stateMeta = getStateMeta(uiState);
+  const stateLabel = uiState === 'FALLBACK' ? 'STALE' : uiState;
 
   return (
     <header className="border-b border-border bg-card/90 backdrop-blur-md">
@@ -46,7 +47,7 @@ export function MarketHeader({
                 <h1 className="text-sm font-bold tracking-widest text-foreground font-mono">WSP</h1>
                 <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider ${stateMeta.className}`}>
                   <stateMeta.icon className="h-2 w-2" />
-                  {uiState}
+                  {stateLabel}
                 </span>
               </div>
               <p className="text-[9px] text-muted-foreground font-mono tracking-wider">WALL STREET PROTOCOL · STRICT 3-LAYER ENGINE</p>

@@ -100,7 +100,7 @@ export default function Screener() {
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
               Visar {filteredStocks.length} av {equityStocks.length} aktier
-              {providerStatus.uiState !== 'LIVE' && <span className="text-signal-caution"> · {providerStatus.uiState}</span>}
+              {providerStatus.uiState === 'STALE' && <span className="text-signal-caution"> · STALE</span>}
             </p>
           </div>
         </div>
