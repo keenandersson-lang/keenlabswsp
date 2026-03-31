@@ -53,7 +53,7 @@ describe('WSP validation fixtures', () => {
   it('flags impossible KÖP states instead of silently allowing them', () => {
     const stock = evaluateStock('ERR', 'Impossible Buy', 'Validation', 'Fixture', [], [], true, true, 'fallback', {
       overrideAnalysis: {
-        pattern: 'CLIMBING',
+        pattern: 'climbing',
         indicators: createIndicators({ sma50: 130 }),
         price: 120,
         prevClose: 119,
