@@ -58,7 +58,7 @@ export function barsForTimeframe(
 ): { bars: Bar[]; cadence: 'daily' | 'weekly' } {
   const range = DAY_RANGES[timeframe];
   const useWeekly = false;
-  const source = useWeekly ? weeklyBars : dailyBars;
+  const source = normalizeBarsChronologically(useWeekly ? weeklyBars : dailyBars).bars;
   const barCount = useWeekly ? Math.ceil(range / 5) : range;
 
   return {
