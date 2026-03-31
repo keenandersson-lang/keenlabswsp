@@ -107,6 +107,36 @@ export default function Screener() {
       total: filteredStocks.length,
     };
   }, [activeIndustry, filteredStocks]);
+  const contextResultSummary = useMemo(() => {
+    if (!activeSector && !activeIndustry) return null;
+    if (filteredStocks.length === 0) return null;
+
+    const buy = filteredStocks.filter((stock) => stock.finalRecommendation === 'KÖP').length;
+    const validEntries = filteredStocks.filter((stock) => stock.isValidWspEntry).length;
+    const breakoutValid = filteredStocks.filter((stock) => stock.audit?.breakoutValid ?? stock.gate.breakoutValid).length;
+    const avgScore = filteredStocks.reduce((sum, stock) => sum + (stock.score ?? 0), 0) / filteredStocks.length;
+    const avgVolumeMultiple = filteredStocks.reduce((sum, stock) => sum + (stock.audit?.volumeMultiple ?? 0), 0) / filteredStocks.length;
+    const strongestScores = filteredStocks
+      .slice()
+      .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+      .slice(0, 3)
+      .map((stock) => stock.symbol);
+    const strongestMomentum = filteredStocks
+      .slice()
+      .sort((left, right) => right.changePercent - left.changePercent)
+      .slice(0, 3)
+      .map((stock) => `${stock.symbol} ${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`);
+
+    return {
+      buy,
+      validEntries,
+      breakoutValid,
+      avgScore: Number(avgScore.toFixed(2)),
+      avgVolumeMultiple: Number(avgVolumeMultiple.toFixed(2)),
+      strongestScores,
+      strongestMomentum,
+    };
+  }, [activeIndustry, activeSector, filteredStocks]);
   const canLoadMore = (providerStatus?.symbolCount ?? 0) > stocks.length;
 
   const counts = useMemo(() => ({
@@ -312,11 +342,55 @@ export default function Screener() {
             )}
           </div>
         )}
+
+        {contextResultSummary && (
+          <div className="mt-2 rounded border border-border/60 bg-background p-2">
+            <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">RESULT SIGNALS IN CURRENT CONTEXT</h4>
+            <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="rounded border border-border bg-card px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">KÖP density</p>
+                <p className="text-[11px] font-mono text-foreground">
+                  {contextResultSummary.buy}/{filteredStocks.length}
+                </p>
+              </div>
+              <div className="rounded border border-border bg-card px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Valid WSP entries</p>
+                <p className="text-[11px] font-mono text-foreground">
+                  {contextResultSummary.validEntries}/{filteredStocks.length}
+                </p>
+              </div>
+              <div className="rounded border border-border bg-card px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Breakout valid</p>
+                <p className="text-[11px] font-mono text-foreground">
+                  {contextResultSummary.breakoutValid}/{filteredStocks.length}
+                </p>
+              </div>
+              <div className="rounded border border-border bg-card px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Avg score</p>
+                <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgScore}</p>
+              </div>
+              <div className="rounded border border-border bg-card px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Avg volume multiple</p>
+                <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgVolumeMultiple.toFixed(2)}x</p>
+              </div>
+            </div>
+            <p className="mt-1.5 text-[10px] font-mono text-muted-foreground">
+              Strongest score: {contextResultSummary.strongestScores.join(', ') || 'n/a'} · Momentum leaders: {contextResultSummary.strongestMomentum.join(', ') || 'n/a'}
+            </p>
+          </div>
+        )}
       </div>
 
       <PatternSummary counts={patternCounts ?? { climbing: 0, base_or_climbing: 0, base: 0, tired: 0, downhill: 0 }} />
       <div className="relative">
-        <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} detailLinkSearch={detailLinkSearch} />
+        <StockTable
+          stocks={filteredStocks}
+          discoveryMeta={discoveryMeta}
+          detailLinkSearch={detailLinkSearch}
+          contextLabel={activeIndustry ?? activeSector}
+          topFocusSymbols={activeIndustrySnapshot?.topEquities ?? []}
+          showContextRank={Boolean(activeSector || activeIndustry)}
+        />
 
         {canLoadMore && (
           <div className="sticky bottom-3 z-20 flex justify-center pt-3">
