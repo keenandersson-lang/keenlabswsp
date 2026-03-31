@@ -86,6 +86,13 @@ const Index = () => {
   ), [stocks]);
 
   const topSetupsLoading = isLoading || (isFetching && topSetups.length === 0);
+  const symbolContextLookup = useMemo(() => {
+    const lookup = new Map<string, { sector: string; industry: string }>();
+    for (const stock of stocks) {
+      lookup.set(stock.symbol, { sector: stock.sector, industry: stock.industry });
+    }
+    return lookup;
+  }, [stocks]);
 
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
@@ -136,6 +143,14 @@ const Index = () => {
       queryKey: ['wsp-screener', pollingIntervalMs],
       queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true }),
     });
+  };
+
+  const buildStockDetailPath = (symbol: string, sector?: string, industry?: string) => {
+    const params = new URLSearchParams();
+    if (sector) params.set('sector', sector);
+    if (industry) params.set('industry', industry);
+    const serialized = params.toString();
+    return `/stock/${symbol}${serialized ? `?${serialized}` : ''}`;
   };
 
   if (!market || !providerStatus || !debugSummary || !discoveryMeta || !trust) {
@@ -226,7 +241,10 @@ const Index = () => {
         activeSector={null}
         activeIndustry={null}
         onIndustrySelect={() => {}}
-        onStockSelect={(symbol) => navigate(`/stock/${symbol}`)}
+        onStockSelect={(symbol) => {
+          const context = symbolContextLookup.get(symbol);
+          navigate(buildStockDetailPath(symbol, context?.sector, context?.industry));
+        }}
         onSectorSelect={(sector) => navigate(`/screener?sector=${encodeURIComponent(sector)}`)}
       />
 
@@ -250,7 +268,7 @@ const Index = () => {
           {topSetups.map((stock) => (
             <div key={stock.symbol} className="rounded border border-border bg-background p-2 hover:border-primary/30 transition-colors">
               <div className="flex items-center justify-between gap-1">
-                <Link to={`/stock/${stock.symbol}`} className="font-mono text-[10px] font-bold text-foreground hover:text-primary">{stock.symbol}</Link>
+                <Link to={buildStockDetailPath(stock.symbol, stock.sector, stock.industry)} className="font-mono text-[10px] font-bold text-foreground hover:text-primary">{stock.symbol}</Link>
                 <RecommendationBadge recommendation={stock.recommendation} />
               </div>
               <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
@@ -290,7 +308,7 @@ const Index = () => {
             </thead>
             <tbody>
               {topSetups.map((stock) => (
-                <TopSetupRow key={stock.symbol} stock={stock} fallbackCloseMap={topSetupFallbackCloseMap} />
+                <TopSetupRow key={stock.symbol} stock={stock} fallbackCloseMap={topSetupFallbackCloseMap} buildStockDetailPath={buildStockDetailPath} />
               ))}
             </tbody>
           </table>
@@ -311,7 +329,15 @@ function getDisplayPrice(stock: TopSetup, fallbackCloseMap: Record<string, numbe
   return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function TopSetupRow({ stock, fallbackCloseMap }: { stock: TopSetup; fallbackCloseMap: Record<string, number> }) {
+function TopSetupRow({
+  stock,
+  fallbackCloseMap,
+  buildStockDetailPath,
+}: {
+  stock: TopSetup;
+  fallbackCloseMap: Record<string, number>;
+  buildStockDetailPath: (symbol: string, sector?: string, industry?: string) => string;
+}) {
   const positive = stock.changePercent >= 0;
   const volumeMultiple = stock.volumeMultiple;
   const displayPrice = getDisplayPrice(stock, fallbackCloseMap);
@@ -319,7 +345,7 @@ function TopSetupRow({ stock, fallbackCloseMap }: { stock: TopSetup; fallbackClo
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
       <td className="px-3 py-2">
-        <Link to={`/stock/${stock.symbol}`} className="hover:text-primary transition-colors">
+        <Link to={buildStockDetailPath(stock.symbol, stock.sector, stock.industry)} className="hover:text-primary transition-colors">
           <span className="font-mono text-xs font-bold text-foreground">{stock.symbol}</span>
           <span className="block text-[8px] text-muted-foreground truncate max-w-[80px]">{stock.name}</span>
         </Link>

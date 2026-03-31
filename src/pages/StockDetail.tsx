@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useSearchParams, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useMarketCommand } from '@/hooks/use-market-command';
 import { useStockDetail } from '@/hooks/use-stock-detail';
@@ -31,7 +31,20 @@ const patternBanners: Record<WSPPattern, { bg: string; border: string; text: str
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
+  const [searchParams] = useSearchParams();
   const requestedSymbol = symbol?.toUpperCase() ?? '';
+  const selectedSectorParam = searchParams.get('sector');
+  const selectedIndustryParam = searchParams.get('industry');
+  const selectedSector = selectedSectorParam && selectedSectorParam.trim().length > 0 ? selectedSectorParam : null;
+  const selectedIndustry = selectedIndustryParam && selectedIndustryParam.trim().length > 0 ? selectedIndustryParam : null;
+  const screenerBackSearch = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedSector) params.set('sector', selectedSector);
+    if (selectedIndustry) params.set('industry', selectedIndustry);
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : '';
+  }, [selectedIndustry, selectedSector]);
+  const screenerBackPath = `/screener${screenerBackSearch}`;
   const [activeTab, setActiveTab] = useState<DetailTab>('chart');
   const [timeframe, setTimeframe] = useState<ChartTimeframe>('3M');
   const [asOfEnabled, setAsOfEnabled] = useState(false);
@@ -168,7 +181,7 @@ export default function StockDetail() {
   if (detailQuery.isLoading) {
     return (
       <div className="space-y-4 p-4">
-        <Link to="/screener" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link to={screenerBackPath} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3 w-3" /> Tillbaka
         </Link>
         <div className="flex items-center gap-4">
@@ -191,7 +204,7 @@ export default function StockDetail() {
 
     return (
       <div className="p-6">
-        <Link to="/screener" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link to={screenerBackPath} className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3 w-3" /> Tillbaka
         </Link>
         <div className={`mt-8 rounded-lg border p-4 text-sm ${symbolNotSearchable ? 'border-signal-caution/30 bg-signal-caution/10 text-signal-caution' : 'border-signal-sell/20 bg-signal-sell/5 text-signal-sell'}`}>
@@ -209,7 +222,7 @@ export default function StockDetail() {
   if (!stock) {
     return (
       <div className="p-6">
-        <Link to="/screener" className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link to={screenerBackPath} className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3 w-3" /> Tillbaka
         </Link>
         <div className="mt-8 text-sm text-muted-foreground">Kunde inte bygga analys från tillgänglig data.</div>
@@ -278,9 +291,18 @@ export default function StockDetail() {
 
   return (
     <div className="space-y-4 p-4">
-      <Link to="/screener" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+      <Link to={screenerBackPath} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="h-3 w-3" /> Tillbaka till Screener
       </Link>
+
+      {(selectedSector || selectedIndustry) && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+          <p className="text-[10px] font-mono text-muted-foreground">
+            Screener context: {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'}
+            <Link to={screenerBackPath} className="ml-2 text-primary hover:underline">Öppna samma urval</Link>
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
