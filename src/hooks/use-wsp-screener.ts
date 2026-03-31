@@ -633,27 +633,39 @@ function buildDirectScannerStock(
 ): EvaluatedStock | null {
   if (!row.symbol) return null;
   const p = payload ?? {};
+  const DIRECT_SCANNER_VOLUME_MIN = 1.1;
   const ma50 = typeof p.ma50 === 'number' && Number.isFinite(p.ma50) ? p.ma50 : null;
   const ma150 = typeof p.ma150 === 'number' && Number.isFinite(p.ma150) ? p.ma150 : null;
   const mansfieldRs = parseOptionalNumericValue(p.mansfield_rs);
   const volumeMultiple = typeof p.volume_ratio === 'number' && Number.isFinite(p.volume_ratio)
     ? p.volume_ratio
     : null;
-  const ma50SlopeTrend = typeof p[MA50_SLOPE_COLUMN] === 'string'
+  const rawMa50SlopeTrend = typeof p[MA50_SLOPE_COLUMN] === 'string'
     ? p[MA50_SLOPE_COLUMN].trim().toLowerCase()
     : null;
+  const ma50SlopeTrend = rawMa50SlopeTrend === 'up'
+    ? 'rising'
+    : rawMa50SlopeTrend === 'down'
+      ? 'falling'
+      : rawMa50SlopeTrend;
   const rowPattern = typeof row.pattern === 'string' ? row.pattern.toLowerCase() : null;
   const payloadPattern = typeof p.pattern === 'string'
     ? p.pattern.toLowerCase()
     : (typeof p.wsp_pattern === 'string' ? p.wsp_pattern.toLowerCase() : null);
   const hasWspIndicators = payload !== null;
-  const aboveMa50 = p.above_ma50 === true;
-  const aboveMa150 = p.above_ma150 === true;
+  const rawPrice = Number(latestIndicator?.close ?? p.close ?? p.ma50 ?? 0);
+  const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
+  const aboveMa50 = typeof p.above_ma50 === 'boolean'
+    ? p.above_ma50
+    : (ma50 !== null ? currentPrice > ma50 : false);
+  const aboveMa150 = typeof p.above_ma150 === 'boolean'
+    ? p.above_ma150
+    : (ma150 !== null ? currentPrice > ma150 : false);
   const slope50Positive = ma50SlopeTrend === 'rising';
   const effectivePattern = rowPattern ?? payloadPattern;
   const hasBreakout = effectivePattern === 'climbing' || effectivePattern === 'base_or_climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
-  const volumeValid = Number(p.volume_ratio) >= 2;
+  const volumeValid = Number(p.volume_ratio) >= DIRECT_SCANNER_VOLUME_MIN;
   const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid, mansfieldValid].filter(Boolean).length;
   const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && effectivePattern === 'climbing';
   const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : wspCriteriaPassCount;
@@ -665,8 +677,6 @@ function buildDirectScannerStock(
   const sectorValue = row.sector ?? 'Unknown';
   const normalizedSector = row.sector ?? '';
   const normalizedIndustry = row.industry ?? 'Unknown';
-  const rawPrice = Number(latestIndicator?.close ?? p.close ?? p.ma50 ?? 0);
-  const currentPrice = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) : 0;
   const indicatorChange = latestIndicator?.pct_change_1d;
   const changePercent = typeof indicatorChange === 'number' && Number.isFinite(indicatorChange)
     ? Number(indicatorChange.toFixed(2))
@@ -787,7 +797,7 @@ function buildDirectScannerStock(
     blockedReasons: [],
     logicViolations: [],
     score: scannerScore,
-    maxScore: 4,
+    maxScore: 10,
     dataSource: 'live',
     lastUpdated: updatedAt,
     scannerPattern,

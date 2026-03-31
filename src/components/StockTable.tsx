@@ -340,7 +340,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                     </td>
                     <td className="px-3 py-2.5 text-center"><BoolCell value={stock.sectorBullish ?? audit?.sectorAligned} /></td>
                     <td className="px-3 py-2.5">
-                      <WSPScoreRing score={stock.scannerScore ?? 0} maxScore={4} size={36} />
+                      <WSPScoreRing score={stock.scannerScore ?? 0} maxScore={stock.maxScore ?? 4} size={36} />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="space-y-1">
@@ -421,7 +421,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                               <Row label="Indicator warnings" value={formatIndicatorWarnings(audit?.indicatorWarnings)} warn={(audit?.indicatorWarnings?.length ?? 0) > 0} />
                               <Row label="Sector aligned" value={formatBooleanLabel(audit?.sectorAligned)} highlight={audit?.sectorAligned} />
                               <Row label="Market aligned" value={formatBooleanLabel(audit?.marketAligned)} highlight={audit?.marketAligned} />
-                              <Row label="Score" value={`${stock.scannerScore ?? 0}/4`} />
+                              <Row label="Score" value={`${stock.scannerScore ?? 0}/${stock.maxScore ?? 4}`} />
                             </div>
                           </div>
 
