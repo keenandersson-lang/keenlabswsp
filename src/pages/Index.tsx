@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWspScreener, fetchWspScreenerData } from '@/hooks/use-wsp-screener';
+import { useMarketCommand } from '@/hooks/use-market-command';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarketHeader } from '@/components/MarketHeader';
@@ -37,25 +38,42 @@ const Index = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isFetching, isLoading, isError } = useWspScreener(pollingIntervalMs);
+  const { data: commandSnapshot } = useMarketCommand({ intervalMs: pollingIntervalMs });
 
   const payload = data;
   const stocks = payload?.stocks ?? [];
-  const market = payload?.market;
   const providerStatus = payload?.providerStatus;
-  const trust = payload?.trust;
+  const market = commandSnapshot?.market.overview ?? payload?.market;
+  const trust = commandSnapshot?.trust ?? payload?.trust;
   const debugSummary = payload?.debugSummary;
   const discovery = payload?.discovery;
   const discoveryMeta = payload?.discoveryMeta;
-  const sectorStatuses = payload?.sectorStatuses ?? [];
+  const sectorStatuses = commandSnapshot?.sectors.items
+    .map((sectorItem) => sectorItem.status)
+    .filter((status): status is NonNullable<typeof status> => status !== null) ?? payload?.sectorStatuses ?? [];
 
-  const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
+  const equityStocks = useMemo(
+    () => (commandSnapshot?.equities.items ?? stocks).filter((s) => s.sector !== 'Metals & Mining'),
+    [commandSnapshot?.equities.items, stocks],
+  );
 
-  const counts = useMemo(() => ({
-    buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
-    sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
-    watchCount: stocks.filter((s) => s.finalRecommendation === 'BEVAKA').length,
-    avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
-  }), [stocks]);
+  const counts = useMemo(() => {
+    if (commandSnapshot) {
+      return {
+        buyCount: commandSnapshot.market.breadth.buy,
+        sellCount: commandSnapshot.market.breadth.sell,
+        watchCount: commandSnapshot.market.breadth.watch,
+        avoidCount: commandSnapshot.market.breadth.avoid,
+      };
+    }
+
+    return {
+      buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
+      sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
+      watchCount: stocks.filter((s) => s.finalRecommendation === 'BEVAKA').length,
+      avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
+    };
+  }, [commandSnapshot, stocks]);
 
   useEffect(() => {
     if (!providerStatus) return;
@@ -189,7 +207,7 @@ const Index = () => {
         sellCount={counts.sellCount}
         watchCount={counts.watchCount}
         avoidCount={counts.avoidCount}
-        totalStocks={stocks.length}
+        totalStocks={commandSnapshot?.market.breadth.total ?? stocks.length}
         trust={trust}
         sectorStatuses={sectorStatuses}
         isFetching={isFetching}
