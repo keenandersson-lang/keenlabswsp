@@ -813,7 +813,7 @@ async function fetchLatestSectorEtfIndicators(): Promise<Map<string, WspIndicato
   const etfSymbols = [...new Set(Object.values(SECTOR_ETF_MAP))];
   const { data, error } = await (supabase as any)
     .from('wsp_indicators')
-    .select(`distinct on (symbol) symbol, above_ma50, ${MA50_SLOPE_COLUMN}, pct_change_1d, created_at`)
+    .select(`symbol, above_ma50, ${MA50_SLOPE_COLUMN}, pct_change_1d, created_at`)
     .in('symbol', etfSymbols)
     .order('symbol', { ascending: true })
     .order('created_at', { ascending: false });
