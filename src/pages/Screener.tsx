@@ -255,14 +255,14 @@ export default function Screener() {
               onClick={() => updateSelection({ sector: sector.sector, industry: null })}
               title={`Top industries: ${sector.topIndustries.join(', ') || 'n/a'}`}
             >
-              {sector.sector} · {sector.industryCount} ind · {sector.equityCount} eq
+              {sector.sector} · {sector.industryCount} industrier · {sector.equityCount} aktier
             </button>
           ))}
         </div>
 
         {activeSector && (
           <div className="mt-2 rounded border border-border/60 bg-background p-2">
-            <p className="text-[10px] font-mono text-muted-foreground mb-1">Industries ranked by rankScore · showing {industryFocusItems.length} of {visibleIndustryTotal}</p>
+            <p className="text-[10px] font-mono text-muted-foreground mb-1">Industrier sorterade på rankScore · visar {industryFocusItems.length} av {visibleIndustryTotal}</p>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -293,26 +293,26 @@ export default function Screener() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">
-                  INDUSTRY CONTEXT · {activeIndustrySnapshot.industry}
+                  INDUSTRIKONTEXT · {activeIndustrySnapshot.industry}
                 </h4>
                 <p className="mt-0.5 text-[10px] font-mono text-muted-foreground">
-                  {activeIndustrySnapshot.sector} · Rank {activeIndustrySnapshot.rankScore.toFixed(1)} · {activeIndustrySnapshot.equityCount} equity candidates
+                  {activeIndustrySnapshot.sector} · Rank {activeIndustrySnapshot.rankScore.toFixed(1)} · {activeIndustrySnapshot.equityCount} kandidataktier
                 </p>
               </div>
               {industryCoverage && (
                 <span className="rounded border border-border bg-background px-2 py-1 text-[10px] font-mono text-muted-foreground">
-                  Loaded: {industryCoverage.matching}/{industryCoverage.total} equities in this industry
+                  Laddat i tabellen: {industryCoverage.matching}/{industryCoverage.total} aktier i denna industri
                 </span>
               )}
             </div>
 
             <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Avg score</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Snittscore</p>
                 <p className="text-[11px] font-mono text-foreground">{activeIndustrySnapshot.averageScore.toFixed(2)}</p>
               </div>
               <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Avg change</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Snittförändring</p>
                 <p className={`text-[11px] font-mono ${activeIndustrySnapshot.averageChangePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
                   {activeIndustrySnapshot.averageChangePercent >= 0 ? '+' : ''}
                   {activeIndustrySnapshot.averageChangePercent.toFixed(2)}%
@@ -337,7 +337,7 @@ export default function Screener() {
 
             {activeIndustrySnapshot.topEquities.length > 0 && (
               <p className="mt-2 text-[10px] font-mono text-muted-foreground">
-                Top equities in snapshot: {activeIndustrySnapshot.topEquities.join(', ')}
+                Starkaste aktier i urvalet: {activeIndustrySnapshot.topEquities.join(', ')}
               </p>
             )}
           </div>
@@ -345,37 +345,37 @@ export default function Screener() {
 
         {contextResultSummary && (
           <div className="mt-2 rounded border border-border/60 bg-background p-2">
-            <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">RESULT SIGNALS IN CURRENT CONTEXT</h4>
+            <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">RESULTAT I AKTUELLT URVAL</h4>
             <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
               <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">KÖP density</p>
+                <p className="text-[9px] font-mono text-muted-foreground">KÖP-andel</p>
                 <p className="text-[11px] font-mono text-foreground">
                   {contextResultSummary.buy}/{filteredStocks.length}
                 </p>
               </div>
               <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Valid WSP entries</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Giltiga WSP-lägen</p>
                 <p className="text-[11px] font-mono text-foreground">
                   {contextResultSummary.validEntries}/{filteredStocks.length}
                 </p>
               </div>
               <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Breakout valid</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Giltiga breakouts</p>
                 <p className="text-[11px] font-mono text-foreground">
                   {contextResultSummary.breakoutValid}/{filteredStocks.length}
                 </p>
               </div>
               <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Avg score</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Snittscore</p>
                 <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgScore}</p>
               </div>
               <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Avg volume multiple</p>
+                <p className="text-[9px] font-mono text-muted-foreground">Snitt volymmultipel</p>
                 <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgVolumeMultiple.toFixed(2)}x</p>
               </div>
             </div>
             <p className="mt-1.5 text-[10px] font-mono text-muted-foreground">
-              Strongest score: {contextResultSummary.strongestScores.join(', ') || 'n/a'} · Momentum leaders: {contextResultSummary.strongestMomentum.join(', ') || 'n/a'}
+              Högst score: {contextResultSummary.strongestScores.join(', ') || 'inga'} · Starkt momentum: {contextResultSummary.strongestMomentum.join(', ') || 'inga'}
             </p>
           </div>
         )}

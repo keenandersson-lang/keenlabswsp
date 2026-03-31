@@ -188,7 +188,7 @@ const Index = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Live approved cohort · {providerStatus.symbolCount} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Live-urval · {providerStatus.symbolCount} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
         </div>
         <CreditsBadge />
       </div>
@@ -214,7 +214,7 @@ const Index = () => {
         {sectorIndustrySummary.topSector && (
           <div className="mt-2 rounded border border-border/60 bg-background p-2">
             <p className="text-[10px] font-mono text-muted-foreground">
-              Top sector nu: <span className="text-foreground">{sectorIndustrySummary.topSector.sector}</span> · {sectorIndustrySummary.topSector.industryCount} ind · {sectorIndustrySummary.topSector.equityCount} eq
+              Starkast sektor nu: <span className="text-foreground">{sectorIndustrySummary.topSector.sector}</span> · {sectorIndustrySummary.topSector.industryCount} industrier · {sectorIndustrySummary.topSector.equityCount} aktier
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {sectorIndustrySummary.topIndustries.map((industry) => (
@@ -225,7 +225,7 @@ const Index = () => {
                   title={`${industry.sector} · R ${industry.rankScore.toFixed(1)} · BO ${industry.breakoutCount} · VE ${industry.validEntryCount} · KÖP ${industry.recommendationCounts.buy}`}
                 >
                   <span className="block text-foreground truncate max-w-[180px]">{industry.industry}</span>
-                  <span className="block text-[9px]">R {industry.rankScore.toFixed(1)} · BO {industry.breakoutCount} · VE {industry.validEntryCount} · KÖP {industry.recommendationCounts.buy}</span>
+                  <span className="block text-[9px]">Rank {industry.rankScore.toFixed(1)} · Breakout {industry.breakoutCount} · Giltiga lägen {industry.validEntryCount} · KÖP {industry.recommendationCounts.buy}</span>
                 </Link>
               ))}
             </div>

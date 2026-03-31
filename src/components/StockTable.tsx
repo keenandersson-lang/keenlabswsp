@@ -46,7 +46,7 @@ const blockedReasonFilters: WSPBlockedReason[] = [
 const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'all', label: 'Alla' },
   { value: 'KÖP', label: '🟢 Köpsignaler' },
-  { value: 'valid-wsp', label: '✓ Valid WSP Entry' },
+  { value: 'valid-wsp', label: '✓ Giltigt WSP-läge' },
   { value: 'below_50ma', label: 'Blockerad: under 50 MA' },
   { value: 'below_150ma', label: 'Blockerad: under 150 MA' },
   { value: 'slope_50_not_positive', label: 'Blockerad: svag slope' },
@@ -69,11 +69,11 @@ const patternFilters: { value: FilterValue; label: string }[] = [
 ];
 
 const quickSorts: { key: SortKey; label: string }[] = [
-  { key: 'logicViolations', label: 'Logic violations' },
-  { key: 'volumeMultiple', label: 'Highest volume multiple' },
-  { key: 'breakoutAge', label: 'Newest breakout age' },
-  { key: 'mansfieldRS', label: 'Strongest Mansfield' },
-  { key: 'missingIndicators', label: 'Missing/invalid indicators' },
+  { key: 'logicViolations', label: 'Flest regelbrott' },
+  { key: 'volumeMultiple', label: 'Högst volymmultipel' },
+  { key: 'breakoutAge', label: 'Nyast breakout' },
+  { key: 'mansfieldRS', label: 'Starkast Mansfield' },
+  { key: 'missingIndicators', label: 'Mest saknad data' },
 ];
 
 const IMPORTANT_WARNING_SET = new Set<IndicatorWarning>([
@@ -237,13 +237,13 @@ export function StockTable({
       <div className="mb-4 space-y-2">
         {discoveryMeta && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[10px] text-muted-foreground">
-            <span>Scanner provenance: backend WSP engine</span>
+            <span>Signalmotor: central WSP-motor</span>
             <span>•</span>
-            <span>Data: {discoveryMeta.dataState}</span>
+            <span>Datastatus: {discoveryMeta.dataState}</span>
             <span>•</span>
-            <span>Trend mode: {discoveryMeta.trendClassificationMode}</span>
+            <span>Trendläge: {discoveryMeta.trendClassificationMode}</span>
             <span>•</span>
-            <span>Scope: centralized market universe</span>
+            <span>Univers: centraliserat marknadsurval</span>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

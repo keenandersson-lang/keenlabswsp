@@ -273,13 +273,13 @@ export default function StockDetail() {
   const checklistStock = stockWithMeta;
 
   const notices = [
-    !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
-    !detailData.supportsFullWsp ? 'Insufficient WSP readiness: symbol has limited WSP coverage.' : null,
+    !detailData.isApprovedLiveCohort ? 'Ingår inte i aktuellt live-urval för screenern.' : null,
+    !detailData.supportsFullWsp ? 'Begränsat WSP-stöd för symbolen – vissa signaler kan vara mindre säkra.' : null,
     detailData.metadataCompleteness !== 'complete'
-      ? `Metadata ${detailData.metadataCompleteness === 'missing' ? 'missing' : 'incomplete'} for one or more fields.`
+      ? `Metadata är ${detailData.metadataCompleteness === 'missing' ? 'saknad' : 'ofullständig'} i ett eller flera fält.`
       : null,
     resolvedDailyBars.length < 200 || resolvedBenchmarkDailyBars.length < 200
-      ? 'Indicator coverage incomplete: less than 200 bars available for full MA context.'
+      ? 'Kort historik (<200 bars) begränsar indikatorernas tillförlitlighet.'
       : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -298,7 +298,7 @@ export default function StockDetail() {
       {(selectedSector || selectedIndustry) && (
         <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
           <p className="text-[10px] font-mono text-muted-foreground">
-            Screener context: {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'}
+            Urval från screener: {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'}
             <Link to={screenerBackPath} className="ml-2 text-primary hover:underline">Öppna samma urval</Link>
           </p>
         </div>
@@ -344,7 +344,7 @@ export default function StockDetail() {
           <WSPScoreRing score={displayScore} maxScore={displayMaxScore} size={80} />
           {hasCanonicalTruth && (
             <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-primary">
-              Source: Canonical Screener
+              Källa: Screener (primär)
             </span>
           )}
         </div>
@@ -378,7 +378,7 @@ export default function StockDetail() {
         <div className="space-y-3">
           {!hasCanonicalTruth && (
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-mono text-muted-foreground">
-              Denna aktie ingår inte i WSP-scannern
+              Aktien ligger utanför aktuellt screener-urval och visas därför med fallback-analys.
             </div>
           )}
           <div className={`rounded-lg border-l-4 ${banner.border} ${banner.bg} px-4 py-2.5 text-sm text-foreground`}>
