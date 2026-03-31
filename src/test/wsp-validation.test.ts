@@ -71,7 +71,7 @@ describe('WSP validation fixtures', () => {
   it('forces SÄLJ when price is below the 150-day moving average', () => {
     const stock = evaluateStock('STOP', 'Hard Stop', 'Validation', 'Fixture', [], [], true, true, 'fallback', {
       overrideAnalysis: {
-        pattern: 'CLIMBING',
+        pattern: 'climbing',
         indicators: createIndicators({ sma150: 125, currentClose: 120 }),
         price: 120,
         prevClose: 119,

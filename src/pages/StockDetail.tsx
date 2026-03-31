@@ -31,10 +31,11 @@ type ScannerPayload = {
 };
 
 const patternBanners: Record<WSPPattern, { bg: string; border: string; text: string }> = {
-  CLIMBING: { bg: 'bg-[#0d2e1a]', border: 'border-signal-buy', text: '📈 CLIMBING PATTERN — Breakout ovanför motstånd med hög volym' },
-  TIRED: { bg: 'bg-[#2e1f00]', border: 'border-signal-caution', text: '⚠️ TIRED PATTERN — Konsoliderar vid topp. WSP säger: sälj-zon.' },
-  DOWNHILL: { bg: 'bg-[#2e0000]', border: 'border-signal-sell', text: '🔴 DOWNHILL PATTERN — Under 150MA. Undvik köp per WSP.' },
-  BASE: { bg: 'bg-[#0d0d2e]', border: 'border-muted-foreground', text: '🟦 BASE PATTERN — Sidleds konsolidering. Vänta på breakout.' },
+  climbing: { bg: 'bg-[#0d2e1a]', border: 'border-signal-buy', text: '📈 CLIMBING PATTERN — Breakout ovanför motstånd med hög volym' },
+  base_or_climbing: { bg: 'bg-[#0d2e1a]', border: 'border-signal-buy', text: '📈 BASE/CLIMBING — Potentiell upptrend. Bevaka breakout.' },
+  tired: { bg: 'bg-[#2e1f00]', border: 'border-signal-caution', text: '⚠️ TIRED PATTERN — Konsoliderar vid topp. WSP säger: sälj-zon.' },
+  downhill: { bg: 'bg-[#2e0000]', border: 'border-signal-sell', text: '🔴 DOWNHILL PATTERN — Under 150MA. Undvik köp per WSP.' },
+  base: { bg: 'bg-[#0d0d2e]', border: 'border-muted-foreground', text: '🟦 BASE PATTERN — Sidleds konsolidering. Vänta på breakout.' },
 };
 
 export default function StockDetail() {
