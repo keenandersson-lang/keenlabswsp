@@ -11,7 +11,7 @@ function mockStock(overrides: Partial<EvaluatedStock>): EvaluatedStock {
     price: 100,
     changePercent: 1,
     volume: 1_000_000,
-    pattern: 'CLIMBING',
+    pattern: 'climbing',
     indicators: {} as any,
     gate: {} as any,
     isValidWspEntry: true,

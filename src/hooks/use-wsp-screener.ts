@@ -657,9 +657,9 @@ function buildDirectScannerStock(
   const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && effectivePattern === 'climbing';
   const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : wspCriteriaPassCount;
   const scannerPattern = row.pattern ?? effectivePattern ?? 'base';
-  const scannerRecommendation = row.recommendation ?? (allWspCriteriaPass
-    ? 'KÖP'
-    : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA'));
+  const scannerRecommendation: WSPRecommendation = (row.recommendation === 'KÖP' || row.recommendation === 'BEVAKA' || row.recommendation === 'SÄLJ' || row.recommendation === 'UNDVIK')
+    ? row.recommendation
+    : (allWspCriteriaPass ? 'KÖP' : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA'));
   const normalizedPattern = toWspPattern(scannerPattern);
   const sectorValue = row.sector ?? 'Unknown';
   const normalizedSector = row.sector ?? '';
