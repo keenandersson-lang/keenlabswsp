@@ -40,9 +40,11 @@ export default function StockDetail() {
   const marketCommandQuery = useMarketCommand({ symbol: requestedSymbol || undefined });
   const detailQuery = useStockDetail(symbol);
 
+  const hasCanonicalTruth = Boolean(marketCommandQuery.data?.equities.items[0]);
+
   const indicatorQuery = useQuery({
     queryKey: ['stock-detail-indicator', requestedSymbol],
-    enabled: Boolean(requestedSymbol),
+    enabled: Boolean(requestedSymbol) && !hasCanonicalTruth,
     staleTime: 60_000,
     queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null; pct_change_1d: number | null } | null> => {
       const { data, error } = await supabase
@@ -60,20 +62,18 @@ export default function StockDetail() {
 
   const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? null;
   const detailData = detailQuery.data?.data;
-  const hasCanonicalTruth = Boolean(canonicalStock);
-  const resolvedCompanyName = detailData?.name ?? canonicalStock?.name ?? requestedSymbol;
-  const resolvedSector = detailData?.sector ?? canonicalStock?.sector ?? 'Unknown';
+  const resolvedCompanyName = canonicalStock?.name ?? detailData?.name ?? requestedSymbol;
+  const resolvedSector = canonicalStock?.sector ?? detailData?.sector ?? 'Unknown';
   const resolvedDailyBars = detailData?.barsDaily ?? [];
   const isMetals = detailData?.assetClass === 'metals';
   const resolvedBenchmarkDailyBars = detailData?.benchmarkDaily ?? [];
   const resolvedBenchmarkWeeklyBars = detailData?.benchmarkWeekly ?? aggregateBarsWeekly(resolvedBenchmarkDailyBars);
   const sectorEtfSymbol = useMemo(() => {
-    if (!detailData?.sector) return null;
-    return SECTOR_ETF_MAP[detailData.sector]?.[0] ?? null;
-  }, [detailData?.sector]);
+    return SECTOR_ETF_MAP[resolvedSector]?.[0] ?? null;
+  }, [resolvedSector]);
   const sectorEtfDailyPricesQuery = useQuery({
     queryKey: ['stock-detail-daily-prices', sectorEtfSymbol],
-    enabled: Boolean(sectorEtfSymbol),
+    enabled: Boolean(sectorEtfSymbol) && !hasCanonicalTruth,
     staleTime: 60_000,
     queryFn: async (): Promise<Bar[]> => {
       const { data, error } = await supabase
@@ -237,16 +237,22 @@ export default function StockDetail() {
   const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const banner = patternBanners[displayPattern];
   const volMultiple = stockWithMeta.audit.volumeMultiple;
-  const indicatorVolumeRatio = indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null;
-  const indicatorMansfieldRs = indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null;
-  const indicatorDailyChange = indicatorQuery.data?.pct_change_1d;
+  const indicatorVolumeRatio = hasCanonicalTruth
+    ? (canonicalStock?.audit.volumeMultiple ?? stockWithMeta.audit.volumeMultiple ?? null)
+    : (indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null);
+  const indicatorMansfieldRs = hasCanonicalTruth
+    ? (canonicalStock?.audit.mansfieldValue ?? stockWithMeta.audit.mansfieldValue ?? null)
+    : (indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null);
+  const indicatorDailyChange = hasCanonicalTruth ? canonicalStock?.changePercent : indicatorQuery.data?.pct_change_1d;
   const headerChangePercent = typeof indicatorDailyChange === 'number' && Number.isFinite(indicatorDailyChange)
     ? indicatorDailyChange
     : stockWithMeta.changePercent;
   const sectorEtfBars = sectorEtfDailyPricesQuery.data ?? [];
   const sectorEtfClose = sectorEtfBars.length > 0 ? sectorEtfBars[sectorEtfBars.length - 1].close : null;
   const sectorEtfMa50 = sectorEtfBars.length > 0 ? sma(sectorEtfBars, 50) : null;
-  const sectorEtfAbove50MA = sectorEtfClose != null && sectorEtfMa50 != null ? sectorEtfClose > sectorEtfMa50 : null;
+  const sectorEtfAbove50MA = hasCanonicalTruth
+    ? canonicalStock?.gate.sectorAligned ?? stockWithMeta.gate.sectorAligned
+    : (sectorEtfClose != null && sectorEtfMa50 != null ? sectorEtfClose > sectorEtfMa50 : null);
   const priorLow = resolvedDailyBars.length >= 2 ? resolvedDailyBars[resolvedDailyBars.length - 2].low : null;
   const stopLossFourPct = stockWithMeta.price * 0.96;
   const stopLossSixPct = stockWithMeta.price * 0.94;
