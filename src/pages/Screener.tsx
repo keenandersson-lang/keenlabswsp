@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchWspPatternCounts, useWspScreener, type WspPatternCounts } from '@/hooks/use-wsp-screener';
+import { useMarketCommand } from '@/hooks/use-market-command';
 import { StockTable } from '@/components/StockTable';
 import { PatternSummary } from '@/components/PatternSummary';
 import { CreditsBadge } from '@/components/CreditsBadge';
@@ -18,6 +19,7 @@ export default function Screener() {
   const PAGE_SIZE = 50;
   const queryClient = useQueryClient();
   const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs, page, PAGE_SIZE);
+  const { data: commandSnapshot } = useMarketCommand({ intervalMs: pollingIntervalMs, page, pageSize: PAGE_SIZE });
   const { data: patternCounts } = useQuery<WspPatternCounts>({
     queryKey: ['wsp-pattern-counts'],
     queryFn: fetchWspPatternCounts,
@@ -27,22 +29,25 @@ export default function Screener() {
 
   const payload = data;
   const stocks = loadedStocks;
-  const market = payload?.market;
+  const market = commandSnapshot?.market.overview ?? payload?.market;
   const providerStatus = payload?.providerStatus;
-  const trust = payload?.trust;
+  const trust = commandSnapshot?.trust ?? payload?.trust;
   const discoveryMeta = payload?.discoveryMeta;
-  const sectorStatuses = payload?.sectorStatuses ?? [];
+  const sectorStatuses = commandSnapshot?.sectors.items
+    .map((sectorItem) => sectorItem.status)
+    .filter((status): status is NonNullable<typeof status> => status !== null) ?? payload?.sectorStatuses ?? [];
 
   useEffect(() => {
-    if (!payload?.stocks) return;
+    const pageStocks = commandSnapshot?.equities.items ?? payload?.stocks;
+    if (!pageStocks) return;
 
     setLoadedStocks((previous) => {
       const baseStocks = page === 0 ? [] : previous;
       const existingSymbols = new Set(baseStocks.map((stock) => stock.symbol));
-      const nextUnique = payload.stocks.filter((stock) => !existingSymbols.has(stock.symbol));
+      const nextUnique = pageStocks.filter((stock) => !existingSymbols.has(stock.symbol));
       return [...baseStocks, ...nextUnique];
     });
-  }, [payload?.stocks, page]);
+  }, [commandSnapshot?.equities.items, payload?.stocks, page]);
 
   useEffect(() => {
     setPage(0);
