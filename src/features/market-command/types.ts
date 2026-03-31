@@ -47,6 +47,8 @@ export interface SectorSnapshot {
   sector: string;
   status: SectorStatus | null;
   equityCount: number;
+  industryCount: number;
+  topIndustries: string[];
   topEquities: string[];
 }
 
@@ -59,6 +61,18 @@ export interface IndustrySnapshot {
   industry: string;
   sector: string;
   equityCount: number;
+  averageScore: number;
+  averageChangePercent: number;
+  breakoutCount: number;
+  validEntryCount: number;
+  recommendationCounts: {
+    buy: number;
+    watch: number;
+    sell: number;
+    avoid: number;
+  };
+  topEquities: string[];
+  rankScore: number;
 }
 
 export interface EquityLayerSnapshot {
