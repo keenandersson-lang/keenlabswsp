@@ -1,0 +1,68 @@
+name: WSP Equity After-Close Refresh
+
+on:
+  schedule:
+    # 23:10 UTC Monday-Friday (6:10pm ET in winter, 7:10pm ET in summer)
+    - cron: '10 23 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run daily-sync edge function
+        id: daily_sync
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SYNC_SECRET_KEY: ${{ secrets.SYNC_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/daily-sync"
+          echo "Invoking daily-sync at ${endpoint}"
+
+          response_file="$(mktemp)"
+          http_code="$(curl -sS -o "${response_file}" -w "%{http_code}" \
+            -X POST "${endpoint}" \
+            -H "Authorization: Bearer ${SYNC_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+
+          echo "daily-sync HTTP ${http_code}"
+          echo "daily-sync response:"
+          cat "${response_file}"
+
+          if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+            echo "::error::daily-sync failed with HTTP ${http_code}."
+            exit 1
+          fi
+
+      - name: Run scan-market edge function (only after daily-sync success)
+        id: scan_market
+        if: steps.daily_sync.outcome == 'success'
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SYNC_SECRET_KEY: ${{ secrets.SYNC_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/scan-market"
+          payload='{"runLabel":"github_actions_after_close"}'
+          echo "Invoking scan-market at ${endpoint}"
+
+          response_file="$(mktemp)"
+          http_code="$(curl -sS -o "${response_file}" -w "%{http_code}" \
+            -X POST "${endpoint}" \
+            -H "Authorization: Bearer ${SYNC_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "${payload}")"
+
+          echo "scan-market HTTP ${http_code}"
+          echo "scan-market response:"
+          cat "${response_file}"
+
+          if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+            echo "::error::scan-market failed with HTTP ${http_code}."
+            exit 1
+          fi
