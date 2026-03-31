@@ -91,6 +91,14 @@ export default function Screener() {
   }, [activeIndustry, activeSector, visibleIndustries]);
 
   const filteredStocks = useMemo(() => equityStocks, [equityStocks]);
+  const detailLinkSearch = useMemo(() => {
+    const params = new URLSearchParams();
+    if (activeSector) params.set('sector', activeSector);
+    if (activeIndustry) params.set('industry', activeIndustry);
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : '';
+  }, [activeIndustry, activeSector]);
+
   const industryCoverage = useMemo(() => {
     if (!activeIndustry) return null;
     const matching = filteredStocks.filter((stock) => stock.industry === activeIndustry).length;
@@ -308,7 +316,7 @@ export default function Screener() {
 
       <PatternSummary counts={patternCounts ?? { climbing: 0, base_or_climbing: 0, base: 0, tired: 0, downhill: 0 }} />
       <div className="relative">
-        <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} />
+        <StockTable stocks={filteredStocks} discoveryMeta={discoveryMeta} detailLinkSearch={detailLinkSearch} />
 
         {canLoadMore && (
           <div className="sticky bottom-3 z-20 flex justify-center pt-3">

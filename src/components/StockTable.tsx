@@ -11,6 +11,7 @@ import { Link, useNavigate } from 'react-router-dom';
 interface StockTableProps {
   stocks: EvaluatedStock[];
   discoveryMeta?: DiscoveryMeta;
+  detailLinkSearch?: string;
 }
 
 type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
@@ -136,7 +137,7 @@ function BoolCell({ value }: { value: boolean | null | undefined }) {
   );
 }
 
-export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
+export function StockTable({ stocks, discoveryMeta, detailLinkSearch = '' }: StockTableProps) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterValue>('all');
   const [search, setSearch] = useState('');
@@ -201,6 +202,8 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
     if (sortBy !== col) return null;
     return sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
   };
+
+  const buildDetailPath = (symbol: string) => `/stock/${symbol}${detailLinkSearch}`;
 
   return (
     <div>
@@ -302,7 +305,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
               return (
                 <Fragment key={stock.symbol}>
                   <tr
-                    onClick={() => navigate(`/stock/${stock.symbol}`)}
+                    onClick={() => navigate(buildDetailPath(stock.symbol))}
                     className={`cursor-pointer border-b border-border/50 align-top transition-colors hover:bg-[#1a1a24] ${
                       rowTruth.recommendation === 'KÖP' ? 'bg-signal-buy/5' : rowTruth.recommendation === 'UNDVIK' ? 'bg-signal-sell/5' : ''
                     } ${hasPartialData ? 'ring-1 ring-inset ring-signal-caution/20' : ''}`}
@@ -313,7 +316,7 @@ export function StockTable({ stocks, discoveryMeta }: StockTableProps) {
                           <span className="font-mono text-xs font-bold">{stock.symbol}</span>
                           {hasPartialData && <AlertTriangle className="h-3.5 w-3.5 text-signal-caution" />}
                           <Link
-                            to={`/stock/${stock.symbol}`}
+                            to={buildDetailPath(stock.symbol)}
                             onClick={(event) => event.stopPropagation()}
                             className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/20"
                           >
