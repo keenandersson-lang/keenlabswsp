@@ -82,7 +82,23 @@ export default function Screener() {
       .slice(0, 8);
   }, [activeSector, visibleIndustries]);
 
+  const activeIndustrySnapshot = useMemo(() => {
+    if (!activeIndustry) return null;
+    if (activeSector) {
+      return visibleIndustries.find((industry) => industry.industry === activeIndustry && industry.sector === activeSector) ?? null;
+    }
+    return visibleIndustries.find((industry) => industry.industry === activeIndustry) ?? null;
+  }, [activeIndustry, activeSector, visibleIndustries]);
+
   const filteredStocks = useMemo(() => equityStocks, [equityStocks]);
+  const industryCoverage = useMemo(() => {
+    if (!activeIndustry) return null;
+    const matching = filteredStocks.filter((stock) => stock.industry === activeIndustry).length;
+    return {
+      matching,
+      total: filteredStocks.length,
+    };
+  }, [activeIndustry, filteredStocks]);
   const canLoadMore = (providerStatus?.symbolCount ?? 0) > stocks.length;
 
   const counts = useMemo(() => ({
@@ -231,6 +247,61 @@ export default function Screener() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {activeIndustrySnapshot && (
+          <div className="mt-2 rounded border border-primary/20 bg-primary/5 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">
+                  INDUSTRY CONTEXT · {activeIndustrySnapshot.industry}
+                </h4>
+                <p className="mt-0.5 text-[10px] font-mono text-muted-foreground">
+                  {activeIndustrySnapshot.sector} · Rank {activeIndustrySnapshot.rankScore.toFixed(1)} · {activeIndustrySnapshot.equityCount} equity candidates
+                </p>
+              </div>
+              {industryCoverage && (
+                <span className="rounded border border-border bg-background px-2 py-1 text-[10px] font-mono text-muted-foreground">
+                  Loaded: {industryCoverage.matching}/{industryCoverage.total} equities in this industry
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded border border-border bg-background px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Avg score</p>
+                <p className="text-[11px] font-mono text-foreground">{activeIndustrySnapshot.averageScore.toFixed(2)}</p>
+              </div>
+              <div className="rounded border border-border bg-background px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Avg change</p>
+                <p className={`text-[11px] font-mono ${activeIndustrySnapshot.averageChangePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
+                  {activeIndustrySnapshot.averageChangePercent >= 0 ? '+' : ''}
+                  {activeIndustrySnapshot.averageChangePercent.toFixed(2)}%
+                </p>
+              </div>
+              <div className="rounded border border-border bg-background px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Breakouts / Valid</p>
+                <p className="text-[11px] font-mono text-foreground">
+                  {activeIndustrySnapshot.breakoutCount} / {activeIndustrySnapshot.validEntryCount}
+                </p>
+              </div>
+              <div className="rounded border border-border bg-background px-2 py-1.5">
+                <p className="text-[9px] font-mono text-muted-foreground">Signals</p>
+                <p className="text-[11px] font-mono text-foreground">
+                  KÖP {activeIndustrySnapshot.recommendationCounts.buy} · BEV {activeIndustrySnapshot.recommendationCounts.watch}
+                </p>
+                <p className="text-[10px] font-mono text-muted-foreground">
+                  SÄLJ {activeIndustrySnapshot.recommendationCounts.sell} · UNDV {activeIndustrySnapshot.recommendationCounts.avoid}
+                </p>
+              </div>
+            </div>
+
+            {activeIndustrySnapshot.topEquities.length > 0 && (
+              <p className="mt-2 text-[10px] font-mono text-muted-foreground">
+                Top equities in snapshot: {activeIndustrySnapshot.topEquities.join(', ')}
+              </p>
+            )}
           </div>
         )}
       </div>
