@@ -6,6 +6,7 @@
 export type WSPPattern = 'climbing' | 'base_or_climbing' | 'base' | 'tired' | 'downhill';
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
+export type ScreenerDataProvenance = 'direct_db' | 'provider_route' | 'demo_fallback';
 export type TrendBucket = 'HOT' | 'BREAKOUT' | 'BULLISH' | 'BEARISH';
 export type TrendClassificationMode = 'strict_wsp' | 'degraded_snapshot';
 export type RankValueMode = 'proxy_return' | 'tracked_strength';
@@ -388,6 +389,15 @@ export interface ProviderStatus {
   };
 }
 
+export interface ScreenerTrustContract {
+  uiState: ScreenerUiState;
+  displayState: ScreenerUiState;
+  isLive: boolean;
+  fallbackActive: boolean;
+  benchmarkState: 'live' | 'stale' | 'fallback';
+  dataProvenance: ScreenerDataProvenance;
+}
+
 export interface ScreenerApiResponse {
   market: MarketOverview;
   stocks: EvaluatedStock[];
@@ -395,5 +405,6 @@ export interface ScreenerApiResponse {
   discoveryMeta: DiscoveryMeta;
   sectorStatuses: SectorStatus[];
   providerStatus: ProviderStatus;
+  trust: ScreenerTrustContract;
   debugSummary: ScreenerDebugSummary;
 }

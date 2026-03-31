@@ -25,6 +25,7 @@ import { TRACKED_SYMBOLS } from '@/lib/tracked-symbols';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
 import { buildDiscoverySnapshot } from '@/lib/discovery';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '@/lib/benchmarks';
+import { CANONICAL_SCREENER_RUNTIME_PATH, resolveScreenerTrustState } from '@/lib/screener-trust';
 import { supabase } from '@/integrations/supabase/client';
 
 export type WspPatternCounts = Record<WSPPattern, number>;
@@ -40,6 +41,10 @@ interface QuoteData {
   timestamp: number;
 }
 
+/**
+ * Legacy provider-route shape kept for compatibility/debug only.
+ * Client runtime path is canonical direct DB snapshot (`CANONICAL_SCREENER_RUNTIME_PATH`).
+ */
 interface EdgeFunctionResponse {
   ok: boolean;
   mode: 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
@@ -960,6 +965,7 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize?: number): Pro
     .filter((stock): stock is EvaluatedStock => stock !== null);
 }
 
+// Inactive in client runtime (kept for future migration/tests).
 function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: FetchDiagnostics): ScreenerApiResponse {
   const now = new Date().toISOString();
   const safeError = sanitizeClientErrorMessage(edgeResp.error?.message);
@@ -967,6 +973,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   // ERROR / FALLBACK: use demo data
   if (!edgeResp.ok || !edgeResp.data) {
     const uiState: ScreenerUiState = edgeResp.mode === 'FALLBACK' ? 'FALLBACK' : 'ERROR';
+    const trust = resolveScreenerTrustState({
+      uiState,
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: true,
+      dataProvenance: 'provider_route',
+    });
     const fallbackSectorStatuses = Object.keys(WSP_CONFIG.sectorMap).map((sector) => {
       const sectorStocks = demoStocks.filter((stock) => stock.sector === sector);
       const bullishCount = sectorStocks.filter((stock) => stock.gate.sectorAligned).length;
@@ -988,14 +1000,14 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
       sectorStatuses: fallbackSectorStatuses,
       providerStatus: {
         provider: 'demo',
-        isLive: false,
-        uiState,
+        isLive: trust.isLive,
+        uiState: trust.uiState,
         lastFetch: now,
         failedSymbols: TRACKED_SYMBOLS.map(s => s.symbol),
         successCount: 0,
         errorMessage: safeError,
-        isFallback: true,
-        fallbackActive: true,
+        isFallback: trust.fallbackActive,
+        fallbackActive: trust.fallbackActive,
         symbolCount: TRACKED_SYMBOLS.length,
         benchmarkSymbol: WSP_CONFIG.benchmark,
         benchmarkFetchStatus: 'failed',
@@ -1021,6 +1033,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
           fallbackCause: edgeResp.providerStatus?.fallbackCause ?? 'unknown',
         },
       },
+      trust,
       debugSummary: buildScreenerDebugSummary(demoStocks),
     };
   }
@@ -1174,6 +1187,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
   const benchmarkFailureCount = Number(edgeResp.providerStatus.benchmarkFailureCount ?? 0);
   const anyStale = edgeResp.mode === 'STALE' || failedSymbols.length > 0 || benchmarkFailureCount > 0;
   const uiState: ScreenerUiState = anyStale ? 'STALE' : 'LIVE';
+  const trust = resolveScreenerTrustState({
+    uiState,
+    benchmarkFetchStatus: benchmarkBars.length > 0 ? (anyStale ? 'stale' : 'success') : 'failed',
+    fallbackActive: false,
+    dataProvenance: 'provider_route',
+  });
   const discoverySnapshot = edgeResp.discovery && edgeResp.discoveryMeta
     ? { discovery: edgeResp.discovery, discoveryMeta: edgeResp.discoveryMeta }
     : buildDiscoverySnapshot(evaluatedStocks, uiState);
@@ -1185,14 +1204,14 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
     sectorStatuses,
       providerStatus: {
       provider: 'finnhub',
-      isLive: uiState === 'LIVE',
-      uiState,
+      isLive: trust.isLive,
+      uiState: trust.uiState,
       lastFetch: edgeResp.providerStatus.fetchedAt ?? now,
       failedSymbols,
       successCount: evaluatedStocks.length,
       errorMessage: edgeResp.error?.message ? safeError : (anyStale ? 'Live provider unavailable. Showing latest safe snapshot.' : null),
       isFallback: false,
-      fallbackActive: false,
+      fallbackActive: trust.fallbackActive,
       symbolCount: trackedSymbolsCount,
       benchmarkSymbol: WSP_CONFIG.benchmark,
       benchmarkFetchStatus: benchmarkBars.length > 0 ? (anyStale ? 'stale' : 'success') : 'failed',
@@ -1221,6 +1240,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
         fallbackCause: edgeResp.providerStatus?.fallbackCause ?? 'unknown',
       },
     },
+    trust,
     debugSummary: buildScreenerDebugSummary(evaluatedStocks),
   };
 }
@@ -1261,28 +1281,34 @@ export async function fetchWspScreenerData(options?: {
     const directSectorStatuses = directSectorStatusesRaw.some((status) => Number.isFinite(status.changePercent) && status.changePercent !== 0)
       ? directSectorStatusesRaw
       : buildSectorStatusesFromStocks(directStocks);
+    const trust = resolveScreenerTrustState({
+      uiState: 'LIVE',
+      benchmarkFetchStatus: 'stale',
+      fallbackActive: false,
+      dataProvenance: CANONICAL_SCREENER_RUNTIME_PATH,
+    });
     return {
       market: {
         ...demoMarket,
         dataSource: 'live',
-        benchmarkState: 'stale',
+        benchmarkState: trust.benchmarkState,
         benchmarkLastUpdated: now,
         lastUpdated: now,
         pollingIntervalMs: options?.intervalMs ?? WSP_CONFIG.refreshInterval,
       },
       stocks: sanitizeStocks(directStocks),
-      ...buildDiscoverySnapshot(directStocks, 'LIVE'),
+      ...buildDiscoverySnapshot(directStocks, trust.uiState),
       sectorStatuses: directSectorStatuses,
       providerStatus: {
         provider: 'finnhub',
-        isLive: true,
-        uiState: 'LIVE',
+        isLive: trust.isLive,
+        uiState: trust.uiState,
         lastFetch: now,
         failedSymbols: [],
         successCount: directStocks.length,
         errorMessage: null,
-        isFallback: false,
-        fallbackActive: false,
+        isFallback: trust.fallbackActive,
+        fallbackActive: trust.fallbackActive,
         symbolCount: qualifiedScanCount ?? directStocks.length,
         benchmarkSymbol: WSP_CONFIG.benchmark,
         benchmarkFetchStatus: 'stale',
@@ -1302,38 +1328,45 @@ export async function fetchWspScreenerData(options?: {
           fetchTarget: 'supabase:market_scan_results_latest',
           authOutcome: 'success',
           benchmarkFetch: 'stale',
-          routeVersion: 'direct_supabase_query',
+          routeVersion: `canonical_${CANONICAL_SCREENER_RUNTIME_PATH}`,
           buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
           finalModeReason: `Direct Supabase scanner snapshot used (${directStocks.length} rows).`,
           fallbackCause: 'none',
         },
       },
+      trust,
       debugSummary: buildScreenerDebugSummary(directStocks),
     };
   } catch {
     // If direct query fails, return a safe fallback payload without edge-function invocation.
     const fallbackStocks = demoStocks.map((stock) => ({ ...stock, lastUpdated: now, dataSource: 'fallback' as const }));
+    const trust = resolveScreenerTrustState({
+      uiState: 'FALLBACK',
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: true,
+      dataProvenance: 'demo_fallback',
+    });
     return applyQualifiedScanCount({
       market: {
         ...demoMarket,
         dataSource: 'fallback',
-        benchmarkState: 'stale',
+        benchmarkState: trust.benchmarkState,
         benchmarkLastUpdated: now,
         lastUpdated: now,
       },
       stocks: sanitizeStocks(fallbackStocks),
-      ...buildDiscoverySnapshot(fallbackStocks, 'FALLBACK'),
+      ...buildDiscoverySnapshot(fallbackStocks, trust.uiState),
       sectorStatuses: [],
       providerStatus: {
         provider: 'demo' as const,
-        isLive: false,
-        uiState: 'FALLBACK',
+        isLive: trust.isLive,
+        uiState: trust.uiState,
         lastFetch: now,
         failedSymbols: [],
         successCount: 0,
         errorMessage: 'Direct Supabase query failed.',
-        isFallback: true,
-        fallbackActive: true,
+        isFallback: trust.fallbackActive,
+        fallbackActive: trust.fallbackActive,
         symbolCount: qualifiedScanCount ?? 0,
         benchmarkSymbol: WSP_CONFIG.benchmark,
         benchmarkFetchStatus: 'failed',
@@ -1353,12 +1386,13 @@ export async function fetchWspScreenerData(options?: {
           fetchTarget: 'supabase:market_scan_results_latest',
           authOutcome: 'failed',
           benchmarkFetch: 'failed',
-          routeVersion: 'direct_supabase_query',
+          routeVersion: `canonical_${CANONICAL_SCREENER_RUNTIME_PATH}`,
           buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
           finalModeReason: 'Direct Supabase scanner query failed; using local fallback dataset.',
           fallbackCause: 'necessary',
         },
       },
+      trust,
       debugSummary: buildScreenerDebugSummary(fallbackStocks),
     });
   }
@@ -1377,27 +1411,33 @@ export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, 
       } catch {
         const now = new Date().toISOString();
         const fallbackStocks = sanitizeStocks(demoStocks.map((stock) => ({ ...stock, lastUpdated: now, dataSource: 'fallback' as const })));
+        const trust = resolveScreenerTrustState({
+          uiState: 'FALLBACK',
+          benchmarkFetchStatus: 'failed',
+          fallbackActive: true,
+          dataProvenance: 'demo_fallback',
+        });
         return {
           market: {
             ...demoMarket,
             dataSource: 'fallback',
-            benchmarkState: 'stale',
+            benchmarkState: trust.benchmarkState,
             benchmarkLastUpdated: now,
             lastUpdated: now,
           },
           stocks: fallbackStocks,
-          ...buildDiscoverySnapshot(fallbackStocks, 'FALLBACK'),
+          ...buildDiscoverySnapshot(fallbackStocks, trust.uiState),
           sectorStatuses: [],
           providerStatus: {
             provider: 'demo',
-            isLive: false,
-            uiState: 'FALLBACK',
+            isLive: trust.isLive,
+            uiState: trust.uiState,
             lastFetch: now,
             failedSymbols: [],
             successCount: 0,
             errorMessage: 'Unexpected screener render-safe fallback.',
-            isFallback: true,
-            fallbackActive: true,
+            isFallback: trust.fallbackActive,
+            fallbackActive: trust.fallbackActive,
             symbolCount: 0,
             benchmarkSymbol: WSP_CONFIG.benchmark,
             benchmarkFetchStatus: 'failed',
@@ -1417,12 +1457,13 @@ export function useWspScreener(intervalMs: number = WSP_CONFIG.refreshInterval, 
               fetchTarget: 'supabase:market_scan_results_latest',
               authOutcome: 'failed',
               benchmarkFetch: 'failed',
-              routeVersion: 'direct_supabase_query',
+              routeVersion: `canonical_${CANONICAL_SCREENER_RUNTIME_PATH}`,
               buildMarker: import.meta.env.VITE_APP_BUILD_MARKER ?? `local-${import.meta.env.MODE}`,
               finalModeReason: 'Query failed in hook; returned render-safe fallback payload.',
               fallbackCause: 'necessary',
             },
           },
+          trust,
           debugSummary: buildScreenerDebugSummary(fallbackStocks),
         } as ScreenerApiResponse;
       }

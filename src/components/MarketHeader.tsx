@@ -1,5 +1,5 @@
 import { Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Wifi, WifiOff, Clock3, ServerCrash, AlertTriangle } from 'lucide-react';
-import type { MarketOverview, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
+import type { MarketOverview, ScreenerTrustContract, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
 
 interface MarketHeaderProps {
   market: MarketOverview;
@@ -8,7 +8,7 @@ interface MarketHeaderProps {
   watchCount: number;
   avoidCount: number;
   totalStocks: number;
-  uiState: ScreenerUiState;
+  trust: ScreenerTrustContract;
   sectorStatuses?: SectorStatus[];
   isFetching: boolean;
   pollingIntervalMs: number;
@@ -25,15 +25,14 @@ export function MarketHeader({
   watchCount,
   avoidCount,
   totalStocks,
-  uiState,
+  trust,
   sectorStatuses = [],
   isFetching,
   pollingIntervalMs,
   onRefresh,
   onPollingIntervalChange,
 }: MarketHeaderProps) {
-  const stateMeta = getStateMeta(uiState);
-  const stateLabel = uiState === 'FALLBACK' ? 'STALE' : uiState;
+  const stateMeta = getStateMeta(trust.displayState);
 
   const rankedSectors = sectorStatuses
     .slice()
@@ -55,7 +54,7 @@ export function MarketHeader({
                 <h1 className="text-sm font-bold tracking-widest text-foreground font-mono">WSP</h1>
                 <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider ${stateMeta.className}`}>
                   <stateMeta.icon className="h-2 w-2" />
-                  {stateLabel}
+                  {trust.displayState}
                 </span>
               </div>
               <p className="text-[9px] text-muted-foreground font-mono tracking-wider">WALL STREET PROTOCOL · STRICT 3-LAYER ENGINE</p>
