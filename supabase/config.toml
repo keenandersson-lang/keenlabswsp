@@ -2,3 +2,9 @@ project_id = "xvdhpztohozxdsxcsidf"
 
 [functions.process-email-queue]
 verify_jwt = true
+
+[functions.daily-sync]
+verify_jwt = false
+
+[functions.scan-market]
+verify_jwt = false
