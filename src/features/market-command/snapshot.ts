@@ -106,5 +106,10 @@ export function buildMarketCommandSnapshot(
       symbol: symbolFilter,
       state: symbolFilter ? 'ready' : 'stub',
     },
+    runtime: {
+      providerStatus: screener.providerStatus,
+      discoveryMeta: screener.discoveryMeta,
+      debugSummary: screener.debugSummary,
+    },
   };
 }

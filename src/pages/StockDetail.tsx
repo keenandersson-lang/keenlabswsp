@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useWspScreener } from '@/hooks/use-wsp-screener';
 import { useMarketCommand } from '@/hooks/use-market-command';
 import { useStockDetail } from '@/hooks/use-stock-detail';
 import { StockChartModule } from '@/components/StockChartModule';
@@ -38,7 +37,6 @@ export default function StockDetail() {
   const [asOfEnabled, setAsOfEnabled] = useState(false);
   const [asOfIndex, setAsOfIndex] = useState(0);
 
-  const screenerQuery = useWspScreener();
   const marketCommandQuery = useMarketCommand({ symbol: requestedSymbol || undefined });
   const detailQuery = useStockDetail(symbol);
 
@@ -60,8 +58,7 @@ export default function StockDetail() {
     },
   });
 
-  const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
-  const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? liveStock ?? null;
+  const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? null;
   const detailData = detailQuery.data?.data;
   const hasCanonicalTruth = Boolean(canonicalStock);
   const resolvedCompanyName = detailData?.name ?? canonicalStock?.name ?? requestedSymbol;
@@ -102,7 +99,7 @@ export default function StockDetail() {
     },
   });
 
-  const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
+  const marketFavorable = marketCommandQuery.data?.market.overview.marketTrend === 'bullish';
   const sectorAligned = canonicalStock?.gate.sectorAligned ?? false;
 
   const timeframeBars = useMemo(() => {
@@ -232,7 +229,7 @@ export default function StockDetail() {
     }
     : null;
 
-  const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
+  const contextState = marketCommandQuery.data?.trust.uiState ?? 'LIVE';
   const displayPattern = stock.pattern;
   const displayScore = stock.score;
   const displayMaxScore = 4;
@@ -373,7 +370,7 @@ export default function StockDetail() {
             asOfIndex={asOfIndex}
             onAsOfIndexChange={setAsOfIndex}
             dataState={contextState}
-            hideBlockers={hasCanonicalTruth || !liveStock}
+            hideBlockers={hasCanonicalTruth}
           />
         </div>
       )}

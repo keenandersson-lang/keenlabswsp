@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchWspPatternCounts, useWspScreener, type WspPatternCounts } from '@/hooks/use-wsp-screener';
+import { fetchWspPatternCounts, fetchWspScreenerData, type WspPatternCounts } from '@/hooks/use-wsp-screener';
 import { useMarketCommand } from '@/hooks/use-market-command';
 import { StockTable } from '@/components/StockTable';
 import { PatternSummary } from '@/components/PatternSummary';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { MarketHeader } from '@/components/MarketHeader';
-import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import type { EvaluatedStock } from '@/lib/wsp-types';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,8 +17,7 @@ export default function Screener() {
   const [loadedStocks, setLoadedStocks] = useState<EvaluatedStock[]>([]);
   const PAGE_SIZE = 50;
   const queryClient = useQueryClient();
-  const { data, isFetching, isLoading } = useWspScreener(pollingIntervalMs, page, PAGE_SIZE);
-  const { data: commandSnapshot } = useMarketCommand({ intervalMs: pollingIntervalMs, page, pageSize: PAGE_SIZE });
+  const { data: commandSnapshot, isFetching, isLoading } = useMarketCommand({ intervalMs: pollingIntervalMs, page, pageSize: PAGE_SIZE });
   const { data: patternCounts } = useQuery<WspPatternCounts>({
     queryKey: ['wsp-pattern-counts'],
     queryFn: fetchWspPatternCounts,
@@ -27,18 +25,17 @@ export default function Screener() {
     refetchInterval: 60_000,
   });
 
-  const payload = data;
   const stocks = loadedStocks;
-  const market = commandSnapshot?.market.overview ?? payload?.market;
-  const providerStatus = payload?.providerStatus;
-  const trust = commandSnapshot?.trust ?? payload?.trust;
-  const discoveryMeta = payload?.discoveryMeta;
+  const market = commandSnapshot?.market.overview;
+  const providerStatus = commandSnapshot?.runtime.providerStatus;
+  const trust = commandSnapshot?.trust;
+  const discoveryMeta = commandSnapshot?.runtime.discoveryMeta;
   const sectorStatuses = commandSnapshot?.sectors.items
     .map((sectorItem) => sectorItem.status)
-    .filter((status): status is NonNullable<typeof status> => status !== null) ?? payload?.sectorStatuses ?? [];
+    .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
 
   useEffect(() => {
-    const pageStocks = commandSnapshot?.equities.items ?? payload?.stocks;
+    const pageStocks = commandSnapshot?.equities.items;
     if (!pageStocks) return;
 
     setLoadedStocks((previous) => {
@@ -47,7 +44,7 @@ export default function Screener() {
       const nextUnique = pageStocks.filter((stock) => !existingSymbols.has(stock.symbol));
       return [...baseStocks, ...nextUnique];
     });
-  }, [commandSnapshot?.equities.items, payload?.stocks, page]);
+  }, [commandSnapshot?.equities.items, page]);
 
   useEffect(() => {
     setPage(0);
