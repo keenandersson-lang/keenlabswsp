@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWspScreener, fetchWspScreenerData } from '@/hooks/use-wsp-screener';
+import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { useMarketCommand } from '@/hooks/use-market-command';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -37,25 +37,19 @@ const Index = () => {
   const [topSetupsLoading, setTopSetupsLoading] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data, isFetching, isLoading, isError } = useWspScreener(pollingIntervalMs);
-  const { data: commandSnapshot } = useMarketCommand({ intervalMs: pollingIntervalMs });
+  const { data: commandSnapshot, isFetching, isLoading, isError } = useMarketCommand({ intervalMs: pollingIntervalMs });
 
-  const payload = data;
-  const stocks = payload?.stocks ?? [];
-  const providerStatus = payload?.providerStatus;
-  const market = commandSnapshot?.market.overview ?? payload?.market;
-  const trust = commandSnapshot?.trust ?? payload?.trust;
-  const debugSummary = payload?.debugSummary;
-  const discovery = payload?.discovery;
-  const discoveryMeta = payload?.discoveryMeta;
+  const stocks = commandSnapshot?.equities.items ?? [];
+  const providerStatus = commandSnapshot?.runtime.providerStatus;
+  const market = commandSnapshot?.market.overview;
+  const trust = commandSnapshot?.trust;
+  const debugSummary = commandSnapshot?.runtime.debugSummary;
+  const discoveryMeta = commandSnapshot?.runtime.discoveryMeta;
   const sectorStatuses = commandSnapshot?.sectors.items
     .map((sectorItem) => sectorItem.status)
-    .filter((status): status is NonNullable<typeof status> => status !== null) ?? payload?.sectorStatuses ?? [];
+    .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
 
-  const equityStocks = useMemo(
-    () => (commandSnapshot?.equities.items ?? stocks).filter((s) => s.sector !== 'Metals & Mining'),
-    [commandSnapshot?.equities.items, stocks],
-  );
+  const equityStocks = useMemo(() => stocks.filter((s) => s.sector !== 'Metals & Mining'), [stocks]);
 
   const counts = useMemo(() => {
     if (commandSnapshot) {
@@ -184,7 +178,7 @@ const Index = () => {
     });
   };
 
-  if (!market || !providerStatus || !debugSummary || !discovery || !discoveryMeta || !trust) {
+  if (!market || !providerStatus || !debugSummary || !discoveryMeta || !trust) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
         <RefreshCw className={`h-8 w-8 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />

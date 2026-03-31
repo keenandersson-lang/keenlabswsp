@@ -1,6 +1,9 @@
 import type {
+  DiscoveryMeta,
   EvaluatedStock,
   MarketOverview,
+  ProviderStatus,
+  ScreenerDebugSummary,
   ScreenerDataProvenance,
   ScreenerTrustContract,
   SectorStatus,
@@ -15,6 +18,13 @@ export interface MarketCommandSnapshot {
   industries: IndustryLayerSnapshot;
   equities: EquityLayerSnapshot;
   detail: DetailLayerSnapshot;
+  runtime: RuntimeLayerSnapshot;
+}
+
+export interface RuntimeLayerSnapshot {
+  providerStatus: ProviderStatus;
+  discoveryMeta: DiscoveryMeta;
+  debugSummary: ScreenerDebugSummary;
 }
 
 export interface MarketLayerSnapshot {
