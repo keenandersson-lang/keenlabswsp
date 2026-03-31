@@ -14,7 +14,6 @@ import { ArrowLeft, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { PatternBadge } from '@/components/PatternBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { sanitizeClientErrorMessage } from '@/lib/safe-messages';
-import { isBenchmarkSymbol } from '@/lib/benchmarks';
 import { SECTOR_ETF_MAP } from '@/lib/market-universe';
 import { sma } from '@/lib/wsp-indicators';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -42,73 +41,6 @@ export default function StockDetail() {
   const screenerQuery = useWspScreener();
   const marketCommandQuery = useMarketCommand({ symbol: requestedSymbol || undefined });
   const detailQuery = useStockDetail(symbol);
-  const symbolMetaQuery = useQuery({
-    queryKey: ['stock-detail-symbol-meta', requestedSymbol],
-    enabled: Boolean(requestedSymbol),
-    staleTime: 60_000,
-    queryFn: async () => {
-      const { data: symbolMeta, error } = await supabase
-        .from('symbols')
-        .select('symbol, name, canonical_sector, sector')
-        .eq('symbol', requestedSymbol)
-        .single();
-      if (error) throw error;
-      return symbolMeta;
-    },
-  });
-  const isBenchmark = isBenchmarkSymbol(requestedSymbol);
-  const dailyPricesQuery = useQuery({
-    queryKey: ['stock-detail-daily-prices', requestedSymbol],
-    enabled: Boolean(requestedSymbol),
-    staleTime: 60_000,
-    queryFn: async (): Promise<Bar[]> => {
-      const { data, error } = await supabase
-        .from('daily_prices')
-        .select('date, open, high, low, close, volume')
-        .eq('symbol', requestedSymbol)
-        .order('date', { ascending: true });
-
-      if (error) throw error;
-      if (!data || data.length === 0) return [];
-
-      return data.map((row) => ({
-        date: row.date,
-        open: Number(row.open),
-        high: Number(row.high),
-        low: Number(row.low),
-        close: Number(row.close),
-        volume: Number(row.volume),
-      }));
-    },
-  });
-
-
-  const spyDailyPricesQuery = useQuery({
-    queryKey: ['stock-detail-daily-prices', 'SPY'],
-    staleTime: 60_000,
-    queryFn: async (): Promise<Bar[]> => {
-      const { data, error } = await supabase
-        .from('daily_prices')
-        .select('date, open, high, low, close, volume')
-        .eq('symbol', 'SPY')
-        .order('date', { ascending: false })
-        .limit(756);
-
-      if (error) throw error;
-      if (!data || data.length === 0) return [];
-
-      return [...data]
-        .reverse()
-        .map((row) => ({
-          date: row.date,
-          open: Number(row.open),
-          high: Number(row.high),
-          low: Number(row.low),
-          close: Number(row.close),
-          volume: Number(row.volume),
-        }));
-    },
-  });
 
   const indicatorQuery = useQuery({
     queryKey: ['stock-detail-indicator', requestedSymbol],
@@ -131,20 +63,13 @@ export default function StockDetail() {
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
   const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? liveStock ?? null;
   const detailData = detailQuery.data?.data;
-  const symbolMeta = symbolMetaQuery.data;
   const hasCanonicalTruth = Boolean(canonicalStock);
-  const resolvedCompanyName = symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
-  const resolvedSector = symbolMeta?.canonical_sector ?? canonicalStock?.sector ?? detailData?.sector ?? 'Unknown';
-  const resolvedDailyBars = useMemo(() => {
-    if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
-    return detailData?.barsDaily ?? [];
-  }, [dailyPricesQuery.data, detailData?.barsDaily]);
+  const resolvedCompanyName = detailData?.name ?? canonicalStock?.name ?? requestedSymbol;
+  const resolvedSector = detailData?.sector ?? canonicalStock?.sector ?? 'Unknown';
+  const resolvedDailyBars = detailData?.barsDaily ?? [];
   const isMetals = detailData?.assetClass === 'metals';
-  const resolvedBenchmarkDailyBars = useMemo(() => {
-    if (spyDailyPricesQuery.data && spyDailyPricesQuery.data.length > 0) return spyDailyPricesQuery.data;
-    return detailData?.benchmarkDaily ?? [];
-  }, [spyDailyPricesQuery.data, detailData?.benchmarkDaily]);
-  const resolvedBenchmarkWeeklyBars = useMemo(() => aggregateBarsWeekly(resolvedBenchmarkDailyBars), [resolvedBenchmarkDailyBars]);
+  const resolvedBenchmarkDailyBars = detailData?.benchmarkDaily ?? [];
+  const resolvedBenchmarkWeeklyBars = detailData?.benchmarkWeekly ?? aggregateBarsWeekly(resolvedBenchmarkDailyBars);
   const sectorEtfSymbol = useMemo(() => {
     if (!detailData?.sector) return null;
     return SECTOR_ETF_MAP[detailData.sector]?.[0] ?? null;
@@ -185,8 +110,7 @@ export default function StockDetail() {
     return barsForTimeframe(timeframe, resolvedDailyBars, detailData.barsWeekly);
   }, [detailData, timeframe, resolvedDailyBars]);
 
-  const baseStock = useMemo(() => {
-    if (hasCanonicalTruth) return null;
+  const baseChartStock = useMemo(() => {
     if (!detailData) return null;
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
 
@@ -210,18 +134,17 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, hasCanonicalTruth, marketFavorable, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector, sectorAligned]);
+  }, [detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector, sectorAligned]);
 
-  const historicalStock = useMemo(() => {
-    if (hasCanonicalTruth) return null;
-    if (!detailData || timeframeBars.bars.length === 0) return baseStock;
+  const asOfChartStock = useMemo(() => {
+    if (!detailData || timeframeBars.bars.length === 0) return baseChartStock;
 
     const idx = clampAsOfIndex(asOfIndex, timeframeBars.bars.length);
     const asOfBars = asOfEnabled ? timeframeBars.bars.slice(0, idx + 1) : timeframeBars.bars;
     const benchmarkSource = timeframeBars.cadence === 'weekly' ? resolvedBenchmarkWeeklyBars : resolvedBenchmarkDailyBars;
     const benchmarkBars = benchmarkSource.filter((bar) => bar.date <= asOfBars[asOfBars.length - 1]?.date);
 
-    if (asOfBars.length === 0 || benchmarkBars.length === 0) return baseStock;
+    if (asOfBars.length === 0 || benchmarkBars.length === 0) return baseChartStock;
 
     return evaluateStock(
       detailData.symbol,
@@ -243,25 +166,7 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasCanonicalTruth, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, resolvedCompanyName, resolvedSector, sectorAligned, timeframeBars]);
-
-  const benchmarkStock = useMemo(() => {
-    if (hasCanonicalTruth) return null;
-    if (!detailData || !isBenchmark) return null;
-    if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
-    return evaluateStock(
-      detailData.symbol,
-      resolvedCompanyName,
-      resolvedSector,
-      detailData.industry,
-      resolvedDailyBars,
-      resolvedBenchmarkDailyBars,
-      true,
-      true,
-      'live',
-      { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
-    );
-  }, [detailData, hasCanonicalTruth, isBenchmark, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector]);
+  }, [asOfEnabled, asOfIndex, baseChartStock, detailData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, resolvedCompanyName, resolvedSector, sectorAligned, timeframeBars]);
 
   if (detailQuery.isLoading) {
     return (
@@ -301,7 +206,9 @@ export default function StockDetail() {
     );
   }
 
-  const stock = canonicalStock ?? (historicalStock ?? baseStock ?? benchmarkStock);
+  const semanticStock = canonicalStock ?? asOfChartStock ?? baseChartStock;
+  const chartStock = asOfChartStock ?? baseChartStock ?? canonicalStock;
+  const stock = semanticStock;
   if (!stock) {
     return (
       <div className="p-6">
@@ -317,6 +224,13 @@ export default function StockDetail() {
     name: stock.name === stock.symbol ? resolvedCompanyName : (stock.name ?? resolvedCompanyName),
     sector: stock.sector === 'Unknown' ? resolvedSector : (stock.sector ?? resolvedSector),
   };
+  const chartStockWithMeta = chartStock
+    ? {
+      ...chartStock,
+      name: chartStock.name === chartStock.symbol ? resolvedCompanyName : (chartStock.name ?? resolvedCompanyName),
+      sector: chartStock.sector === 'Unknown' ? resolvedSector : (chartStock.sector ?? resolvedSector),
+    }
+    : null;
 
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
   const displayPattern = stock.pattern;
@@ -447,7 +361,7 @@ export default function StockDetail() {
           </div>
 
           <StockChartModule
-            stock={stockWithMeta}
+            stock={chartStockWithMeta ?? stockWithMeta}
             dailyBars={resolvedDailyBars}
             weeklyBars={detailData.barsWeekly}
             dailyBenchmark={resolvedBenchmarkDailyBars}
