@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { EvaluatedStock, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
+import type { EvaluatedStock, ScreenerTrustContract, SectorStatus } from '@/lib/wsp-types';
 import { buildSectorHeatmap } from '@/lib/discovery';
 import { AlertTriangle } from 'lucide-react';
 import { heatmapCellClass } from '@/lib/heatmap-scale';
@@ -7,7 +7,7 @@ import { heatmapCellClass } from '@/lib/heatmap-scale';
 interface MarketHeatmapProps {
   stocks: EvaluatedStock[];
   sectorStatuses: SectorStatus[];
-  uiState: ScreenerUiState;
+  trust: ScreenerTrustContract;
   activeSector: string | null;
   activeIndustry: string | null;
   onSectorSelect: (sector: string) => void;
@@ -19,7 +19,7 @@ interface MarketHeatmapProps {
 export function MarketHeatmap({
   stocks,
   sectorStatuses,
-  uiState,
+  trust,
   activeSector,
   activeIndustry,
   onSectorSelect,
@@ -27,7 +27,7 @@ export function MarketHeatmap({
   onStockSelect,
   degradedMessage,
 }: MarketHeatmapProps) {
-  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses, uiState), [stocks, sectorStatuses, uiState]);
+  const sectors = useMemo(() => buildSectorHeatmap(stocks, sectorStatuses, trust.uiState), [stocks, sectorStatuses, trust.uiState]);
 
   if (sectors.length === 0) {
     return (

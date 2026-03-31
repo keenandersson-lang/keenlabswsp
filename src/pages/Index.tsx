@@ -42,6 +42,7 @@ const Index = () => {
   const stocks = payload?.stocks ?? [];
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
+  const trust = payload?.trust;
   const debugSummary = payload?.debugSummary;
   const discovery = payload?.discovery;
   const discoveryMeta = payload?.discoveryMeta;
@@ -165,7 +166,7 @@ const Index = () => {
     });
   };
 
-  if (!market || !providerStatus || !debugSummary || !discovery || !discoveryMeta) {
+  if (!market || !providerStatus || !debugSummary || !discovery || !discoveryMeta || !trust) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
         <RefreshCw className={`h-8 w-8 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
@@ -189,7 +190,7 @@ const Index = () => {
         watchCount={counts.watchCount}
         avoidCount={counts.avoidCount}
         totalStocks={stocks.length}
-        uiState={providerStatus.uiState}
+        trust={trust}
         sectorStatuses={sectorStatuses}
         isFetching={isFetching}
         pollingIntervalMs={pollingIntervalMs}
@@ -211,7 +212,7 @@ const Index = () => {
       <MarketHeatmap
         stocks={equityStocks}
         sectorStatuses={sectorStatuses}
-        uiState={providerStatus.uiState}
+        trust={trust}
         activeSector={null}
         activeIndustry={null}
         onIndustrySelect={() => {}}

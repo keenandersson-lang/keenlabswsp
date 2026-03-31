@@ -29,6 +29,7 @@ export default function Screener() {
   const stocks = loadedStocks;
   const market = payload?.market;
   const providerStatus = payload?.providerStatus;
+  const trust = payload?.trust;
   const discoveryMeta = payload?.discoveryMeta;
   const sectorStatuses = payload?.sectorStatuses ?? [];
 
@@ -67,7 +68,7 @@ export default function Screener() {
     });
   };
 
-  if (!market || !providerStatus) {
+  if (!market || !providerStatus || !trust) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -87,7 +88,7 @@ export default function Screener() {
         watchCount={counts.watchCount}
         avoidCount={counts.avoidCount}
         totalStocks={stocks.length}
-        uiState={providerStatus.uiState}
+        trust={trust}
         sectorStatuses={sectorStatuses}
         isFetching={isFetching}
         pollingIntervalMs={pollingIntervalMs}
@@ -102,7 +103,7 @@ export default function Screener() {
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
               Visar {filteredStocks.length} av {equityStocks.length} aktier
-              {providerStatus.uiState === 'STALE' && <span className="text-signal-caution"> · STALE</span>}
+              {trust.displayState !== 'LIVE' && <span className="text-signal-caution"> · {trust.displayState}</span>}
             </p>
           </div>
         </div>
