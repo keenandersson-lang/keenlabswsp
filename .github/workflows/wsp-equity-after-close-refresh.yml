@@ -19,6 +19,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${SUPABASE_PROJECT_REF}" ]; then
+            echo "::error::Missing required secret SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+
+          if ! printf '%s' "${SUPABASE_PROJECT_REF}" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::Malformed SUPABASE_PROJECT_REF. Expected lowercase letters, numbers, and hyphens only."
+            exit 1
+          fi
+
+          if [ -z "${SYNC_SECRET_KEY}" ]; then
+            echo "::error::Missing required secret SYNC_SECRET_KEY."
+            exit 1
+          fi
+
+          endpoint_host="${SUPABASE_PROJECT_REF}.supabase.co"
+          echo "Debug: endpoint host=${endpoint_host}"
           endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/daily-sync"
           echo "Invoking daily-sync at ${endpoint}"
 
@@ -47,6 +64,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "${SUPABASE_PROJECT_REF}" ]; then
+            echo "::error::Missing required secret SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+
+          if ! printf '%s' "${SUPABASE_PROJECT_REF}" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::Malformed SUPABASE_PROJECT_REF. Expected lowercase letters, numbers, and hyphens only."
+            exit 1
+          fi
+
+          if [ -z "${SYNC_SECRET_KEY}" ]; then
+            echo "::error::Missing required secret SYNC_SECRET_KEY."
+            exit 1
+          fi
+
+          endpoint_host="${SUPABASE_PROJECT_REF}.supabase.co"
+          echo "Debug: endpoint host=${endpoint_host}"
           endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/scan-market"
           payload='{"runLabel":"github_actions_after_close"}'
           echo "Invoking scan-market at ${endpoint}"
