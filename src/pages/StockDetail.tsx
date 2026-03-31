@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useWspScreener } from '@/hooks/use-wsp-screener';
+import { useMarketCommand } from '@/hooks/use-market-command';
 import { useStockDetail } from '@/hooks/use-stock-detail';
 import { StockChartModule } from '@/components/StockChartModule';
 import { WSPChecklist } from '@/components/WSPChecklist';
@@ -21,14 +22,6 @@ import type { Bar, WSPPattern } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
 
 type DetailTab = 'chart' | 'checklist' | 'sizer';
-type ScannerPayload = {
-  wsp_score?: number | null;
-  above_ma50?: boolean | null;
-  above_ma150?: boolean | null;
-  ma50_slope?: string | null;
-  volume_ratio?: number | null;
-  mansfield_rs?: number | null;
-};
 
 const patternBanners: Record<WSPPattern, { bg: string; border: string; text: string }> = {
   climbing: { bg: 'bg-[#0d2e1a]', border: 'border-signal-buy', text: '📈 CLIMBING PATTERN — Breakout ovanför motstånd med hög volym' },
@@ -40,28 +33,15 @@ const patternBanners: Record<WSPPattern, { bg: string; border: string; text: str
 
 export default function StockDetail() {
   const { symbol } = useParams<{ symbol: string }>();
+  const requestedSymbol = symbol?.toUpperCase() ?? '';
   const [activeTab, setActiveTab] = useState<DetailTab>('chart');
   const [timeframe, setTimeframe] = useState<ChartTimeframe>('3M');
   const [asOfEnabled, setAsOfEnabled] = useState(false);
   const [asOfIndex, setAsOfIndex] = useState(0);
 
   const screenerQuery = useWspScreener();
+  const marketCommandQuery = useMarketCommand({ symbol: requestedSymbol || undefined });
   const detailQuery = useStockDetail(symbol);
-  const requestedSymbol = symbol?.toUpperCase() ?? '';
-  const scannerDataQuery = useQuery({
-    queryKey: ['stock-detail-scanner-row', requestedSymbol],
-    enabled: Boolean(requestedSymbol),
-    staleTime: 60_000,
-    queryFn: async () => {
-      const { data: scannerData, error } = await supabase
-        .from('market_scan_results_latest')
-        .select('symbol, pattern, recommendation, score, payload, sector')
-        .eq('symbol', requestedSymbol)
-        .maybeSingle();
-      if (error) throw error;
-      return scannerData;
-    },
-  });
   const symbolMetaQuery = useQuery({
     queryKey: ['stock-detail-symbol-meta', requestedSymbol],
     enabled: Boolean(requestedSymbol),
@@ -149,12 +129,12 @@ export default function StockDetail() {
   });
 
   const liveStock = screenerQuery.data?.stocks.find((item) => item.symbol === requestedSymbol);
+  const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? liveStock ?? null;
   const detailData = detailQuery.data?.data;
   const symbolMeta = symbolMetaQuery.data;
-  const scannerData = scannerDataQuery.data;
-  const hasScannerData = Boolean(scannerData);
+  const hasCanonicalTruth = Boolean(canonicalStock);
   const resolvedCompanyName = symbolMeta?.name ?? detailData?.name ?? requestedSymbol;
-  const resolvedSector = symbolMeta?.canonical_sector ?? scannerData?.sector ?? 'Unknown';
+  const resolvedSector = symbolMeta?.canonical_sector ?? canonicalStock?.sector ?? detailData?.sector ?? 'Unknown';
   const resolvedDailyBars = useMemo(() => {
     if (dailyPricesQuery.data && dailyPricesQuery.data.length > 0) return dailyPricesQuery.data;
     return detailData?.barsDaily ?? [];
@@ -198,10 +178,7 @@ export default function StockDetail() {
   });
 
   const marketFavorable = screenerQuery.data?.market?.marketTrend === 'bullish';
-  const sectorAligned = liveStock?.gate.sectorAligned ?? false;
-  const scannerPayload = (scannerData?.payload && typeof scannerData.payload === 'object' && !Array.isArray(scannerData.payload))
-    ? (scannerData.payload as ScannerPayload)
-    : null;
+  const sectorAligned = canonicalStock?.gate.sectorAligned ?? false;
 
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
@@ -209,7 +186,7 @@ export default function StockDetail() {
   }, [detailData, timeframe, resolvedDailyBars]);
 
   const baseStock = useMemo(() => {
-    if (hasScannerData) return null;
+    if (hasCanonicalTruth) return null;
     if (!detailData) return null;
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
 
@@ -233,10 +210,10 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector, sectorAligned]);
+  }, [detailData, hasCanonicalTruth, marketFavorable, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector, sectorAligned]);
 
   const historicalStock = useMemo(() => {
-    if (hasScannerData) return null;
+    if (hasCanonicalTruth) return null;
     if (!detailData || timeframeBars.bars.length === 0) return baseStock;
 
     const idx = clampAsOfIndex(asOfIndex, timeframeBars.bars.length);
@@ -266,10 +243,10 @@ export default function StockDetail() {
         overrideAnalysis: { lastUpdated: detailData.fetchedAt },
       },
     );
-  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasScannerData, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, resolvedCompanyName, resolvedSector, sectorAligned, timeframeBars]);
+  }, [asOfEnabled, asOfIndex, baseStock, detailData, hasCanonicalTruth, marketFavorable, resolvedBenchmarkDailyBars, resolvedBenchmarkWeeklyBars, resolvedCompanyName, resolvedSector, sectorAligned, timeframeBars]);
 
   const benchmarkStock = useMemo(() => {
-    if (hasScannerData) return null;
+    if (hasCanonicalTruth) return null;
     if (!detailData || !isBenchmark) return null;
     if (resolvedDailyBars.length === 0 || resolvedBenchmarkDailyBars.length === 0) return null;
     return evaluateStock(
@@ -284,7 +261,7 @@ export default function StockDetail() {
       'live',
       { overrideAnalysis: { lastUpdated: detailData.fetchedAt } },
     );
-  }, [detailData, hasScannerData, isBenchmark, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector]);
+  }, [detailData, hasCanonicalTruth, isBenchmark, resolvedBenchmarkDailyBars, resolvedCompanyName, resolvedDailyBars, resolvedSector]);
 
   if (detailQuery.isLoading) {
     return (
@@ -324,7 +301,7 @@ export default function StockDetail() {
     );
   }
 
-  const stock = hasScannerData ? liveStock : (historicalStock ?? baseStock ?? benchmarkStock);
+  const stock = canonicalStock ?? (historicalStock ?? baseStock ?? benchmarkStock);
   if (!stock) {
     return (
       <div className="p-6">
@@ -342,23 +319,15 @@ export default function StockDetail() {
   };
 
   const contextState = screenerQuery.data?.providerStatus.uiState ?? 'LIVE';
-  const scannerPattern = (scannerData?.pattern?.toUpperCase() as WSPPattern | undefined);
-  const displayPattern = scannerPattern && patternBanners[scannerPattern] ? scannerPattern : stock.pattern;
-  const displayScore = typeof scannerPayload?.wsp_score === 'number'
-    ? scannerPayload.wsp_score
-    : typeof scannerData?.score === 'number'
-      ? scannerData.score
-      : stock.score;
+  const displayPattern = stock.pattern;
+  const displayScore = stock.score;
   const displayMaxScore = 4;
-  const scannerSlopeDirection = scannerPayload?.ma50_slope?.toLowerCase();
-  const ma50SlopeDirection = scannerSlopeDirection === 'rising' || scannerSlopeDirection === 'falling' || scannerSlopeDirection === 'flat'
-    ? scannerSlopeDirection
-    : stock.audit.sma50SlopeDirection;
+  const ma50SlopeDirection = stock.audit.sma50SlopeDirection;
   const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const banner = patternBanners[displayPattern];
   const volMultiple = stockWithMeta.audit.volumeMultiple;
-  const indicatorVolumeRatio = scannerPayload?.volume_ratio ?? indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null;
-  const indicatorMansfieldRs = scannerPayload?.mansfield_rs ?? indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null;
+  const indicatorVolumeRatio = indicatorQuery.data?.volume_ratio ?? stockWithMeta.audit.volumeMultiple ?? null;
+  const indicatorMansfieldRs = indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null;
   const indicatorDailyChange = indicatorQuery.data?.pct_change_1d;
   const headerChangePercent = typeof indicatorDailyChange === 'number' && Number.isFinite(indicatorDailyChange)
     ? indicatorDailyChange
@@ -371,20 +340,7 @@ export default function StockDetail() {
   const stopLossFourPct = stockWithMeta.price * 0.96;
   const stopLossSixPct = stockWithMeta.price * 0.94;
   const stopLossRecommended = priorLow != null ? Math.min(stopLossFourPct, priorLow) : stopLossFourPct;
-  const checklistStock = hasScannerData
-    ? {
-        ...stockWithMeta,
-        gate: {
-          ...stockWithMeta.gate,
-          priceAboveMA50: scannerPayload?.above_ma50 ?? stockWithMeta.gate.priceAboveMA50,
-          priceAboveMA150: scannerPayload?.above_ma150 ?? stockWithMeta.gate.priceAboveMA150,
-        },
-        audit: {
-          ...stockWithMeta.audit,
-          sma50SlopeDirection: ma50SlopeDirection,
-        },
-      }
-    : stockWithMeta;
+  const checklistStock = stockWithMeta;
 
   const notices = [
     !detailData.isApprovedLiveCohort ? 'Not currently in approved live cohort.' : null,
@@ -447,15 +403,15 @@ export default function StockDetail() {
         <div className="flex items-center gap-4">
           <PatternBadge pattern={displayPattern} size="md" />
           <WSPScoreRing score={displayScore} maxScore={displayMaxScore} size={80} />
-          {hasScannerData && (
+          {hasCanonicalTruth && (
             <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-primary">
-              Source: Scanner
+              Source: Canonical Screener
             </span>
           )}
         </div>
       </div>
 
-      {!hasScannerData && notices.length > 0 && (
+      {!hasCanonicalTruth && notices.length > 0 && (
         <div className="space-y-2 rounded-lg border border-signal-caution/30 bg-signal-caution/10 p-3">
           {notices.map((notice) => (
             <div key={notice} className="text-xs font-mono text-signal-caution">• {notice}</div>
@@ -481,7 +437,7 @@ export default function StockDetail() {
 
       {activeTab === 'chart' && (
         <div className="space-y-3">
-          {!hasScannerData && (
+          {!hasCanonicalTruth && (
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-mono text-muted-foreground">
               Denna aktie ingår inte i WSP-scannern
             </div>
@@ -503,7 +459,7 @@ export default function StockDetail() {
             asOfIndex={asOfIndex}
             onAsOfIndexChange={setAsOfIndex}
             dataState={contextState}
-            hideBlockers={hasScannerData || !liveStock}
+            hideBlockers={hasCanonicalTruth || !liveStock}
           />
         </div>
       )}
