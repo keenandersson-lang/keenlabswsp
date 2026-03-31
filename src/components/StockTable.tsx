@@ -12,6 +12,9 @@ interface StockTableProps {
   stocks: EvaluatedStock[];
   discoveryMeta?: DiscoveryMeta;
   detailLinkSearch?: string;
+  contextLabel?: string | null;
+  topFocusSymbols?: string[];
+  showContextRank?: boolean;
 }
 
 type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
@@ -137,7 +140,14 @@ function BoolCell({ value }: { value: boolean | null | undefined }) {
   );
 }
 
-export function StockTable({ stocks, discoveryMeta, detailLinkSearch = '' }: StockTableProps) {
+export function StockTable({
+  stocks,
+  discoveryMeta,
+  detailLinkSearch = '',
+  contextLabel = null,
+  topFocusSymbols = [],
+  showContextRank = false,
+}: StockTableProps) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterValue>('all');
   const [search, setSearch] = useState('');
@@ -184,6 +194,23 @@ export function StockTable({ stocks, discoveryMeta, detailLinkSearch = '' }: Sto
       }
       return dir * ((a[sortBy] as number) - (b[sortBy] as number));
     }), [filter, search, sortBy, sortDir, stocks]);
+  const contextTopSymbolSet = useMemo(() => new Set(topFocusSymbols), [topFocusSymbols]);
+  const contextRankBySymbol = useMemo(() => {
+    if (!showContextRank) return new Map<string, number>();
+    const ranked = filtered
+      .slice()
+      .sort((a, b) => {
+        const scoreDiff = getRowPresentationTruth(b).score - getRowPresentationTruth(a).score;
+        if (scoreDiff !== 0) return scoreDiff;
+        const volumeDiff = (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY);
+        if (volumeDiff !== 0) return volumeDiff;
+        const patternDiff = getPatternPriority(b) - getPatternPriority(a);
+        if (patternDiff !== 0) return patternDiff;
+        return a.symbol.localeCompare(b.symbol);
+      });
+
+    return new Map(ranked.map((stock, index) => [stock.symbol, index + 1]));
+  }, [filtered, showContextRank]);
 
   const handleSort = (col: SortKey) => {
     if (sortBy === col) setSortDir((dir) => dir === 'asc' ? 'desc' : 'asc');
@@ -325,6 +352,16 @@ export function StockTable({ stocks, discoveryMeta, detailLinkSearch = '' }: Sto
                         </div>
                         <p className="max-w-[100px] truncate text-[10px] text-muted-foreground">{companyName}</p>
                         <p className="text-[9px] text-muted-foreground">{stock.exchange ?? 'N/A'} · {stock.supportsFullWsp ? 'Full WSP' : 'Limited'}</p>
+                        {showContextRank && (
+                          <p className="mt-0.5 text-[9px] text-muted-foreground">
+                            {contextLabel ? `${contextLabel} rank` : 'Context rank'} #{contextRankBySymbol.get(stock.symbol) ?? '—'} / {filtered.length}
+                          </p>
+                        )}
+                        {contextTopSymbolSet.has(stock.symbol) && (
+                          <span className="mt-1 inline-flex rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-mono text-primary">
+                            Snapshot top
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs font-medium">{formatCurrency(stock.price)}</td>
