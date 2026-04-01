@@ -417,6 +417,12 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           fallbackCause: anyStale ? 'necessary' : 'unknown',
         },
       },
+      trust: resolveScreenerTrustState({
+        uiState,
+        benchmarkFetchStatus: anyStale ? 'stale' : 'success',
+        fallbackActive: false,
+        dataProvenance: 'edge_function',
+      }),
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
   } catch (error) {
