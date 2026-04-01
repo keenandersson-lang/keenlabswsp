@@ -10,6 +10,7 @@ import { createMarketDataProvider } from './market-data-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 import { buildDiscoverySnapshot } from '../src/lib/discovery';
+import { resolveScreenerTrustState } from '../src/lib/screener-trust';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '../src/lib/benchmarks';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
