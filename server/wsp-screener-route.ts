@@ -421,7 +421,7 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
         uiState,
         benchmarkFetchStatus: anyStale ? 'stale' : 'success',
         fallbackActive: false,
-        dataProvenance: 'edge_function',
+        dataProvenance: 'provider_route',
       }),
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
@@ -775,7 +775,7 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
       uiState: 'ERROR',
       benchmarkFetchStatus: 'failed',
       fallbackActive: false,
-      dataProvenance: 'edge_function',
+      dataProvenance: 'provider_route',
     }),
     debugSummary: buildScreenerDebugSummary([]),
   };
