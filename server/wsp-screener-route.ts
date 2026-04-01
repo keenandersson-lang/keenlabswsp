@@ -704,6 +704,12 @@ function createFallbackResponse(
         fallbackCause: classifyFallbackCause(modeReason, envVarPresent, true),
       },
     },
+    trust: resolveScreenerTrustState({
+      uiState: 'FALLBACK',
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: true,
+      dataProvenance: 'demo_fallback',
+    }),
     debugSummary: buildScreenerDebugSummary(demoStocks),
   };
 }
