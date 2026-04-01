@@ -771,6 +771,12 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
         fallbackCause: classifyFallbackCause('No renderable live, stale, or fallback snapshot exists.', providerSelection.envVarPresent, routeReachable),
       },
     },
+    trust: resolveScreenerTrustState({
+      uiState: 'ERROR',
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: false,
+      dataProvenance: 'edge_function',
+    }),
     debugSummary: buildScreenerDebugSummary([]),
   };
 }
