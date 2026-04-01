@@ -10,6 +10,7 @@ import { createMarketDataProvider } from './market-data-provider';
 import { buildScreenerDebugSummary } from '../src/lib/wsp-validation';
 import { sanitizeClientErrorMessage } from '../src/lib/safe-messages';
 import { buildDiscoverySnapshot } from '../src/lib/discovery';
+import { resolveScreenerTrustState } from '../src/lib/screener-trust';
 import { NASDAQ_BENCHMARK, SP500_BENCHMARK } from '../src/lib/benchmarks';
 
 const DEFAULT_POLLING_INTERVAL_MS = WSP_CONFIG.refreshInterval;
@@ -416,6 +417,12 @@ async function buildSnapshot(pollingIntervalMs: number): Promise<ScreenerApiResp
           fallbackCause: anyStale ? 'necessary' : 'unknown',
         },
       },
+      trust: resolveScreenerTrustState({
+        uiState,
+        benchmarkFetchStatus: anyStale ? 'stale' : 'success',
+        fallbackActive: false,
+        dataProvenance: 'provider_route',
+      }),
       debugSummary: buildScreenerDebugSummary(evaluatedStocks),
     };
   } catch (error) {
@@ -697,6 +704,12 @@ function createFallbackResponse(
         fallbackCause: classifyFallbackCause(modeReason, envVarPresent, true),
       },
     },
+    trust: resolveScreenerTrustState({
+      uiState: 'FALLBACK',
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: true,
+      dataProvenance: 'demo_fallback',
+    }),
     debugSummary: buildScreenerDebugSummary(demoStocks),
   };
 }
@@ -758,6 +771,12 @@ function createErrorResponse(reason: string, pollingIntervalMs: number, routeRea
         fallbackCause: classifyFallbackCause('No renderable live, stale, or fallback snapshot exists.', providerSelection.envVarPresent, routeReachable),
       },
     },
+    trust: resolveScreenerTrustState({
+      uiState: 'ERROR',
+      benchmarkFetchStatus: 'failed',
+      fallbackActive: false,
+      dataProvenance: 'provider_route',
+    }),
     debugSummary: buildScreenerDebugSummary([]),
   };
 }
