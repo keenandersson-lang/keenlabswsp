@@ -15,6 +15,7 @@ interface StockTableProps {
   contextLabel?: string | null;
   topFocusSymbols?: string[];
   showContextRank?: boolean;
+  scannedRowCount?: number;
 }
 
 type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
@@ -147,6 +148,7 @@ export function StockTable({
   contextLabel = null,
   topFocusSymbols = [],
   showContextRank = false,
+  scannedRowCount,
 }: StockTableProps) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -539,7 +541,13 @@ export function StockTable({
             })}
           </tbody>
         </table>
-        {filtered.length === 0 && <div className="py-12 text-center text-sm text-muted-foreground">Inga aktier matchar filtret</div>}
+        {filtered.length === 0 && (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            {typeof scannedRowCount === 'number' && Number.isFinite(scannedRowCount) && scannedRowCount > 0
+              ? `0 matching rows out of ${scannedRowCount} scanned rows.`
+              : 'Inga aktier matchar filtret'}
+          </div>
+        )}
       </div>
     </div>
   );

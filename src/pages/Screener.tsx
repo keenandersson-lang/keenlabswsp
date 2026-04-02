@@ -138,6 +138,7 @@ export default function Screener() {
     };
   }, [activeIndustry, activeSector, filteredStocks]);
   const canLoadMore = (providerStatus?.symbolCount ?? 0) > stocks.length;
+  const scannedRowCount = providerStatus?.symbolCount ?? equityStocks.length;
 
   const counts = useMemo(() => ({
     buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
@@ -212,7 +213,7 @@ export default function Screener() {
           <div>
             <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              Visar {filteredStocks.length} av {equityStocks.length} aktier
+              Visar {filteredStocks.length} av {Math.max(equityStocks.length, scannedRowCount)} aktier
               {trust.displayState !== 'LIVE' && <span className="text-signal-caution"> · {trust.displayState}</span>}
             </p>
           </div>
@@ -390,6 +391,7 @@ export default function Screener() {
           contextLabel={activeIndustry ?? activeSector}
           topFocusSymbols={activeIndustrySnapshot?.topEquities ?? []}
           showContextRank={Boolean(activeSector || activeIndustry)}
+          scannedRowCount={scannedRowCount}
         />
 
         {canLoadMore && (
