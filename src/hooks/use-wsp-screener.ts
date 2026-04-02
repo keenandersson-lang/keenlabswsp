@@ -426,16 +426,14 @@ interface BenchmarkSnapshot {
 }
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
-  const { count, error } = await (supabase as any)
-    .from('market_scan_results_latest')
-    .select('symbol', { count: 'exact', head: true })
-;
+  const { data, error } = await (supabase as any)
+    .rpc('get_equity_dashboard_rows');
 
   if (error) {
     return null;
   }
 
-  return typeof count === 'number' ? count : null;
+  return Array.isArray(data) ? data.length : null;
 }
 
 function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): BenchmarkSnapshot {
@@ -464,17 +462,20 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
   benchmarkFetchStatus: 'success' | 'stale' | 'failed';
 }> {
   const { data, error } = await (supabase as any)
-    .from('wsp_indicators')
-    .select('symbol, close, pct_change_1d, created_at, above_ma50, ma50_slope')
-    .in('symbol', [SP500_BENCHMARK.symbol, NASDAQ_BENCHMARK.symbol])
-    .order('symbol', { ascending: true })
-    .order('created_at', { ascending: false });
+    .rpc('get_equity_dashboard_rows');
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const rows = (data ?? []) as IndicatorSnapshotRow[];
+  const rows = (Array.isArray(data) ? data : []).map((row: any) => ({
+    symbol: row.symbol,
+    close: row.close,
+    pct_change_1d: row.daily_pct,
+    created_at: null,
+    above_ma50: null,
+    ma50_slope: null,
+  })) as IndicatorSnapshotRow[];
   const sp500 = buildBenchmarkSnapshot(rows, SP500_BENCHMARK.symbol);
   const nasdaq = buildBenchmarkSnapshot(rows, NASDAQ_BENCHMARK.symbol);
 
@@ -990,49 +991,40 @@ async function fetchDirectFromSupabase(page: number = 0, pageSize?: number): Pro
   const normalizedPage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
   const hasPagination = typeof pageSize === 'number' && Number.isFinite(pageSize) && pageSize > 0;
   const normalizedPageSize = hasPagination ? Math.floor(pageSize as number) : null;
-  const offset = hasPagination && normalizedPageSize !== null ? normalizedPage * normalizedPageSize : 0;
 
-  let query = (supabase as any)
-    .from('market_scan_results_latest')
-    .select('symbol, sector, industry, pattern, recommendation, score, payload')
-    .order('score', { ascending: false });
-
-  if (hasPagination && normalizedPageSize !== null) {
-    query = query
-      .range(offset, offset + normalizedPageSize - 1)
-      .limit(normalizedPageSize);
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', {
+    p_page: normalizedPage,
+    p_page_size: hasPagination && normalizedPageSize !== null ? normalizedPageSize : 5000,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const allRows = (data ?? []) as DirectScannerRow[];
+  const allRows = (Array.isArray(data) ? data : []).map((row: any) => ({
+    symbol: row.symbol,
+    sector: row.sector,
+    industry: row.industry,
+    pattern: row.pattern_state,
+    recommendation: row.recommendation,
+    score: row.wsp_score,
+    payload: row.payload,
+  })) as DirectScannerRow[];
   console.log(`[WSP] Supabase direct fetch page ${normalizedPage + 1}: ${allRows.length} rows`);
   console.log(`[WSP] Supabase direct fetch final stock rows: ${allRows.length}`);
 
   const validRows = allRows.filter((row): row is DirectScannerRow & { symbol: string } => typeof row.symbol === 'string' && row.symbol.length > 0);
-  const symbols = [...new Set(validRows.map((row) => row.symbol))];
-  const latestIndicatorsBySymbol = new Map<string, IndicatorSnapshotRow>();
-  if (symbols.length > 0) {
-    const { data: indicatorRows, error: indicatorError } = await (supabase as any)
-      .from('wsp_indicators')
-      .select('symbol, close, pct_change_1d, created_at')
-      .in('symbol', symbols)
-      .order('symbol', { ascending: true })
-      .order('created_at', { ascending: false });
-
-    if (indicatorError) {
-      throw new Error(indicatorError.message);
-    }
-
-    for (const indicatorRow of (indicatorRows ?? []) as IndicatorSnapshotRow[]) {
-      if (!indicatorRow.symbol || latestIndicatorsBySymbol.has(indicatorRow.symbol)) continue;
-      latestIndicatorsBySymbol.set(indicatorRow.symbol, indicatorRow);
-    }
-  }
+  const latestIndicatorsBySymbol = new Map<string, IndicatorSnapshotRow>(
+    validRows.map((row) => [
+      row.symbol,
+      {
+        symbol: row.symbol,
+        close: typeof row.payload === 'object' && row.payload ? (row.payload as any).close ?? null : null,
+        pct_change_1d: typeof row.payload === 'object' && row.payload ? (row.payload as any).pct_change_1d ?? null : null,
+        created_at: null,
+      } as IndicatorSnapshotRow,
+    ]),
+  );
 
   const nowIso = new Date().toISOString();
   return allRows

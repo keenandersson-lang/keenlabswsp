@@ -94,6 +94,13 @@ async function fetchSearchableSymbolMeta(supabase: any, symbol: string) {
   return data;
 }
 
+async function fetchCanonicalDetailRow(supabase: any, symbol: string) {
+  const { data, error } = await supabase.rpc('get_equity_stock_detail', { p_symbol: symbol });
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data) || data.length === 0) return null;
+  return data[0];
+}
+
 function isActiveSymbol(meta: any): boolean {
   if (!meta) return false;
   return meta.is_active !== false;
@@ -135,11 +142,12 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const benchmarkSymbol = 'SPY';
-    const [stockBars, benchmarkBars, symbolMeta, approvedLive] = await Promise.all([
+    const [stockBars, benchmarkBars, symbolMeta, approvedLive, canonicalDetail] = await Promise.all([
       fetchBarsFromCache(supabase, symbol),
       fetchBarsFromCache(supabase, benchmarkSymbol),
       fetchSearchableSymbolMeta(supabase, symbol),
       isApprovedLiveCohort(supabase, symbol),
+      fetchCanonicalDetailRow(supabase, symbol),
     ]);
 
     if (!isActiveSymbol(symbolMeta)) {
@@ -147,6 +155,14 @@ Deno.serve(async (req: Request) => {
         ok: false,
         data: null,
         error: { code: 'SYMBOL_NOT_ACTIVE', message: `${symbol} is not an active symbol.` },
+      });
+    }
+
+    if (!canonicalDetail) {
+      return json(503, {
+        ok: false,
+        data: null,
+        error: { code: 'CANONICAL_SNAPSHOT_UNAVAILABLE', message: `No canonical snapshot row available for ${symbol}.` },
       });
     }
 
@@ -171,8 +187,8 @@ Deno.serve(async (req: Request) => {
       data: {
         symbol,
         name: symbolMeta?.company_name ?? symbolMeta?.name ?? symbol,
-        sector: symbolMeta?.sector ?? 'Unknown',
-        industry: symbolMeta?.industry ?? 'Unknown',
+        sector: canonicalDetail.sector ?? symbolMeta?.sector ?? 'Unknown',
+        industry: canonicalDetail.industry ?? symbolMeta?.industry ?? 'Unknown',
         exchange: symbolMeta?.exchange ?? undefined,
         assetClass,
         supportsFullWsp: Boolean(hasFullSupport),
@@ -184,6 +200,7 @@ Deno.serve(async (req: Request) => {
         barsWeekly: aggregateBarsWeekly(stockBars),
         benchmarkDaily: benchmarkBars,
         benchmarkWeekly: aggregateBarsWeekly(benchmarkBars),
+        canonicalSnapshotId: canonicalDetail.snapshot_id,
         fetchedAt: new Date().toISOString(),
       },
       error: null,
