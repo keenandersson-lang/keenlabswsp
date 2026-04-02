@@ -1564,7 +1564,7 @@ export async function fetchWspPatternCounts(): Promise<WspPatternCounts> {
     downhill: 0,
   };
 
-  const { data, error } = await supabase.rpc('get_scanner_funnel_counts');
+  const { data, error } = await supabase.rpc('get_equity_canonical_funnel_counts');
   if (error || !data || typeof data !== 'object' || Array.isArray(data)) return counts;
 
   const payload = data as {
