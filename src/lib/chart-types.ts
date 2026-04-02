@@ -18,6 +18,7 @@ export interface StockDetailPayload {
   barsWeekly: Bar[];
   benchmarkDaily: Bar[];
   benchmarkWeekly: Bar[];
+  canonicalSnapshotId?: number;
   fetchedAt: string;
 }
 

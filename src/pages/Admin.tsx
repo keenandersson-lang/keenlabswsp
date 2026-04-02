@@ -185,6 +185,26 @@ export default function Admin() {
     ...ONE_TIME_QUERY_OPTIONS,
   });
 
+  const { data: pipelineRuns = [] } = useQuery({
+    queryKey: ['admin-equity-pipeline-runs'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_equity_pipeline_runs', { p_limit: 10 });
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 10_000,
+  });
+
+  const { data: pipelineSnapshots = [] } = useQuery({
+    queryKey: ['admin-equity-pipeline-snapshots'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_equity_snapshots', { p_limit: 10 });
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 10_000,
+  });
+
   // ── Tier 1 readiness ──
   const { data: tier1Status } = useQuery({
     queryKey: ['tier1-readiness'],
@@ -952,6 +972,42 @@ export default function Admin() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-mono tracking-wider text-muted-foreground">
+            EQUITY SNAPSHOT PIPELINE (CANONICAL)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-[11px] font-mono text-muted-foreground">
+            Active run lock: {pipelineRuns.some((r: any) => r.status === 'running') ? 'LOCKED (run in progress)' : 'UNLOCKED'}
+          </div>
+          <div className="space-y-2">
+            {(pipelineRuns as any[]).slice(0, 5).map((run) => (
+              <div key={run.id} className="rounded border border-border p-2 text-[11px] font-mono">
+                <div>Run #{run.id} · {run.run_type} · <span className="text-primary">{run.status}</span></div>
+                <div className="text-muted-foreground">Started: {run.started_at ?? '—'}</div>
+                {run.error_summary && <div className="text-signal-danger">Error: {run.error_summary}</div>}
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2">
+            {(pipelineSnapshots as any[]).slice(0, 3).map((snapshot) => (
+              <div key={snapshot.snapshot_id} className="rounded border border-border p-2 text-[11px] font-mono">
+                <div>
+                  Snapshot #{snapshot.snapshot_id} · {snapshot.status}
+                  {snapshot.is_canonical ? ' · CANONICAL' : ''}
+                </div>
+                <div className="text-muted-foreground">
+                  Symbols: {snapshot.symbols_completed}/{snapshot.symbols_expected} ·
+                  Drift guard: failed/building snapshots are never public.
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

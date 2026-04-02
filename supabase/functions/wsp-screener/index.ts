@@ -1,5 +1,5 @@
 // WSP Screener Edge Function — Cache-first with live quote overlay
-// Reads bars from daily_prices and scopes stocks from market_scan_results_latest (live cohort source of truth)
+// Reads bars from daily_prices and canonical screener rows from latest published equity snapshot.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
@@ -82,15 +82,13 @@ function getCachedQuote(symbol: string) {
 }
 
 async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
-  const from = 0;
-  const to = MAX_SCANNER_SYMBOLS - 1;
-  const { data, error } = await supabase
-    .from("market_scan_results_latest")
-    .select("symbol, pattern, recommendation, score, sector, industry, payload")
-    .range(from, to);
+  const { data, error } = await supabase.rpc("get_equity_screener_rows", {
+    p_page: 0,
+    p_page_size: MAX_SCANNER_SYMBOLS,
+  });
 
   if (error) {
-    throw new Error(`wsp-screener live cohort query failed: ${error.message}`);
+    throw new Error(`wsp-screener canonical cohort query failed: ${error.message}`);
   }
 
   const allRows = (data ?? []) as any[];
@@ -102,7 +100,7 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
 
   const latestRows = allRows;
   if (latestRows.length === 0) {
-    console.warn("wsp-screener no rows from market_scan_results_latest");
+    console.warn("wsp-screener no rows from canonical screener snapshot");
     return [];
   }
 
@@ -115,10 +113,10 @@ async function fetchLiveScannerCohort(supabase: any): Promise<SymbolMeta[]> {
       name: row.symbol,
       sector: resolvedSector,
       industry: row?.industry && row.industry !== "Unknown" ? row.industry : "Unknown",
-      pattern: row?.pattern ?? null,
+      pattern: row?.pattern_state ?? row?.pattern ?? null,
       recommendation: row?.recommendation ?? null,
-      scannerScore: Number.isFinite(Number(row?.score))
-        ? Number(row?.score)
+      scannerScore: Number.isFinite(Number(row?.wsp_score))
+        ? Number(row?.wsp_score)
         : Number.isFinite(Number(row?.payload?.wsp_score))
           ? Number(row?.payload?.wsp_score)
           : null,
@@ -280,34 +278,30 @@ async function fetchLatestWspIndicators(
   const chunkSize = 500;
   for (let i = 0; i < symbols.length; i += chunkSize) {
     const chunk = symbols.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from("wsp_indicators")
-      .select(
-        "symbol, calc_date, close, ma50, ma150, ma50_slope, above_ma50, above_ma150, volume, volume_ratio, mansfield_rs, wsp_pattern, wsp_score, pct_change_1d",
-      )
-      .in("symbol", chunk)
-      .order("symbol", { ascending: true })
-      .order("calc_date", { ascending: false });
+    const { data, error } = await supabase.rpc("get_equity_screener_rows", {
+      p_page: 0,
+      p_page_size: MAX_SCANNER_SYMBOLS,
+    });
 
     if (error || !data?.length) continue;
 
-    for (const row of data) {
+    for (const row of (data as any[]).filter((entry) => chunk.includes(entry.symbol))) {
       if (indicatorMap[row.symbol]) continue;
       indicatorMap[row.symbol] = {
         symbol: row.symbol,
-        calc_date: row.calc_date,
+        calc_date: new Date().toISOString().slice(0, 10),
         close: row.close === null ? null : Number(row.close),
-        ma50: row.ma50 === null ? null : Number(row.ma50),
-        ma150: row.ma150 === null ? null : Number(row.ma150),
-        ma50_slope: row.ma50_slope === null ? null : String(row.ma50_slope),
-        above_ma50: row.above_ma50,
-        above_ma150: row.above_ma150,
-        volume: row.volume === null ? null : Number(row.volume),
+        ma50: null,
+        ma150: null,
+        ma50_slope: null,
+        above_ma50: null,
+        above_ma150: null,
+        volume: null,
         volume_ratio: row.volume_ratio === null ? null : Number(row.volume_ratio),
-        mansfield_rs: row.mansfield_rs === null ? null : Number(row.mansfield_rs),
-        wsp_pattern: row.wsp_pattern,
+        mansfield_rs: null,
+        wsp_pattern: row.pattern_state ?? null,
         wsp_score: row.wsp_score === null ? null : Number(row.wsp_score),
-        pct_change_1d: row.pct_change_1d === null ? null : Number(row.pct_change_1d),
+        pct_change_1d: row.daily_pct === null ? null : Number(row.daily_pct),
       };
     }
   }
