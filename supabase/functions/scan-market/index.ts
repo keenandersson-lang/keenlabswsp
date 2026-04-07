@@ -56,33 +56,7 @@ Deno.serve(async (req: Request) => {
     console.error('scan-market log insert failed:', logInsertError.message);
   }
 
-  // Step 1: Refresh universe snapshot separately (can be slow)
-  console.log('Step 1: Refreshing scanner universe snapshot...');
-  const { data: universeRunId, error: universeErr } = await supabase.rpc('refresh_scanner_universe_snapshot', {
-    p_as_of_date: asOfDate,
-    p_run_label: `universe_${runLabel}`,
-  });
-
-  if (universeErr) {
-    console.error('Universe snapshot failed:', universeErr.message);
-    if (logRow?.id) {
-      await supabase.from('data_sync_log').update({
-        status: 'error',
-        completed_at: new Date().toISOString(),
-        error_message: `Universe snapshot failed: ${universeErr.message}`,
-      }).eq('id', logRow.id);
-    }
-    return jsonResponse(500, {
-      ok: false,
-      step: 'universe_snapshot',
-      error: universeErr.message,
-    });
-  }
-
-  console.log(`Universe snapshot done, run_id=${universeRunId}`);
-
-  // Step 2: Run the broad market scan (uses the universe snapshot)
-  console.log('Step 2: Running broad market scan...');
+  console.log('Running broad market scan...');
   const { data: scanRunId, error: scanErr } = await supabase.rpc('run_broad_market_scan', {
     p_as_of_date: asOfDate,
     p_run_label: runLabel,
@@ -95,20 +69,26 @@ Deno.serve(async (req: Request) => {
         status: 'error',
         completed_at: new Date().toISOString(),
         error_message: `Scan failed: ${scanErr.message}`,
-        metadata: { as_of_date: asOfDate, run_label: runLabel, universe_run_id: universeRunId },
+        metadata: { as_of_date: asOfDate, run_label: runLabel },
       }).eq('id', logRow.id);
     }
     return jsonResponse(500, {
       ok: false,
       step: 'broad_market_scan',
-      universeRunId,
       error: scanErr.message,
     });
   }
 
   console.log(`Scan done, scan_run_id=${scanRunId}`);
 
-  // Step 3: Get operator snapshot for response
+  const { data: scanRunMeta } = await supabase
+    .from('market_scan_runs')
+    .select('universe_run_id')
+    .eq('id', scanRunId)
+    .maybeSingle();
+
+  const universeRunId = scanRunMeta?.universe_run_id ?? null;
+
   const { data: operatorSnapshot } = await supabase.rpc('scanner_operator_snapshot');
 
   if (logRow?.id) {
