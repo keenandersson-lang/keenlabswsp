@@ -564,7 +564,60 @@ export default function Admin() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> Daily Sync (Polygon)</CardTitle>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Database className="h-4 w-4" /> Yahoo Historical Backfill</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground font-mono">Backfillar 2 år prisdata via Yahoo Finance för symboler med &lt; 200 bars.</p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              value={backfillState.batchSize}
+              onChange={(e) => setBackfillState(prev => ({ ...prev, batchSize: Math.max(1, Math.min(50, Number(e.target.value) || 10)) }))}
+              className="w-20 font-mono text-xs"
+              placeholder="Batch"
+            />
+            <Button
+              onClick={runYahooBackfill}
+              disabled={backfillState.running || !syncSecret.trim()}
+              size="sm"
+              className="font-mono text-xs"
+            >
+              {backfillState.running ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Kör...</> : <><Database className="h-3 w-3 mr-1" /> Starta Backfill</>}
+            </Button>
+            {backfillState.running && (
+              <Button onClick={() => { backfillAbortRef.current = true; toast.info('Stoppar backfill...'); }} variant="destructive" size="sm" className="font-mono text-xs">
+                Stoppa
+              </Button>
+            )}
+          </div>
+
+          {(backfillState.totalProcessed > 0 || backfillState.running) && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+              <Stat label="Symboler" value={String(backfillState.totalProcessed)} />
+              <Stat label="Bars" value={String(backfillState.totalBars)} />
+              <Stat label="Fel" value={String(backfillState.totalFailed)} />
+              <Stat label="Offset" value={String(backfillState.offset)} />
+            </div>
+          )}
+
+          {backfillState.done && (
+            <p className="text-signal-success flex items-center gap-1 text-xs font-mono">
+              <CheckCircle2 className="h-4 w-4" /> Backfill slutförd!
+            </p>
+          )}
+
+          {backfillState.logs.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono space-y-0.5">
+              {backfillState.logs.map((log, i) => (
+                <div key={i} className="text-muted-foreground">{log}</div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
