@@ -318,7 +318,7 @@ function RegimeCard({
   );
 }
 
-function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
+function BenchmarkCard({ label, symbol, change, price, date }: { label: string; symbol: string; change: number; price: number | null; date?: string | null }) {
   const positive = change >= 0;
   return (
     <Link
@@ -330,6 +330,7 @@ function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol
         <div className="font-mono text-base font-bold text-foreground mt-0.5">
           {price === null ? '—' : `$${price.toFixed(2)}`}
         </div>
+        {date && <div className="text-[8px] font-mono text-muted-foreground mt-0.5">Data: {date}</div>}
       </div>
       <div className={`flex items-center gap-0.5 font-mono text-sm font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
         {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
