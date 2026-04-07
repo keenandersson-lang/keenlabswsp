@@ -84,6 +84,25 @@ export function MarketRegime({ market }: MarketRegimeProps) {
   const [metals, setMetals] = useState<MetalIndicator[]>([]);
   const [crypto, setCrypto] = useState<CryptoIndicator[]>([]);
 
+  const { data: benchmarks = [] } = useQuery<BenchmarkRow[]>({
+    queryKey: ['benchmark-prices'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_benchmark_prices');
+      if (error) throw error;
+      return (data ?? []) as BenchmarkRow[];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const spyBenchmark = benchmarks.find((b) => b.symbol === 'SPY');
+  const qqqBenchmark = benchmarks.find((b) => b.symbol === 'QQQ');
+
+  const sp500Price = spyBenchmark?.close ?? market.sp500Price;
+  const sp500Change = spyBenchmark?.pct_change_1d ?? market.sp500Change;
+  const nasdaqPrice = qqqBenchmark?.close ?? market.nasdaqPrice;
+  const nasdaqChange = qqqBenchmark?.pct_change_1d ?? market.nasdaqChange;
+  const benchmarkDate = spyBenchmark?.calc_date ?? null;
+
   useEffect(() => {
     const loadMetals = async () => {
       const { data: latestDateRows, error: latestDateError } = await (supabase as any)
