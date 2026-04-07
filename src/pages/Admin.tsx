@@ -102,6 +102,19 @@ export default function Admin() {
   const [dailySyncLog, setDailySyncLog] = useState<string | null>(null);
   const [scanLog, setScanLog] = useState<string | null>(null);
 
+  // Yahoo Backfill state
+  const [backfillState, setBackfillState] = useState<{
+    running: boolean;
+    batchSize: number;
+    offset: number;
+    totalProcessed: number;
+    totalBars: number;
+    totalFailed: number;
+    logs: string[];
+    done: boolean;
+  }>({ running: false, batchSize: 10, offset: 0, totalProcessed: 0, totalBars: 0, totalFailed: 0, logs: [], done: false });
+  const backfillAbortRef = useRef(false);
+
   const { data: pipelineRuns = [] } = useQuery<PipelineRunConsole[]>({
     queryKey: ['admin-canonical-pipeline-runs'],
     queryFn: async () => {
