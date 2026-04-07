@@ -428,6 +428,60 @@ export default function Admin() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> Bulk Enrich Sectors (Polygon)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Input
+              type="password"
+              placeholder="SYNC_SECRET_KEY"
+              value={syncSecret}
+              onChange={(e) => setSyncSecret(e.target.value)}
+              className="max-w-xs font-mono text-xs"
+            />
+            <Button
+              onClick={runBulkEnrich}
+              disabled={enrichState.running || !syncSecret.trim()}
+              size="sm"
+              className="font-mono text-xs"
+            >
+              {enrichState.running ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Kör...</> : <><Zap className="h-3 w-3 mr-1" /> Starta Bulk Enrich</>}
+            </Button>
+            {enrichState.running && (
+              <Button onClick={stopBulkEnrich} variant="destructive" size="sm" className="font-mono text-xs">
+                Stoppa
+              </Button>
+            )}
+          </div>
+
+          {(enrichState.totalEnriched > 0 || enrichState.running) && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs font-mono">
+              <Stat label="Berikade" value={String(enrichState.totalEnriched)} />
+              <Stat label="Fel" value={String(enrichState.totalFailed)} />
+              <Stat label="Promoted" value={String(enrichState.totalPromoted)} />
+              <Stat label="Kvar" value={enrichState.remaining !== null ? String(enrichState.remaining) : '—'} />
+              <Stat label="Offset" value={String(enrichState.offset)} />
+            </div>
+          )}
+
+          {enrichState.done && (
+            <p className="text-signal-success flex items-center gap-1 text-xs font-mono">
+              <CheckCircle2 className="h-4 w-4" /> Bulk-enrich slutförd!
+            </p>
+          )}
+
+          {enrichState.logs.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono space-y-0.5">
+              {enrichState.logs.map((log, i) => (
+                <div key={i} className="text-muted-foreground">{log}</div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {!pipelineRuns.length && (
         <div className="text-xs text-muted-foreground font-mono flex items-center gap-1"><Clock className="h-3 w-3" /> No pipeline runs yet.</div>
       )}
