@@ -935,6 +935,15 @@ export type Database = {
         }[]
       }
       get_scanner_funnel_counts: { Args: never; Returns: Json }
+      get_sector_performance: {
+        Args: never
+        Returns: {
+          avg_daily_pct: number
+          pct_above_ma50: number
+          sector_name: string
+          stock_count: number
+        }[]
+      }
       get_symbols_needing_backfill: {
         Args: { p_limit?: number; p_offset?: number }
         Returns: {
