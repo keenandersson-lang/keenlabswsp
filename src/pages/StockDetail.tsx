@@ -245,7 +245,7 @@ export default function StockDetail() {
   const contextState = marketCommandQuery.data?.trust.uiState ?? 'LIVE';
   const displayPattern = stock.pattern;
   const displayScore = stock.score;
-  const displayMaxScore = 4;
+  const displayMaxScore = 9;
   const ma50SlopeDirection = stock.audit.sma50SlopeDirection;
   const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const banner = patternBanners[displayPattern];

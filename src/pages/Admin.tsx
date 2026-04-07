@@ -99,6 +99,8 @@ export default function Admin() {
     done: boolean;
   }>({ running: false, offset: 0, totalEnriched: 0, totalFailed: 0, totalPromoted: 0, remaining: null, logs: [], done: false });
   const enrichAbortRef = useRef(false);
+  const [dailySyncLog, setDailySyncLog] = useState<string | null>(null);
+  const [scanLog, setScanLog] = useState<string | null>(null);
 
   const { data: pipelineRuns = [] } = useQuery<PipelineRunConsole[]>({
     queryKey: ['admin-canonical-pipeline-runs'],
@@ -477,6 +479,83 @@ export default function Admin() {
               {enrichState.logs.map((log, i) => (
                 <div key={i} className="text-muted-foreground">{log}</div>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> Daily Sync (Polygon)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={async () => {
+                if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
+                const baseUrl = import.meta.env.VITE_SUPABASE_URL
+                  ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/daily-sync`
+                  : '';
+                if (!baseUrl) { toast.error('SUPABASE_URL saknas'); return; }
+                toast.info('Kör daily-sync...');
+                try {
+                  const res = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+                    body: JSON.stringify({}),
+                  });
+                  const data = await res.json();
+                  setDailySyncLog(JSON.stringify(data, null, 2));
+                  toast.success('Daily sync klar');
+                } catch (err) {
+                  setDailySyncLog(`Fel: ${String(err)}`);
+                  toast.error('Daily sync misslyckades');
+                }
+              }}
+              disabled={!syncSecret.trim()}
+              size="sm"
+              className="font-mono text-xs"
+            >
+              <Zap className="h-3 w-3 mr-1" /> Kör Daily Sync
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
+                const baseUrl = import.meta.env.VITE_SUPABASE_URL
+                  ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/scan-market`
+                  : '';
+                if (!baseUrl) { toast.error('SUPABASE_URL saknas'); return; }
+                toast.info('Kör market scan...');
+                try {
+                  const res = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+                    body: JSON.stringify({ runLabel: 'manual_admin' }),
+                  });
+                  const data = await res.json();
+                  setScanLog(JSON.stringify(data, null, 2));
+                  toast.success('Market scan klar');
+                } catch (err) {
+                  setScanLog(`Fel: ${String(err)}`);
+                  toast.error('Market scan misslyckades');
+                }
+              }}
+              disabled={!syncSecret.trim()}
+              size="sm"
+              variant="outline"
+              className="font-mono text-xs"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" /> Kör Market Scan
+            </Button>
+          </div>
+          {dailySyncLog && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono whitespace-pre-wrap text-muted-foreground">
+              {dailySyncLog}
+            </div>
+          )}
+          {scanLog && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono whitespace-pre-wrap text-muted-foreground">
+              {scanLog}
             </div>
           )}
         </CardContent>
