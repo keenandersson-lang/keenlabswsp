@@ -190,6 +190,112 @@ export default function Admin() {
     toast.success('Canonical pipeline console refreshed');
   };
 
+  const runBulkEnrich = useCallback(async () => {
+    if (!syncSecret.trim()) {
+      toast.error('Ange SYNC_SECRET_KEY först');
+      return;
+    }
+    enrichAbortRef.current = false;
+    setEnrichState({ running: true, offset: 0, totalEnriched: 0, totalFailed: 0, totalPromoted: 0, remaining: null, logs: [], done: false });
+
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL
+      ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/bulk-enrich-sectors`
+      : projectId
+        ? `https://${projectId}.supabase.co/functions/v1/bulk-enrich-sectors`
+        : '';
+
+    if (!baseUrl) {
+      toast.error('Kunde inte bestämma edge function URL');
+      setEnrichState(prev => ({ ...prev, running: false }));
+      return;
+    }
+
+    let offset = 0;
+    let totalEnriched = 0;
+    let totalFailed = 0;
+    let totalPromoted = 0;
+    const logs: string[] = [];
+    const MAX_SYMBOLS_PER_CALL = 15;
+    const MAX_ITERATIONS = 300; // safety
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      if (enrichAbortRef.current) {
+        logs.push(`⏹ Stoppat av användaren vid offset ${offset}`);
+        setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        return;
+      }
+
+      try {
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${syncSecret.trim()}`,
+          },
+          body: JSON.stringify({ offset, maxSymbols: MAX_SYMBOLS_PER_CALL }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          logs.push(`❌ HTTP ${res.status} vid offset ${offset}: ${text.slice(0, 200)}`);
+          setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+          toast.error(`Bulk-enrich misslyckades: HTTP ${res.status}`);
+          return;
+        }
+
+        const data = await res.json();
+
+        if (!data.ok && data.error) {
+          logs.push(`❌ ${data.error}`);
+          setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+          return;
+        }
+
+        totalEnriched += data.enriched ?? 0;
+        totalFailed += data.failed ?? 0;
+        totalPromoted += data.promoted ?? 0;
+        const remaining = data.totalRemaining ?? null;
+
+        const msg = `✅ Batch ${i + 1}: +${data.enriched ?? 0} berikade, ${data.failed ?? 0} fel, ${data.promoted ?? 0} promoted → offset ${data.nextOffset ?? offset} (${remaining ?? '?'} kvar)`;
+        logs.push(msg);
+
+        setEnrichState({
+          running: true,
+          offset: data.nextOffset ?? offset,
+          totalEnriched,
+          totalFailed,
+          totalPromoted,
+          remaining,
+          logs: [...logs],
+          done: false,
+        });
+
+        if (data.done || !data.hasMore || (remaining !== null && remaining <= 0)) {
+          logs.push(`🏁 Klart! Totalt: ${totalEnriched} berikade, ${totalFailed} fel, ${totalPromoted} promoted`);
+          setEnrichState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
+          toast.success(`Bulk-enrich klar: ${totalEnriched} symboler berikade`);
+          return;
+        }
+
+        offset = data.nextOffset ?? (offset + (data.processed ?? MAX_SYMBOLS_PER_CALL));
+      } catch (err) {
+        logs.push(`❌ Nätverksfel vid offset ${offset}: ${String(err).slice(0, 200)}`);
+        setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        toast.error('Nätverksfel vid bulk-enrich');
+        return;
+      }
+    }
+
+    logs.push('⚠️ Max iterationer nådda (300). Kör igen för att fortsätta.');
+    setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+  }, [syncSecret]);
+
+  const stopBulkEnrich = useCallback(() => {
+    enrichAbortRef.current = true;
+    toast.info('Stoppar bulk-enrich efter nuvarande batch...');
+  }, []);
+
   const latestCanonical = useMemo(() => snapshots.find((s) => s.is_canonical) ?? null, [snapshots]);
 
   return (
