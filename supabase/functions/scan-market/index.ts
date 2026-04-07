@@ -5,6 +5,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const SCAN_STATEMENT_TIMEOUT_MS = '600000';
+
+type EdgeRuntimeLike = {
+  waitUntil?: (promise: Promise<unknown>) => void;
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -25,8 +31,7 @@ Deno.serve(async (req: Request) => {
       },
       global: {
         headers: {
-          // 120 second statement timeout
-          'x-statement-timeout': '120000',
+          'x-statement-timeout': SCAN_STATEMENT_TIMEOUT_MS,
         },
       },
     }
@@ -56,60 +61,84 @@ Deno.serve(async (req: Request) => {
     console.error('scan-market log insert failed:', logInsertError.message);
   }
 
-  console.log('Running broad market scan...');
-  const { data: scanRunId, error: scanErr } = await supabase.rpc('run_broad_market_scan', {
-    p_as_of_date: asOfDate,
-    p_run_label: runLabel,
-  });
+  const backgroundScan = (async () => {
+    console.log('Running broad market scan in background...');
 
-  if (scanErr) {
-    console.error('Broad market scan failed:', scanErr.message);
+    const { data: scanRunId, error: scanErr } = await supabase.rpc('run_broad_market_scan', {
+      p_as_of_date: asOfDate,
+      p_run_label: runLabel,
+    });
+
+    if (scanErr) {
+      console.error('Broad market scan failed:', scanErr.message);
+      if (logRow?.id) {
+        await supabase.from('data_sync_log').update({
+          status: 'error',
+          completed_at: new Date().toISOString(),
+          error_message: `Scan failed: ${scanErr.message}`,
+          metadata: {
+            as_of_date: asOfDate,
+            run_label: runLabel,
+            step: 'broad_market_scan',
+          },
+        }).eq('id', logRow.id);
+      }
+      return;
+    }
+
+    console.log(`Scan done, scan_run_id=${scanRunId}`);
+
+    const { data: scanRunMeta } = await supabase
+      .from('market_scan_runs')
+      .select('universe_run_id')
+      .eq('id', scanRunId)
+      .maybeSingle();
+
+    const universeRunId = scanRunMeta?.universe_run_id ?? null;
+    const { data: operatorSnapshot } = await supabase.rpc('scanner_operator_snapshot');
+
+    if (logRow?.id) {
+      await supabase.from('data_sync_log').update({
+        status: 'success',
+        symbols_processed: 1,
+        completed_at: new Date().toISOString(),
+        metadata: {
+          as_of_date: asOfDate,
+          run_label: runLabel,
+          universe_run_id: universeRunId,
+          scan_run_id: scanRunId,
+          operator_snapshot: operatorSnapshot ?? null,
+        },
+      }).eq('id', logRow.id);
+    }
+  })().catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Unexpected scan-market failure:', message);
+
     if (logRow?.id) {
       await supabase.from('data_sync_log').update({
         status: 'error',
         completed_at: new Date().toISOString(),
-        error_message: `Scan failed: ${scanErr.message}`,
-        metadata: { as_of_date: asOfDate, run_label: runLabel },
+        error_message: `Unexpected scan failure: ${message}`,
+        metadata: {
+          as_of_date: asOfDate,
+          run_label: runLabel,
+          step: 'background_dispatch',
+        },
       }).eq('id', logRow.id);
     }
-    return jsonResponse(500, {
-      ok: false,
-      step: 'broad_market_scan',
-      error: scanErr.message,
-    });
-  }
+  });
 
-  console.log(`Scan done, scan_run_id=${scanRunId}`);
+  const edgeRuntime = (globalThis as typeof globalThis & { EdgeRuntime?: EdgeRuntimeLike }).EdgeRuntime;
+  edgeRuntime?.waitUntil?.(backgroundScan);
 
-  const { data: scanRunMeta } = await supabase
-    .from('market_scan_runs')
-    .select('universe_run_id')
-    .eq('id', scanRunId)
-    .maybeSingle();
-
-  const universeRunId = scanRunMeta?.universe_run_id ?? null;
-
-  const { data: operatorSnapshot } = await supabase.rpc('scanner_operator_snapshot');
-
-  if (logRow?.id) {
-    await supabase.from('data_sync_log').update({
-      status: 'success',
-      symbols_processed: 1,
-      completed_at: new Date().toISOString(),
-      metadata: {
-        as_of_date: asOfDate,
-        run_label: runLabel,
-        universe_run_id: universeRunId,
-        scan_run_id: scanRunId,
-      },
-    }).eq('id', logRow.id);
-  }
-
-  return jsonResponse(200, {
+  return jsonResponse(202, {
     ok: true,
-    scanRunId,
-    universeRunId,
-    operatorSnapshot,
+    queued: true,
+    status: 'running',
+    logId: logRow?.id ?? null,
+    asOfDate,
+    runLabel,
   });
 });
 
