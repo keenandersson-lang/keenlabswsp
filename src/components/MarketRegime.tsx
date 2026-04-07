@@ -3,6 +3,9 @@ import { ArrowDownRight, ArrowUpRight, Bitcoin, CircleDollarSign, Coins, Minus, 
 import type { MarketOverview } from '@/lib/wsp-types';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+
+type BenchmarkRow = { symbol: string; close: number; pct_change_1d: number; calc_date: string; above_ma50: boolean; ma50_slope: string };
 
 interface MarketRegimeProps {
   market: MarketOverview;
