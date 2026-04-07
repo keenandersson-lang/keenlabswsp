@@ -921,6 +921,7 @@ export type Database = {
           volume: number
         }[]
       }
+      get_equity_canonical_price_bar_range: { Args: never; Returns: Json }
       get_equity_dashboard_rows: {
         Args: never
         Returns: {
@@ -929,6 +930,29 @@ export type Database = {
           daily_pct: number
           ma50_slope: string
           symbol: string
+        }[]
+      }
+      get_equity_pipeline_console_runs: {
+        Args: { p_limit?: number }
+        Returns: {
+          current_step: string
+          error_summary: string
+          finished_at: string
+          id: string
+          requested_by: string
+          run_type: string
+          started_at: string
+          status: string
+          trigger_source: string
+        }[]
+      }
+      get_equity_publish_history: {
+        Args: { p_limit?: number }
+        Returns: {
+          is_current_canonical: boolean
+          published_at: string
+          run_id: number
+          snapshot_id: number
         }[]
       }
       get_equity_screener_rows: {
@@ -941,6 +965,23 @@ export type Database = {
           sector: string
           symbol: string
           wsp_score: number
+        }[]
+      }
+      get_equity_snapshot_coverage_report: { Args: never; Returns: Json }
+      get_equity_snapshots: {
+        Args: { p_limit?: number }
+        Returns: {
+          completed_at: string
+          industries_completed: number
+          industries_expected: number
+          is_canonical: boolean
+          run_id: number
+          sectors_completed: number
+          sectors_expected: number
+          snapshot_id: number
+          status: string
+          symbols_completed: number
+          symbols_expected: number
         }[]
       }
       get_heatmap_data: {
@@ -1057,6 +1098,10 @@ export type Database = {
         Returns: number
       }
       scanner_operator_snapshot: { Args: never; Returns: Json }
+      validate_equity_snapshot: {
+        Args: { p_snapshot_id: number }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

@@ -17,7 +17,7 @@ const ONE_TIME_QUERY_OPTIONS = {
 } as const;
 
 type PipelineRunConsole = {
-  id: number;
+  id: string;
   run_type: string;
   status: string;
   started_at: string;
@@ -399,7 +399,7 @@ export default function Admin() {
         <CardContent className="space-y-2">
           {pipelineRuns.map((run) => (
             <div key={run.id} className="border rounded p-2 text-xs font-mono grid grid-cols-1 md:grid-cols-7 gap-2">
-              <Stat label="Run" value={`#${run.id}`} />
+              <Stat label="Run" value={String(run.id).slice(0, 8)} />
               <Stat label="Run Type" value={run.run_type} />
               <Stat label="Current Step" value={run.current_step ?? '—'} />
               <Stat label="Started" value={new Date(run.started_at).toLocaleString()} />
