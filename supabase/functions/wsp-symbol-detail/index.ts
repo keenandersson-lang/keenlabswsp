@@ -1,4 +1,4 @@
-// WSP Symbol Detail Edge Function — reads from daily_prices cache
+// WSP Symbol Detail Edge Function — reads from daily_prices + wsp_indicators
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const corsHeaders = {
@@ -88,15 +88,18 @@ async function fetchBarsFromCache(supabase: any, symbol: string, limit = 756): P
 async function fetchSearchableSymbolMeta(supabase: any, symbol: string) {
   const { data } = await supabase
     .from('symbols')
-    .select('name, company_name, sector, industry, exchange, asset_class, instrument_type, is_active, is_etf, is_adr, support_level')
+    .select('name, sector, industry, exchange, asset_class, instrument_type, is_active, is_etf, is_adr, support_level, canonical_sector, canonical_industry')
     .eq('symbol', symbol)
     .maybeSingle();
   return data;
 }
 
-async function fetchCanonicalDetailRow(supabase: any, symbol: string) {
-  const { data, error } = await supabase.rpc('get_equity_stock_detail', { p_symbol: symbol });
-  if (error) throw new Error(error.message);
+async function fetchSymbolDetail(supabase: any, symbol: string) {
+  const { data, error } = await supabase.rpc('get_symbol_detail', { p_symbol: symbol });
+  if (error) {
+    console.error('get_symbol_detail error:', error.message);
+    return null;
+  }
   if (!Array.isArray(data) || data.length === 0) return null;
   return data[0];
 }
@@ -108,7 +111,7 @@ function isActiveSymbol(meta: any): boolean {
 
 function inferMetadataCompleteness(meta: any): 'complete' | 'partial' | 'missing' {
   if (!meta) return 'missing';
-  const fields = [meta.sector, meta.industry, meta.exchange].filter(Boolean);
+  const fields = [meta.sector ?? meta.canonical_sector, meta.industry ?? meta.canonical_industry, meta.exchange].filter(Boolean);
   if (fields.length === 3) return 'complete';
   if (fields.length > 0) return 'partial';
   return 'missing';
@@ -142,12 +145,12 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const benchmarkSymbol = 'SPY';
-    const [stockBars, benchmarkBars, symbolMeta, approvedLive, canonicalDetail] = await Promise.all([
+    const [stockBars, benchmarkBars, symbolMeta, approvedLive, symbolDetail] = await Promise.all([
       fetchBarsFromCache(supabase, symbol),
       fetchBarsFromCache(supabase, benchmarkSymbol),
       fetchSearchableSymbolMeta(supabase, symbol),
       isApprovedLiveCohort(supabase, symbol),
-      fetchCanonicalDetailRow(supabase, symbol),
+      fetchSymbolDetail(supabase, symbol),
     ]);
 
     if (!isActiveSymbol(symbolMeta)) {
@@ -158,21 +161,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (!canonicalDetail) {
-      return json(503, {
-        ok: false,
-        data: null,
-        error: { code: 'CANONICAL_SNAPSHOT_UNAVAILABLE', message: `No canonical snapshot row available for ${symbol}.` },
-      });
-    }
-
     if (stockBars.length === 0) {
       return json(200, {
         ok: false,
         data: null,
-        error: { code: 'NO_CACHED_DATA', message: `No price data available for ${symbol}.` },
+        error: { code: 'NO_CACHED_DATA', message: `No price data available for ${symbol}. Run backfill for this symbol.` },
       });
     }
+
+    const sector = symbolDetail?.canonical_sector ?? symbolMeta?.canonical_sector ?? symbolMeta?.sector ?? 'Unknown';
+    const industry = symbolDetail?.canonical_industry ?? symbolMeta?.canonical_industry ?? symbolMeta?.industry ?? 'Unknown';
 
     const assetClass = symbolMeta?.asset_class === 'metals'
       ? 'metals'
@@ -180,15 +178,15 @@ Deno.serve(async (req: Request) => {
       ? 'commodity'
       : 'equity';
 
-    const hasFullSupport = assetClass === 'equity' && symbolMeta?.sector && symbolMeta?.industry;
+    const hasFullSupport = assetClass === 'equity' && sector !== 'Unknown' && industry !== 'Unknown';
 
     return json(200, {
       ok: true,
       data: {
         symbol,
-        name: symbolMeta?.company_name ?? symbolMeta?.name ?? symbol,
-        sector: canonicalDetail.sector ?? symbolMeta?.sector ?? 'Unknown',
-        industry: canonicalDetail.industry ?? symbolMeta?.industry ?? 'Unknown',
+        name: symbolMeta?.name ?? symbol,
+        sector,
+        industry,
         exchange: symbolMeta?.exchange ?? undefined,
         assetClass,
         supportsFullWsp: Boolean(hasFullSupport),
@@ -200,7 +198,6 @@ Deno.serve(async (req: Request) => {
         barsWeekly: aggregateBarsWeekly(stockBars),
         benchmarkDaily: benchmarkBars,
         benchmarkWeekly: aggregateBarsWeekly(benchmarkBars),
-        canonicalSnapshotId: canonicalDetail.snapshot_id,
         fetchedAt: new Date().toISOString(),
       },
       error: null,
