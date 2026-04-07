@@ -17,7 +17,7 @@ const ONE_TIME_QUERY_OPTIONS = {
 } as const;
 
 type PipelineRunConsole = {
-  id: number;
+  id: string;
   run_type: string;
   status: string;
   started_at: string;
