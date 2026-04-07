@@ -77,7 +77,7 @@ const Index = () => {
         pattern: stock.pattern,
         recommendation: stock.finalRecommendation,
         score: stock.score ?? 0,
-        maxScore: stock.maxScore ?? 4,
+        maxScore: stock.maxScore ?? 9,
         name: stock.name || stock.symbol,
         price: Number.isFinite(stock.price) && stock.price > 0 ? stock.price : null,
         changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,

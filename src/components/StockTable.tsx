@@ -726,7 +726,7 @@ function getRowPresentationTruth(stock: EvaluatedStock): RowPresentationTruth {
 
   const passedGateCount = gateChecks.filter(Boolean).length;
   const gateCount = gateChecks.length;
-  const maxScore = gateCount;
+  const maxScore = 9;
   const score = passedGateCount;
 
   const effectivePattern = getEffectiveWspPattern(stock);

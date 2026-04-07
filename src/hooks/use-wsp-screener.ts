@@ -393,7 +393,7 @@ function sanitizeStock(stock: Partial<EvaluatedStock> | null | undefined, index:
     blockedReasons: Array.isArray(stock?.blockedReasons) ? stock.blockedReasons : [],
     logicViolations: Array.isArray(stock?.logicViolations) ? stock.logicViolations : [],
     score: sanitizeNumber(stock?.score, 0),
-    maxScore: sanitizeNumber(stock?.maxScore, 4),
+    maxScore: sanitizeNumber(stock?.maxScore, 9),
     dataSource: stock?.dataSource === 'fallback' ? 'fallback' : 'live',
     lastUpdated: safeLastUpdated,
     scannerPattern: typeof stock?.scannerPattern === 'string' ? stock.scannerPattern : null,
@@ -1207,12 +1207,12 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
             },
           );
           const scannerScore = typeof meta.scannerScore === 'number' && Number.isFinite(meta.scannerScore)
-            ? Math.max(0, Math.min(4, meta.scannerScore))
+            ? Math.max(0, Math.min(9, meta.scannerScore))
             : null;
           return {
             ...evaluated,
             score: scannerScore ?? evaluated.score,
-            maxScore: 4,
+            maxScore: 9,
             scannerPattern: meta.pattern ?? null,
             scannerRecommendation: meta.recommendation ?? 'BEVAKA',
             scannerScore,
@@ -1222,7 +1222,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
 
         const fallbackPattern = toWspPattern(fallback.wsp_pattern);
         const fallbackScore = typeof fallback.wsp_score === 'number' && Number.isFinite(fallback.wsp_score)
-          ? Math.max(0, Math.min(4, fallback.wsp_score))
+          ? Math.max(0, Math.min(9, fallback.wsp_score))
           : null;
         const fallbackPct = typeof fallback.pct_change_1d === 'number' && Number.isFinite(fallback.pct_change_1d)
           ? fallback.pct_change_1d
@@ -1252,7 +1252,7 @@ function processEdgeResponse(edgeResp: EdgeFunctionResponse, fetchDiagnostics: F
         return {
           ...evaluated,
           score: fallbackScore ?? evaluated.score,
-          maxScore: 4,
+          maxScore: 9,
           scannerPattern: fallback.wsp_pattern ?? null,
           scannerRecommendation: fallback.wsp_recommendation ?? fallback.recommendation ?? 'BEVAKA',
           scannerScore: fallbackScore,
