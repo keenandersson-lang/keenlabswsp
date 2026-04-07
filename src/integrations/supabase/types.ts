@@ -917,10 +917,6 @@ export type Database = {
           vol_ratio: number
         }[]
       }
-      materialize_wsp_indicators: {
-        Args: { p_from_date?: string; p_to_date?: string }
-        Returns: undefined
-      }
       materialize_wsp_indicators_from_prices: {
         Args: {
           p_as_of_date?: string
