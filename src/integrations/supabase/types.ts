@@ -899,6 +899,28 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_benchmark_prices: {
+        Args: never
+        Returns: {
+          above_ma50: boolean
+          calc_date: string
+          close: number
+          ma50_slope: string
+          pct_change_1d: number
+          symbol: string
+        }[]
+      }
+      get_chart_data: {
+        Args: { p_days?: number; p_symbol: string }
+        Returns: {
+          close: number
+          date: string
+          high: number
+          low: number
+          open: number
+          volume: number
+        }[]
+      }
       get_equity_dashboard_rows: {
         Args: never
         Returns: {
@@ -919,6 +941,16 @@ export type Database = {
           sector: string
           symbol: string
           wsp_score: number
+        }[]
+      }
+      get_heatmap_data: {
+        Args: never
+        Returns: {
+          canonical_sector: string
+          close: number
+          pct_change_1d: number
+          symbol: string
+          wsp_pattern: string
         }[]
       }
       get_market_summary: {
@@ -942,6 +974,29 @@ export type Database = {
           pct_above_ma50: number
           sector_name: string
           stock_count: number
+        }[]
+      }
+      get_symbol_detail: {
+        Args: { p_symbol: string }
+        Returns: {
+          above_ma150: boolean
+          above_ma50: boolean
+          avg_volume_5d: number
+          calc_date: string
+          canonical_industry: string
+          canonical_sector: string
+          close: number
+          ma150: number
+          ma50: number
+          ma50_slope: string
+          mansfield_rs: number
+          pct_change_1d: number
+          pct_from_52w_high: number
+          symbol: string
+          volume: number
+          volume_ratio: number
+          wsp_pattern: string
+          wsp_score: number
         }[]
       }
       get_symbols_needing_backfill: {
