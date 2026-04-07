@@ -3,6 +3,9 @@ import { ArrowDownRight, ArrowUpRight, Bitcoin, CircleDollarSign, Coins, Minus, 
 import type { MarketOverview } from '@/lib/wsp-types';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+
+type BenchmarkRow = { symbol: string; close: number; pct_change_1d: number; calc_date: string; above_ma50: boolean; ma50_slope: string };
 
 interface MarketRegimeProps {
   market: MarketOverview;
@@ -80,6 +83,25 @@ const formatUsd = (value: number | null) => {
 export function MarketRegime({ market }: MarketRegimeProps) {
   const [metals, setMetals] = useState<MetalIndicator[]>([]);
   const [crypto, setCrypto] = useState<CryptoIndicator[]>([]);
+
+  const { data: benchmarks = [] } = useQuery<BenchmarkRow[]>({
+    queryKey: ['benchmark-prices'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_benchmark_prices');
+      if (error) throw error;
+      return (data ?? []) as BenchmarkRow[];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const spyBenchmark = benchmarks.find((b) => b.symbol === 'SPY');
+  const qqqBenchmark = benchmarks.find((b) => b.symbol === 'QQQ');
+
+  const sp500Price = spyBenchmark?.close ?? market.sp500Price;
+  const sp500Change = spyBenchmark?.pct_change_1d ?? market.sp500Change;
+  const nasdaqPrice = qqqBenchmark?.close ?? market.nasdaqPrice;
+  const nasdaqChange = qqqBenchmark?.pct_change_1d ?? market.nasdaqChange;
+  const benchmarkDate = spyBenchmark?.calc_date ?? null;
 
   useEffect(() => {
     const loadMetals = async () => {
@@ -232,8 +254,8 @@ export function MarketRegime({ market }: MarketRegimeProps) {
         </div>
 
         <div className="grid grid-cols-1 gap-2 px-4 sm:grid-cols-2">
-          <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-          <BenchmarkCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+          <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={sp500Change} price={sp500Price} date={benchmarkDate} />
+          <BenchmarkCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={nasdaqChange} price={nasdaqPrice} date={benchmarkDate} />
         </div>
 
         <div className="flex items-start gap-2 px-4 py-3 mt-1">
@@ -296,7 +318,7 @@ function RegimeCard({
   );
 }
 
-function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
+function BenchmarkCard({ label, symbol, change, price, date }: { label: string; symbol: string; change: number; price: number | null; date?: string | null }) {
   const positive = change >= 0;
   return (
     <Link
@@ -308,6 +330,7 @@ function BenchmarkCard({ label, symbol, change, price }: { label: string; symbol
         <div className="font-mono text-base font-bold text-foreground mt-0.5">
           {price === null ? '—' : `$${price.toFixed(2)}`}
         </div>
+        {date && <div className="text-[8px] font-mono text-muted-foreground mt-0.5">Data: {date}</div>}
       </div>
       <div className={`flex items-center gap-0.5 font-mono text-sm font-bold ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
         {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}

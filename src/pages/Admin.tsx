@@ -102,6 +102,19 @@ export default function Admin() {
   const [dailySyncLog, setDailySyncLog] = useState<string | null>(null);
   const [scanLog, setScanLog] = useState<string | null>(null);
 
+  // Yahoo Backfill state
+  const [backfillState, setBackfillState] = useState<{
+    running: boolean;
+    batchSize: number;
+    offset: number;
+    totalProcessed: number;
+    totalBars: number;
+    totalFailed: number;
+    logs: string[];
+    done: boolean;
+  }>({ running: false, batchSize: 10, offset: 0, totalProcessed: 0, totalBars: 0, totalFailed: 0, logs: [], done: false });
+  const backfillAbortRef = useRef(false);
+
   const { data: pipelineRuns = [] } = useQuery<PipelineRunConsole[]>({
     queryKey: ['admin-canonical-pipeline-runs'],
     queryFn: async () => {
@@ -298,6 +311,71 @@ export default function Admin() {
     toast.info('Stoppar bulk-enrich efter nuvarande batch...');
   }, []);
 
+  const runYahooBackfill = useCallback(async () => {
+    if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
+    backfillAbortRef.current = false;
+    setBackfillState(prev => ({ ...prev, running: true, offset: 0, totalProcessed: 0, totalBars: 0, totalFailed: 0, logs: [], done: false }));
+
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL
+      ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/historical-backfill`
+      : '';
+    if (!baseUrl) { toast.error('SUPABASE_URL saknas'); setBackfillState(prev => ({ ...prev, running: false })); return; }
+
+    let offset = 0;
+    let totalProcessed = 0;
+    let totalBars = 0;
+    let totalFailed = 0;
+    const logs: string[] = [];
+
+    for (let i = 0; i < 500; i++) {
+      if (backfillAbortRef.current) {
+        logs.push(`⏹ Stoppat vid offset ${offset}`);
+        setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        return;
+      }
+
+      try {
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+          body: JSON.stringify({ limit: backfillState.batchSize, offset }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          logs.push(`❌ HTTP ${res.status}: ${text.slice(0, 200)}`);
+          setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
+          return;
+        }
+
+        const data = await res.json();
+        totalProcessed += data.processed ?? 0;
+        totalBars += data.totalBars ?? 0;
+        totalFailed += data.failed ?? 0;
+
+        const batchResults = (data.results ?? []).map((r: any) => r.ok ? `✅ ${r.symbol}: ${r.bars} bars` : `❌ ${r.symbol}: ${r.error}`).join(', ');
+        logs.push(`Batch ${i + 1}: ${data.processed ?? 0} symboler, ${data.totalBars ?? 0} bars — ${batchResults}`);
+
+        setBackfillState(prev => ({
+          ...prev, offset: data.nextOffset ?? offset, totalProcessed, totalBars, totalFailed, logs: [...logs],
+        }));
+
+        if (data.done || !data.hasMore) {
+          logs.push(`🏁 Klart! ${totalProcessed} symboler, ${totalBars} bars, ${totalFailed} fel`);
+          setBackfillState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
+          toast.success(`Backfill klar: ${totalProcessed} symboler`);
+          return;
+        }
+
+        offset = data.nextOffset ?? (offset + (data.processed ?? backfillState.batchSize));
+      } catch (err) {
+        logs.push(`❌ Nätverksfel: ${String(err).slice(0, 200)}`);
+        setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        return;
+      }
+    }
+  }, [syncSecret, backfillState.batchSize]);
+
   const latestCanonical = useMemo(() => snapshots.find((s) => s.is_canonical) ?? null, [snapshots]);
 
   return (
@@ -477,6 +555,62 @@ export default function Admin() {
           {enrichState.logs.length > 0 && (
             <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono space-y-0.5">
               {enrichState.logs.map((log, i) => (
+                <div key={i} className="text-muted-foreground">{log}</div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Database className="h-4 w-4" /> Yahoo Historical Backfill</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground font-mono">Backfillar 2 år prisdata via Yahoo Finance för symboler med &lt; 200 bars.</p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              value={backfillState.batchSize}
+              onChange={(e) => setBackfillState(prev => ({ ...prev, batchSize: Math.max(1, Math.min(50, Number(e.target.value) || 10)) }))}
+              className="w-20 font-mono text-xs"
+              placeholder="Batch"
+            />
+            <Button
+              onClick={runYahooBackfill}
+              disabled={backfillState.running || !syncSecret.trim()}
+              size="sm"
+              className="font-mono text-xs"
+            >
+              {backfillState.running ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Kör...</> : <><Database className="h-3 w-3 mr-1" /> Starta Backfill</>}
+            </Button>
+            {backfillState.running && (
+              <Button onClick={() => { backfillAbortRef.current = true; toast.info('Stoppar backfill...'); }} variant="destructive" size="sm" className="font-mono text-xs">
+                Stoppa
+              </Button>
+            )}
+          </div>
+
+          {(backfillState.totalProcessed > 0 || backfillState.running) && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+              <Stat label="Symboler" value={String(backfillState.totalProcessed)} />
+              <Stat label="Bars" value={String(backfillState.totalBars)} />
+              <Stat label="Fel" value={String(backfillState.totalFailed)} />
+              <Stat label="Offset" value={String(backfillState.offset)} />
+            </div>
+          )}
+
+          {backfillState.done && (
+            <p className="text-signal-success flex items-center gap-1 text-xs font-mono">
+              <CheckCircle2 className="h-4 w-4" /> Backfill slutförd!
+            </p>
+          )}
+
+          {backfillState.logs.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono space-y-0.5">
+              {backfillState.logs.map((log, i) => (
                 <div key={i} className="text-muted-foreground">{log}</div>
               ))}
             </div>
