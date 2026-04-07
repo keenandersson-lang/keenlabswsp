@@ -57,6 +57,7 @@ export type Database = {
           high: number
           low: number
           open: number
+          pct_change_1d: number | null
           symbol: string
           volume: number
         }
@@ -69,6 +70,7 @@ export type Database = {
           high: number
           low: number
           open: number
+          pct_change_1d?: number | null
           symbol: string
           volume: number
         }
@@ -81,6 +83,7 @@ export type Database = {
           high?: number
           low?: number
           open?: number
+          pct_change_1d?: number | null
           symbol?: string
           volume?: number
         }
@@ -895,6 +898,28 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_equity_dashboard_rows: {
+        Args: never
+        Returns: {
+          above_ma50: boolean
+          close: number
+          daily_pct: number
+          ma50_slope: string
+          symbol: string
+        }[]
+      }
+      get_equity_screener_rows: {
+        Args: { p_page?: number; p_page_size?: number }
+        Returns: {
+          industry: string
+          pattern_state: string
+          payload: Json
+          recommendation: string
+          sector: string
+          symbol: string
+          wsp_score: number
+        }[]
       }
       get_market_summary: {
         Args: never
