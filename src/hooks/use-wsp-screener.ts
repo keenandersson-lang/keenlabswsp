@@ -889,7 +889,7 @@ function buildDirectScannerStock(
     blockedReasons: [],
     logicViolations: [],
     score: scannerScore,
-    maxScore: 10,
+    maxScore: 9,
     dataSource: 'live',
     lastUpdated: updatedAt,
     scannerPattern,
