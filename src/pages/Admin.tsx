@@ -87,6 +87,18 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export default function Admin() {
   const queryClient = useQueryClient();
+  const [syncSecret, setSyncSecret] = useState('');
+  const [enrichState, setEnrichState] = useState<{
+    running: boolean;
+    offset: number;
+    totalEnriched: number;
+    totalFailed: number;
+    totalPromoted: number;
+    remaining: number | null;
+    logs: string[];
+    done: boolean;
+  }>({ running: false, offset: 0, totalEnriched: 0, totalFailed: 0, totalPromoted: 0, remaining: null, logs: [], done: false });
+  const enrichAbortRef = useRef(false);
 
   const { data: pipelineRuns = [] } = useQuery<PipelineRunConsole[]>({
     queryKey: ['admin-canonical-pipeline-runs'],
