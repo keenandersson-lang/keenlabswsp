@@ -1,5 +1,9 @@
 import { Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Wifi, WifiOff, Clock3, ServerCrash, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import type { MarketOverview, ScreenerTrustContract, ScreenerUiState, SectorStatus } from '@/lib/wsp-types';
+
+type SectorPerf = { sector_name: string; avg_daily_pct: number; stock_count: number; pct_above_ma50: number };
 
 interface MarketHeaderProps {
   market: MarketOverview;
@@ -34,10 +38,19 @@ export function MarketHeader({
 }: MarketHeaderProps) {
   const stateMeta = getStateMeta(trust.displayState);
 
-  const rankedSectors = sectorStatuses
-    .slice()
-    .sort((left, right) => right.changePercent - left.changePercent)
-    .slice(0, 3);
+  const { data: sectorPerf = [] } = useQuery<SectorPerf[]>({
+    queryKey: ['sector-performance-header'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_sector_performance');
+      if (error) throw error;
+      return (data ?? []) as SectorPerf[];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const rankedSectors = sectorPerf.length > 0
+    ? sectorPerf.slice(0, 3).map((s) => ({ sector: s.sector_name, changePercent: Number(s.avg_daily_pct ?? 0), isBullish: (s.pct_above_ma50 ?? 0) > 60, sma50AboveSma200: false }))
+    : sectorStatuses.slice().sort((l, r) => r.changePercent - l.changePercent).slice(0, 3);
   const showSectorSummary = rankedSectors.length > 0;
 
   return (
