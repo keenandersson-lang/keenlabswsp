@@ -254,8 +254,8 @@ export function MarketRegime({ market }: MarketRegimeProps) {
         </div>
 
         <div className="grid grid-cols-1 gap-2 px-4 sm:grid-cols-2">
-          <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
-          <BenchmarkCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+          <BenchmarkCard label="S&P 500" symbol={market.sp500Symbol} change={sp500Change} price={sp500Price} date={benchmarkDate} />
+          <BenchmarkCard label="NASDAQ 100" symbol={market.nasdaqSymbol} change={nasdaqChange} price={nasdaqPrice} date={benchmarkDate} />
         </div>
 
         <div className="flex items-start gap-2 px-4 py-3 mt-1">
