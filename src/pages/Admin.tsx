@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
 const ONE_TIME_QUERY_OPTIONS = {
@@ -86,6 +87,18 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export default function Admin() {
   const queryClient = useQueryClient();
+  const [syncSecret, setSyncSecret] = useState('');
+  const [enrichState, setEnrichState] = useState<{
+    running: boolean;
+    offset: number;
+    totalEnriched: number;
+    totalFailed: number;
+    totalPromoted: number;
+    remaining: number | null;
+    logs: string[];
+    done: boolean;
+  }>({ running: false, offset: 0, totalEnriched: 0, totalFailed: 0, totalPromoted: 0, remaining: null, logs: [], done: false });
+  const enrichAbortRef = useRef(false);
 
   const { data: pipelineRuns = [] } = useQuery<PipelineRunConsole[]>({
     queryKey: ['admin-canonical-pipeline-runs'],
@@ -176,6 +189,112 @@ export default function Admin() {
     ]);
     toast.success('Canonical pipeline console refreshed');
   };
+
+  const runBulkEnrich = useCallback(async () => {
+    if (!syncSecret.trim()) {
+      toast.error('Ange SYNC_SECRET_KEY först');
+      return;
+    }
+    enrichAbortRef.current = false;
+    setEnrichState({ running: true, offset: 0, totalEnriched: 0, totalFailed: 0, totalPromoted: 0, remaining: null, logs: [], done: false });
+
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL
+      ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/bulk-enrich-sectors`
+      : projectId
+        ? `https://${projectId}.supabase.co/functions/v1/bulk-enrich-sectors`
+        : '';
+
+    if (!baseUrl) {
+      toast.error('Kunde inte bestämma edge function URL');
+      setEnrichState(prev => ({ ...prev, running: false }));
+      return;
+    }
+
+    let offset = 0;
+    let totalEnriched = 0;
+    let totalFailed = 0;
+    let totalPromoted = 0;
+    const logs: string[] = [];
+    const MAX_SYMBOLS_PER_CALL = 15;
+    const MAX_ITERATIONS = 300; // safety
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      if (enrichAbortRef.current) {
+        logs.push(`⏹ Stoppat av användaren vid offset ${offset}`);
+        setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        return;
+      }
+
+      try {
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${syncSecret.trim()}`,
+          },
+          body: JSON.stringify({ offset, maxSymbols: MAX_SYMBOLS_PER_CALL }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          logs.push(`❌ HTTP ${res.status} vid offset ${offset}: ${text.slice(0, 200)}`);
+          setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+          toast.error(`Bulk-enrich misslyckades: HTTP ${res.status}`);
+          return;
+        }
+
+        const data = await res.json();
+
+        if (!data.ok && data.error) {
+          logs.push(`❌ ${data.error}`);
+          setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+          return;
+        }
+
+        totalEnriched += data.enriched ?? 0;
+        totalFailed += data.failed ?? 0;
+        totalPromoted += data.promoted ?? 0;
+        const remaining = data.totalRemaining ?? null;
+
+        const msg = `✅ Batch ${i + 1}: +${data.enriched ?? 0} berikade, ${data.failed ?? 0} fel, ${data.promoted ?? 0} promoted → offset ${data.nextOffset ?? offset} (${remaining ?? '?'} kvar)`;
+        logs.push(msg);
+
+        setEnrichState({
+          running: true,
+          offset: data.nextOffset ?? offset,
+          totalEnriched,
+          totalFailed,
+          totalPromoted,
+          remaining,
+          logs: [...logs],
+          done: false,
+        });
+
+        if (data.done || !data.hasMore || (remaining !== null && remaining <= 0)) {
+          logs.push(`🏁 Klart! Totalt: ${totalEnriched} berikade, ${totalFailed} fel, ${totalPromoted} promoted`);
+          setEnrichState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
+          toast.success(`Bulk-enrich klar: ${totalEnriched} symboler berikade`);
+          return;
+        }
+
+        offset = data.nextOffset ?? (offset + (data.processed ?? MAX_SYMBOLS_PER_CALL));
+      } catch (err) {
+        logs.push(`❌ Nätverksfel vid offset ${offset}: ${String(err).slice(0, 200)}`);
+        setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        toast.error('Nätverksfel vid bulk-enrich');
+        return;
+      }
+    }
+
+    logs.push('⚠️ Max iterationer nådda (300). Kör igen för att fortsätta.');
+    setEnrichState(prev => ({ ...prev, running: false, logs: [...logs] }));
+  }, [syncSecret]);
+
+  const stopBulkEnrich = useCallback(() => {
+    enrichAbortRef.current = true;
+    toast.info('Stoppar bulk-enrich efter nuvarande batch...');
+  }, []);
 
   const latestCanonical = useMemo(() => snapshots.find((s) => s.is_canonical) ?? null, [snapshots]);
 
@@ -303,6 +422,60 @@ export default function Admin() {
                 <div key={row.symbol} className="border rounded p-2">
                   {row.symbol} · sector={row.canonical_sector ?? row.sector ?? 'null'} · industry={row.canonical_industry ?? row.industry ?? 'null'}
                 </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> Bulk Enrich Sectors (Polygon)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Input
+              type="password"
+              placeholder="SYNC_SECRET_KEY"
+              value={syncSecret}
+              onChange={(e) => setSyncSecret(e.target.value)}
+              className="max-w-xs font-mono text-xs"
+            />
+            <Button
+              onClick={runBulkEnrich}
+              disabled={enrichState.running || !syncSecret.trim()}
+              size="sm"
+              className="font-mono text-xs"
+            >
+              {enrichState.running ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Kör...</> : <><Zap className="h-3 w-3 mr-1" /> Starta Bulk Enrich</>}
+            </Button>
+            {enrichState.running && (
+              <Button onClick={stopBulkEnrich} variant="destructive" size="sm" className="font-mono text-xs">
+                Stoppa
+              </Button>
+            )}
+          </div>
+
+          {(enrichState.totalEnriched > 0 || enrichState.running) && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs font-mono">
+              <Stat label="Berikade" value={String(enrichState.totalEnriched)} />
+              <Stat label="Fel" value={String(enrichState.totalFailed)} />
+              <Stat label="Promoted" value={String(enrichState.totalPromoted)} />
+              <Stat label="Kvar" value={enrichState.remaining !== null ? String(enrichState.remaining) : '—'} />
+              <Stat label="Offset" value={String(enrichState.offset)} />
+            </div>
+          )}
+
+          {enrichState.done && (
+            <p className="text-signal-success flex items-center gap-1 text-xs font-mono">
+              <CheckCircle2 className="h-4 w-4" /> Bulk-enrich slutförd!
+            </p>
+          )}
+
+          {enrichState.logs.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded border border-border bg-background p-2 text-[10px] font-mono space-y-0.5">
+              {enrichState.logs.map((log, i) => (
+                <div key={i} className="text-muted-foreground">{log}</div>
               ))}
             </div>
           )}
