@@ -896,6 +896,19 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_market_summary: {
+        Args: never
+        Returns: {
+          avg_pct_today: number
+          avg_wsp_score: number
+          pct_above_ma50: number
+          sector_name: string
+          symbol_count: number
+          top_pattern: string
+          wsp_regime: string
+          wsp_setups: number
+        }[]
+      }
       get_scanner_funnel_counts: { Args: never; Returns: Json }
       get_symbols_needing_backfill: {
         Args: { p_limit?: number; p_offset?: number }
