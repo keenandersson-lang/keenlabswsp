@@ -21,7 +21,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const asOfDate = typeof body.asOfDate === 'string' ? body.asOfDate : undefined;
+  const today = new Date().toISOString().slice(0, 10);
+  const asOfDate = typeof body.asOfDate === 'string' && body.asOfDate.trim() ? body.asOfDate.trim() : today;
   const runLabel = typeof body.runLabel === 'string' && body.runLabel.trim() ? body.runLabel.trim() : 'manual_admin';
 
   const { data: logRow, error: logInsertError } = await supabase
