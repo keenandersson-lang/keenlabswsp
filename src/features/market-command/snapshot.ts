@@ -59,6 +59,7 @@ export function buildMarketCommandSnapshot(
   const industryBuckets = new Map<string, IndustryAccumulator>();
   for (const stock of screener.stocks) {
     if (!isCanonicalGicsSector(stock.sector)) continue;
+    if (!stock.industry || stock.industry === 'Unknown' || stock.industry === 'Stocks') continue;
     const key = `${stock.sector}::${stock.industry}`;
     const current = industryBuckets.get(key) ?? createIndustryAccumulator(stock.sector, stock.industry);
     current.equityCount += 1;
