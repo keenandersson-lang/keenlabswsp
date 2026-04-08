@@ -63,7 +63,7 @@ export default function Screener() {
     setLoadedStocks([]);
   }, [pollingIntervalMs, selectedSector, selectedIndustry]);
 
-  const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
+  const equityStocks = useMemo(() => stocks.filter(s => isCanonicalGicsSector(s.sector)), [stocks]);
   const activeSector = commandSnapshot?.sectors.activeSector ?? selectedSector;
   const activeIndustry = commandSnapshot?.industries.activeIndustry ?? selectedIndustry;
 

@@ -48,7 +48,7 @@ const Index = () => {
     .map((sectorItem) => sectorItem.status)
     .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
 
-  const equityStocks = useMemo(() => stocks.filter((s) => s.sector !== 'Metals & Mining'), [stocks]);
+  const equityStocks = useMemo(() => stocks.filter((s) => isCanonicalGicsSector(s.sector)), [stocks]);
 
   const counts = useMemo(() => {
     if (commandSnapshot) {
