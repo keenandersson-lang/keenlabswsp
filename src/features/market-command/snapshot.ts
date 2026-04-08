@@ -50,6 +50,7 @@ export function buildMarketCommandSnapshot(
   const statusesBySector = new Map(screener.sectorStatuses.map((status) => [status.sector, status]));
   const sectorBuckets = new Map<string, EvaluatedStock[]>();
   for (const stock of screener.stocks) {
+    if (!isCanonicalGicsSector(stock.sector)) continue;
     const bucket = sectorBuckets.get(stock.sector) ?? [];
     bucket.push(stock);
     sectorBuckets.set(stock.sector, bucket);
@@ -57,6 +58,7 @@ export function buildMarketCommandSnapshot(
 
   const industryBuckets = new Map<string, IndustryAccumulator>();
   for (const stock of screener.stocks) {
+    if (!isCanonicalGicsSector(stock.sector)) continue;
     const key = `${stock.sector}::${stock.industry}`;
     const current = industryBuckets.get(key) ?? createIndustryAccumulator(stock.sector, stock.industry);
     current.equityCount += 1;
