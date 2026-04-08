@@ -1,5 +1,6 @@
 import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import type { EvaluatedStock, ScreenerApiResponse } from '@/lib/wsp-types';
+import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 import type { MarketCommandSelection, MarketCommandSnapshot } from './types';
 
 export interface MarketCommandSnapshotRequest extends MarketCommandSelection {
