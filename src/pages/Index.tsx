@@ -16,6 +16,7 @@ import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers } from 'luc
 import { Link } from 'react-router-dom';
 import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
+import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 
 interface TopSetup {
   symbol: string;
