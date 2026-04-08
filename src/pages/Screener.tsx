@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Scan } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 
 export default function Screener() {
   const [searchParams, setSearchParams] = useSearchParams();
