@@ -69,7 +69,7 @@ const Index = () => {
   }, [commandSnapshot, stocks]);
 
   const topSetups = useMemo<TopSetup[]>(() => (
-    stocks
+    equityStocks
       .slice(0, 10)
       .map((stock) => ({
         symbol: stock.symbol,
@@ -84,7 +84,7 @@ const Index = () => {
         changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,
         volumeMultiple: stock.audit.volumeMultiple ?? null,
       }))
-  ), [stocks]);
+  ), [equityStocks]);
 
   const topSetupsLoading = isLoading || (isFetching && topSetups.length === 0);
   const symbolContextLookup = useMemo(() => {

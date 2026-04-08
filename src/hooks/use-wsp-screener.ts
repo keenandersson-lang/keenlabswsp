@@ -475,7 +475,7 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
   benchmarkFetchStatus: 'success' | 'stale' | 'failed';
 }> {
   const { data, error } = await (supabase as any)
-    .rpc('get_equity_dashboard_rows');
+    .rpc('get_benchmark_prices');
 
   if (error) {
     throw new Error(error.message);
@@ -484,10 +484,10 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
   const rows = (Array.isArray(data) ? data : []).map((row: any) => ({
     symbol: row.symbol,
     close: row.close,
-    pct_change_1d: row.daily_pct,
-    created_at: null,
-    above_ma50: null,
-    ma50_slope: null,
+    pct_change_1d: row.pct_change_1d,
+    created_at: row.calc_date ? `${row.calc_date}T16:00:00Z` : null,
+    above_ma50: row.above_ma50 ?? null,
+    ma50_slope: row.ma50_slope ?? null,
   })) as IndicatorSnapshotRow[];
   const sp500 = buildBenchmarkSnapshot(rows, SP500_BENCHMARK.symbol);
   const nasdaq = buildBenchmarkSnapshot(rows, NASDAQ_BENCHMARK.symbol);
