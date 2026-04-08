@@ -434,8 +434,8 @@ async function fetchQualifiedScanCount(): Promise<number | null> {
   }
 
   const payload = data as Record<string, unknown>;
-  const total = typeof payload.total_scanned === 'number' ? payload.total_scanned
-    : typeof payload.scanned === 'number' ? payload.scanned
+  const total = typeof payload.total === 'number' ? payload.total
+    : typeof payload.total_scanned === 'number' ? payload.total_scanned
     : null;
 
   if (total !== null) return total;
