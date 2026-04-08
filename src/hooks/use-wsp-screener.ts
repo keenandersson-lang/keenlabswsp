@@ -427,13 +427,26 @@ interface BenchmarkSnapshot {
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
   const { data, error } = await (supabase as any)
-    .rpc('get_equity_dashboard_rows');
+    .rpc('get_scanner_funnel_counts');
 
-  if (error) {
+  if (error || !data || typeof data !== 'object') {
     return null;
   }
 
-  return Array.isArray(data) ? data.length : null;
+  const payload = data as Record<string, unknown>;
+  const total = typeof payload.total_scanned === 'number' ? payload.total_scanned
+    : typeof payload.scanned === 'number' ? payload.scanned
+    : null;
+
+  if (total !== null) return total;
+
+  // Fallback: count rows directly
+  const { count, error: countError } = await supabase
+    .from('market_scan_results_latest' as any)
+    .select('symbol', { count: 'exact', head: true });
+
+  if (countError || count === null) return null;
+  return count;
 }
 
 function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): BenchmarkSnapshot {

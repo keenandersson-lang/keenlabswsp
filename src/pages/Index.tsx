@@ -16,6 +16,7 @@ import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers } from 'luc
 import { Link } from 'react-router-dom';
 import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
 import { supabase } from '@/integrations/supabase/client';
+import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 
 interface TopSetup {
   symbol: string;
@@ -47,7 +48,7 @@ const Index = () => {
     .map((sectorItem) => sectorItem.status)
     .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
 
-  const equityStocks = useMemo(() => stocks.filter((s) => s.sector !== 'Metals & Mining'), [stocks]);
+  const equityStocks = useMemo(() => stocks.filter((s) => isCanonicalGicsSector(s.sector)), [stocks]);
 
   const counts = useMemo(() => {
     if (commandSnapshot) {

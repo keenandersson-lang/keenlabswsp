@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Scan } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 
 export default function Screener() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -63,7 +64,7 @@ export default function Screener() {
     setLoadedStocks([]);
   }, [pollingIntervalMs, selectedSector, selectedIndustry]);
 
-  const equityStocks = useMemo(() => stocks.filter(s => s.sector !== 'Metals & Mining'), [stocks]);
+  const equityStocks = useMemo(() => stocks.filter(s => isCanonicalGicsSector(s.sector)), [stocks]);
   const activeSector = commandSnapshot?.sectors.activeSector ?? selectedSector;
   const activeIndustry = commandSnapshot?.industries.activeIndustry ?? selectedIndustry;
 
