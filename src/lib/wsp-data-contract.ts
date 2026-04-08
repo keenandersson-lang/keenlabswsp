@@ -9,6 +9,34 @@
  * Import from here or derive from these constants.
  */
 
+// ─── Canonical GICS Sectors ──────────────────────────────────────────────
+/**
+ * The 11 standard GICS sectors used by the WSP equity top-down model.
+ * NO other sector value is valid for equity analysis surfaces.
+ */
+export const CANONICAL_GICS_SECTORS = [
+  'Communication Services',
+  'Consumer Discretionary',
+  'Consumer Staples',
+  'Energy',
+  'Financials',
+  'Healthcare',
+  'Industrials',
+  'Materials',
+  'Real Estate',
+  'Technology',
+  'Utilities',
+] as const;
+
+export type CanonicalGicsSector = typeof CANONICAL_GICS_SECTORS[number];
+
+export const CANONICAL_GICS_SECTOR_SET = new Set<string>(CANONICAL_GICS_SECTORS);
+
+/** Returns true if the value is one of the 11 canonical GICS sectors. */
+export function isCanonicalGicsSector(value: string | null | undefined): value is CanonicalGicsSector {
+  return typeof value === 'string' && CANONICAL_GICS_SECTOR_SET.has(value);
+}
+
 // ─── Symbol Support Classes ───────────────────────────────────────────────
 /**
  * Every symbol in the broader universe must be assigned exactly one class.
