@@ -317,62 +317,40 @@ export default function Admin() {
     setBackfillState(prev => ({ ...prev, running: true, offset: 0, totalProcessed: 0, totalBars: 0, totalFailed: 0, logs: [], done: false }));
 
     const baseUrl = import.meta.env.VITE_SUPABASE_URL
-      ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/historical-backfill`
+      ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/admin-pipeline/backfill`
       : '';
     if (!baseUrl) { toast.error('SUPABASE_URL saknas'); setBackfillState(prev => ({ ...prev, running: false })); return; }
 
-    let offset = 0;
-    let totalProcessed = 0;
-    let totalBars = 0;
-    let totalFailed = 0;
     const logs: string[] = [];
+    try {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+        body: JSON.stringify({ requested_by: 'admin' }),
+      });
 
-    for (let i = 0; i < 500; i++) {
-      if (backfillAbortRef.current) {
-        logs.push(`⏹ Stoppat vid offset ${offset}`);
-        setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
-        return;
-      }
-
+      const text = await res.text();
+      let payload: any = null;
       try {
-        const res = await fetch(baseUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
-          body: JSON.stringify({ limit: backfillState.batchSize, offset }),
-        });
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = text;
+      }
 
-        if (!res.ok) {
-          const text = await res.text();
-          logs.push(`❌ HTTP ${res.status}: ${text.slice(0, 200)}`);
-          setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
-          return;
-        }
-
-        const data = await res.json();
-        totalProcessed += data.processed ?? 0;
-        totalBars += data.totalBars ?? 0;
-        totalFailed += data.failed ?? 0;
-
-        const batchResults = (data.results ?? []).map((r: any) => r.ok ? `✅ ${r.symbol}: ${r.bars} bars` : `❌ ${r.symbol}: ${r.error}`).join(', ');
-        logs.push(`Batch ${i + 1}: ${data.processed ?? 0} symboler, ${data.totalBars ?? 0} bars — ${batchResults}`);
-
-        setBackfillState(prev => ({
-          ...prev, offset: data.nextOffset ?? offset, totalProcessed, totalBars, totalFailed, logs: [...logs],
-        }));
-
-        if (data.done || !data.hasMore) {
-          logs.push(`🏁 Klart! ${totalProcessed} symboler, ${totalBars} bars, ${totalFailed} fel`);
-          setBackfillState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
-          toast.success(`Backfill klar: ${totalProcessed} symboler`);
-          return;
-        }
-
-        offset = data.nextOffset ?? (offset + (data.processed ?? backfillState.batchSize));
-      } catch (err) {
-        logs.push(`❌ Nätverksfel: ${String(err).slice(0, 200)}`);
+      if (!res.ok) {
+        logs.push(`❌ HTTP ${res.status}: ${typeof payload === 'string' ? payload.slice(0, 200) : JSON.stringify(payload).slice(0, 200)}`);
         setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
+        toast.error(`Backfill misslyckades: HTTP ${res.status}`);
         return;
       }
+
+      logs.push(`✅ Pipeline backfill startad: ${JSON.stringify(payload)}`);
+      setBackfillState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
+      toast.success('Backfill pipeline startad');
+    } catch (err) {
+      logs.push(`❌ Nätverksfel: ${String(err).slice(0, 200)}`);
+      setBackfillState(prev => ({ ...prev, running: false, logs: [...logs] }));
+      toast.error('Nätverksfel vid backfill-start');
     }
   }, [syncSecret, backfillState.batchSize]);
 
@@ -628,7 +606,7 @@ export default function Admin() {
               onClick={async () => {
                 if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
                 const baseUrl = import.meta.env.VITE_SUPABASE_URL
-                  ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/daily-sync`
+                  ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/functions/v1/admin-pipeline/daily-sync`
                   : '';
                 if (!baseUrl) { toast.error('SUPABASE_URL saknas'); return; }
                 toast.info('Kör daily-sync...');
@@ -636,11 +614,22 @@ export default function Admin() {
                   const res = await fetch(baseUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
-                    body: JSON.stringify({}),
+                    body: JSON.stringify({ requested_by: 'admin' }),
                   });
-                  const data = await res.json();
+                  const text = await res.text();
+                  let data: any = null;
+                  try {
+                    data = text ? JSON.parse(text) : null;
+                  } catch {
+                    data = { raw: text };
+                  }
+                  if (!res.ok) {
+                    setDailySyncLog(JSON.stringify(data, null, 2));
+                    toast.error(`Daily sync misslyckades (HTTP ${res.status})`);
+                    return;
+                  }
                   setDailySyncLog(JSON.stringify(data, null, 2));
-                  toast.success('Daily sync klar');
+                  toast.success('Daily sync pipeline startad');
                 } catch (err) {
                   setDailySyncLog(`Fel: ${String(err)}`);
                   toast.error('Daily sync misslyckades');
