@@ -59,6 +59,7 @@ export function buildMarketCommandSnapshot(
   const industryBuckets = new Map<string, IndustryAccumulator>();
   for (const stock of screener.stocks) {
     if (!isCanonicalGicsSector(stock.sector)) continue;
+    if (!stock.industry || stock.industry === 'Unknown' || stock.industry === 'Stocks') continue;
     const key = `${stock.sector}::${stock.industry}`;
     const current = industryBuckets.get(key) ?? createIndustryAccumulator(stock.sector, stock.industry);
     current.equityCount += 1;
@@ -78,6 +79,8 @@ export function buildMarketCommandSnapshot(
 
   const asOf = screener.market.lastUpdated ?? screener.providerStatus.lastFetch ?? new Date().toISOString();
 
+  const gicsStocks = screener.stocks.filter((stock) => isCanonicalGicsSector(stock.sector));
+
   return {
     asOf,
     provenance: screener.trust.dataProvenance,
@@ -85,11 +88,11 @@ export function buildMarketCommandSnapshot(
     market: {
       overview: screener.market,
       breadth: {
-        total: screener.stocks.length,
-        buy: screener.stocks.filter((stock) => stock.finalRecommendation === 'KÖP').length,
-        watch: screener.stocks.filter((stock) => stock.finalRecommendation === 'BEVAKA').length,
-        sell: screener.stocks.filter((stock) => stock.finalRecommendation === 'SÄLJ').length,
-        avoid: screener.stocks.filter((stock) => stock.finalRecommendation === 'UNDVIK').length,
+        total: gicsStocks.length,
+        buy: gicsStocks.filter((stock) => stock.finalRecommendation === 'KÖP').length,
+        watch: gicsStocks.filter((stock) => stock.finalRecommendation === 'BEVAKA').length,
+        sell: gicsStocks.filter((stock) => stock.finalRecommendation === 'SÄLJ').length,
+        avoid: gicsStocks.filter((stock) => stock.finalRecommendation === 'UNDVIK').length,
       },
     },
     sectors: {
