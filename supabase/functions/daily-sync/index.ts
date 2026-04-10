@@ -256,6 +256,18 @@ Deno.serve(async (req: Request) => {
         throw new Error('POLYGON_API_KEY is not configured')
       }
 
+      // --- BENCHMARK GAP-FILL: detect and fill missing benchmark dates before main loop ---
+      const benchmarkGapResult = await fillBenchmarkGaps(asOfDate)
+      if (benchmarkGapResult.gapDates.length > 0) {
+        console.log(`[daily-sync] Benchmark gap-fill: ${benchmarkGapResult.gapDates.length} gap dates, ${benchmarkGapResult.filled} bars filled, ${benchmarkGapResult.errors.length} errors`)
+        // Materialize indicators for all gap dates
+        if (benchmarkGapResult.filled > 0) {
+          for (const gapDate of benchmarkGapResult.gapDates) {
+            await materializeSymbols([...BENCHMARK_SYMBOLS], gapDate)
+          }
+        }
+      }
+
       let symbolQuery = supabase
         .from('symbols')
         .select('symbol')
@@ -277,6 +289,7 @@ Deno.serve(async (req: Request) => {
         ...BENCHMARK_SYMBOLS.filter((symbol) => rawSymbols.includes(symbol)),
         ...rawSymbols.filter((symbol) => !benchmarkSet.has(symbol as (typeof BENCHMARK_SYMBOLS)[number])),
       ]
+
 
       BENCHMARK_SYMBOLS.forEach((symbol) => {
         benchmarkStatus[symbol].included = prioritizedSymbols.includes(symbol)
