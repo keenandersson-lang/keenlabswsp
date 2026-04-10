@@ -375,7 +375,8 @@ Deno.serve(async (req: Request) => {
   if (edgeRuntime?.waitUntil) {
     edgeRuntime.waitUntil(backgroundSync)
   } else {
-    void backgroundSync
+    // Fallback: await inline (blocks response but ensures completion)
+    await backgroundSync
   }
 
   return jsonResponse(202, {
