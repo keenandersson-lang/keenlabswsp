@@ -10,6 +10,10 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
+type EdgeRuntimeLike = {
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -65,13 +69,27 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'POST' && route === 'daily-sync') {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
 
-    // Log the run
-    const { data: logRow } = await supabase.from('data_sync_log').insert({
+    const { data: logRow, error: logInsertError } = await supabase.from('data_sync_log').insert({
       sync_type: 'daily_sync',
       status: 'running',
       data_source: 'admin-pipeline',
-      metadata: { source: 'admin-pipeline', endpoint: 'POST /admin/pipeline/daily-sync' },
+      started_at: new Date().toISOString(),
+      metadata: {
+        source: 'admin-pipeline',
+        endpoint: 'POST /admin/pipeline/daily-sync',
+        forwarded_to: 'daily-sync',
+        execution_mode: 'queued_dispatch',
+        dispatch_status: 'queued',
+        request_payload: body,
+      },
     }).select('id').single()
+
+    if (logInsertError || !logRow?.id) {
+      return json(500, {
+        ok: false,
+        error: logInsertError?.message ?? 'Failed to create daily sync log row',
+      })
+    }
 
     const functionsBaseUrl = `${Deno.env.get('SUPABASE_URL')!}/functions/v1`
 
@@ -82,7 +100,7 @@ Deno.serve(async (req: Request) => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, logId: logRow.id }),
       })
 
       const syncPayload = await syncResponse.json().catch(() => null)
@@ -93,46 +111,34 @@ Deno.serve(async (req: Request) => {
           .update({
             status: 'failed',
             completed_at: new Date().toISOString(),
-            error_message: syncPayload?.error ?? `daily-sync HTTP ${syncResponse.status}`,
+            error_message: syncPayload?.error ?? `daily-sync dispatch HTTP ${syncResponse.status}`,
             metadata: {
               source: 'admin-pipeline',
               endpoint: 'POST /admin/pipeline/daily-sync',
               forwarded_to: 'daily-sync',
-              sync_response: syncPayload,
+              execution_mode: 'queued_dispatch',
+              dispatch_status: 'failed',
+              request_payload: body,
+              dispatch_response: syncPayload,
             },
           })
-          .eq('id', logRow?.id)
+          .eq('id', logRow.id)
 
         return json(syncResponse.status, {
           ok: false,
-          error: 'Daily sync execution failed',
-          log_id: logRow?.id,
+          error: 'Daily sync dispatch failed',
+          log_id: logRow.id,
           details: syncPayload,
         })
       }
 
-      await supabase
-        .from('data_sync_log')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          symbols_processed: typeof syncPayload?.rowsWritten === 'number' ? syncPayload.rowsWritten : 0,
-          symbols_failed: typeof syncPayload?.symbolsFailed === 'number' ? syncPayload.symbolsFailed : 0,
-          metadata: {
-            source: 'admin-pipeline',
-            endpoint: 'POST /admin/pipeline/daily-sync',
-            forwarded_to: 'daily-sync',
-            sync_response: syncPayload,
-          },
-        })
-        .eq('id', logRow?.id)
-
-      return json(200, {
+      return json(202, {
         ok: true,
+        queued: true,
         data: {
-          log_id: logRow?.id,
-          message: 'Daily sync executed successfully.',
-          sync_result: syncPayload,
+          log_id: logRow.id,
+          message: 'Daily sync queued and running in background.',
+          dispatch_result: syncPayload,
         },
       })
     } catch (error) {
@@ -146,11 +152,14 @@ Deno.serve(async (req: Request) => {
             source: 'admin-pipeline',
             endpoint: 'POST /admin/pipeline/daily-sync',
             forwarded_to: 'daily-sync',
+            execution_mode: 'queued_dispatch',
+            dispatch_status: 'failed',
+            request_payload: body,
           },
         })
-        .eq('id', logRow?.id)
+        .eq('id', logRow.id)
 
-      return json(500, { ok: false, error: String(error), log_id: logRow?.id })
+      return json(500, { ok: false, error: String(error), log_id: logRow.id })
     }
   }
 
