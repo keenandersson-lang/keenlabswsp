@@ -459,6 +459,11 @@ Deno.serve(async (req: Request) => {
           rows_written: rowsWritten,
           timed_out: timedOut,
           benchmark_priority: true,
+          benchmark_gap_fill: {
+            gap_dates: benchmarkGapResult.gapDates,
+            bars_filled: benchmarkGapResult.filled,
+            errors: benchmarkGapResult.errors.slice(0, 10),
+          },
           benchmark_status: benchmarkStatus,
           benchmark_materialization: benchmarkMaterialization,
           final_materialization: finalMaterialization,
