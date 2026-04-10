@@ -45,7 +45,7 @@ export function MarketHeatmap({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest text-foreground">MARKET HEATMAP</h3>
-          <span className="text-[8px] font-mono text-muted-foreground">{sectors.length} sektorer · {totalStockCount} aktier</span>
+          <span className="text-[8px] font-mono text-muted-foreground">{sectors.length} GICS-sektorer · {totalStockCount} aktier med sektordata</span>
         </div>
         <HeatmapLegend />
       </div>
