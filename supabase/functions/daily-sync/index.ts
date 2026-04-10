@@ -199,7 +199,11 @@ Deno.serve(async (req: Request) => {
   }
 
   const authHeader = req.headers.get('Authorization')
-  if (authHeader !== `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`) {
+  const validTokens = [
+    `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
+    `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+  ]
+  if (!validTokens.includes(authHeader ?? '')) {
     return jsonResponse(401, { ok: false, error: 'Unauthorized' })
   }
 
