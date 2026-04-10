@@ -190,7 +190,7 @@ const Index = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Scannat universum · {providerStatus.symbolCount} aktier · {new Set(equityStocks.map(s => s.sector)).size} sektorer</p>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Scannat universum · {providerStatus.symbolCount} skannade aktier · {new Set(equityStocks.map(s => s.sector)).size} GICS-sektorer · {equityStocks.length} med sektortillhörighet</p>
         </div>
         <CreditsBadge />
       </div>
@@ -204,7 +204,7 @@ const Index = () => {
             <div>
               <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">SECTOR → INDUSTRY → EQUITY</h3>
               <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">
-                {sectorIndustrySummary.sectorCount} sektorer → {sectorIndustrySummary.industryCount} industrier → {qualifiedEquities.length} klassificerade aktier av {providerStatus.symbolCount} totalt
+                {sectorIndustrySummary.sectorCount} sektorer → {sectorIndustrySummary.industryCount} industrier → {qualifiedEquities.length} aktier med sektor+industri av {equityStocks.length} med GICS-sektor ({providerStatus.symbolCount} totalt skannade)
               </p>
             </div>
           </div>

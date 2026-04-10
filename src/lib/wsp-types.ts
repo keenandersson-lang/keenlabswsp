@@ -294,6 +294,12 @@ export interface MarketOverview {
   lastUpdated: string;
   dataSource: 'live' | 'fallback';
   pollingIntervalMs?: number;
+  /** Date of the close used for the benchmark percentage change (e.g. "2026-03-31") */
+  sp500PrevCloseDate?: string | null;
+  nasdaqPrevCloseDate?: string | null;
+  /** Date of the latest close ("calc_date") */
+  sp500CalcDate?: string | null;
+  nasdaqCalcDate?: string | null;
 }
 
 export interface DiscoveryMeta {

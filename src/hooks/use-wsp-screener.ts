@@ -423,6 +423,8 @@ interface BenchmarkSnapshot {
   changePercent: number | null;
   isBullish: boolean | null;
   lastUpdated: string | null;
+  prevCloseDate: string | null;
+  calcDate: string | null;
 }
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
@@ -452,7 +454,7 @@ async function fetchQualifiedScanCount(): Promise<number | null> {
 function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): BenchmarkSnapshot {
   const latest = rows.find((row) => row.symbol === symbol) ?? null;
   if (!latest) {
-    return { price: null, changePercent: null, isBullish: null, lastUpdated: null };
+    return { price: null, changePercent: null, isBullish: null, lastUpdated: null, prevCloseDate: null, calcDate: null };
   }
 
   const slope = typeof latest.ma50_slope === 'string' ? latest.ma50_slope.trim().toLowerCase() : null;
@@ -467,6 +469,8 @@ function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): B
       : null,
     isBullish,
     lastUpdated: latest.created_at ?? null,
+    prevCloseDate: typeof (latest as any).prev_close_date === 'string' ? (latest as any).prev_close_date : null,
+    calcDate: typeof (latest as any).calc_date === 'string' ? (latest as any).calc_date : null,
   };
 }
 
@@ -488,6 +492,8 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
     created_at: row.calc_date ? `${row.calc_date}T16:00:00Z` : null,
     above_ma50: row.above_ma50 ?? null,
     ma50_slope: row.ma50_slope ?? null,
+    prev_close_date: row.prev_close_date ?? null,
+    calc_date: row.calc_date ?? null,
   })) as IndicatorSnapshotRow[];
   const sp500 = buildBenchmarkSnapshot(rows, SP500_BENCHMARK.symbol);
   const nasdaq = buildBenchmarkSnapshot(rows, NASDAQ_BENCHMARK.symbol);
@@ -524,6 +530,10 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
       marketTrend,
       lastUpdated: latestUpdate,
       dataSource: benchmarkFetchStatus === 'failed' ? 'fallback' : 'live',
+      sp500PrevCloseDate: sp500.prevCloseDate,
+      nasdaqPrevCloseDate: nasdaq.prevCloseDate,
+      sp500CalcDate: sp500.calcDate,
+      nasdaqCalcDate: nasdaq.calcDate,
     },
     benchmarkFetchStatus,
   };

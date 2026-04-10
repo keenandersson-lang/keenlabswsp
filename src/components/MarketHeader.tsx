@@ -85,9 +85,9 @@ export function MarketHeader({
                 </>
               ) : (
                 <>
-                  <BenchmarkChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} />
+                  <BenchmarkChip label="S&P 500" symbol={market.sp500Symbol} change={market.sp500Change} price={market.sp500Price} prevCloseDate={market.sp500PrevCloseDate} calcDate={market.sp500CalcDate} />
                   <div className="hidden h-5 w-px bg-border lg:block" />
-                  <BenchmarkChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} />
+                  <BenchmarkChip label="NASDAQ" symbol={market.nasdaqSymbol} change={market.nasdaqChange} price={market.nasdaqPrice} prevCloseDate={market.nasdaqPrevCloseDate} calcDate={market.nasdaqCalcDate} />
                 </>
               )}
               <div className="hidden h-5 w-px bg-border lg:block" />
@@ -185,8 +185,29 @@ function formatInterval(value: number) {
   return `${Math.round(value / 60_000)}m`;
 }
 
-function BenchmarkChip({ label, symbol, change, price }: { label: string; symbol: string; change: number; price: number | null }) {
+function formatShortDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+    return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+  } catch {
+    return null;
+  }
+}
+
+function isMultiDayGap(prevDate: string | null | undefined, calcDate: string | null | undefined): boolean {
+  if (!prevDate || !calcDate) return false;
+  const prev = new Date(prevDate + 'T00:00:00Z');
+  const calc = new Date(calcDate + 'T00:00:00Z');
+  const diffDays = (calc.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays > 3; // More than a long weekend gap
+}
+
+function BenchmarkChip({ label, symbol, change, price, prevCloseDate, calcDate }: { label: string; symbol: string; change: number; price: number | null; prevCloseDate?: string | null; calcDate?: string | null }) {
   const positive = change >= 0;
+  const showGapWarning = isMultiDayGap(prevCloseDate, calcDate);
+  const prevDateLabel = formatShortDate(prevCloseDate);
   return (
     <div className="flex items-center gap-1.5">
       <div>
@@ -198,6 +219,11 @@ function BenchmarkChip({ label, symbol, change, price }: { label: string; symbol
             {positive ? '+' : ''}{change.toFixed(2)}%
           </span>
         </div>
+        {showGapWarning && prevDateLabel && (
+          <span className="text-[7px] font-mono text-signal-caution" title={`Förändring sedan stängning ${prevDateLabel} (datalucka)`}>
+            sedan {prevDateLabel} ⚠
+          </span>
+        )}
       </div>
     </div>
   );
