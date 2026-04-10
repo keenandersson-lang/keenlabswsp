@@ -93,19 +93,23 @@ Deno.serve(async (req: Request) => {
 
     const functionsBaseUrl = `${Deno.env.get('SUPABASE_URL')!}/functions/v1`
 
-    try {
-      const syncResponse = await fetch(`${functionsBaseUrl}/daily-sync`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
-        },
-        body: JSON.stringify({ ...body, logId: logRow.id }),
-      })
+    const dispatchDailySync = (async () => {
+      try {
+        const syncResponse = await fetch(`${functionsBaseUrl}/daily-sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
+          },
+          body: JSON.stringify({ ...body, logId: logRow.id }),
+        })
 
-      const syncPayload = await syncResponse.json().catch(() => null)
+        if (syncResponse.ok) {
+          return
+        }
 
-      if (!syncResponse.ok) {
+        const syncPayload = await syncResponse.json().catch(() => null)
+
         await supabase
           .from('data_sync_log')
           .update({
@@ -123,44 +127,42 @@ Deno.serve(async (req: Request) => {
             },
           })
           .eq('id', logRow.id)
-
-        return json(syncResponse.status, {
-          ok: false,
-          error: 'Daily sync dispatch failed',
-          log_id: logRow.id,
-          details: syncPayload,
-        })
+      } catch (error) {
+        await supabase
+          .from('data_sync_log')
+          .update({
+            status: 'failed',
+            completed_at: new Date().toISOString(),
+            error_message: String(error),
+            metadata: {
+              source: 'admin-pipeline',
+              endpoint: 'POST /admin/pipeline/daily-sync',
+              forwarded_to: 'daily-sync',
+              execution_mode: 'queued_dispatch',
+              dispatch_status: 'failed',
+              request_payload: body,
+            },
+          })
+          .eq('id', logRow.id)
       }
+    })()
 
-      return json(202, {
-        ok: true,
-        queued: true,
-        data: {
-          log_id: logRow.id,
-          message: 'Daily sync queued and running in background.',
-          dispatch_result: syncPayload,
-        },
-      })
-    } catch (error) {
-      await supabase
-        .from('data_sync_log')
-        .update({
-          status: 'failed',
-          completed_at: new Date().toISOString(),
-          error_message: String(error),
-          metadata: {
-            source: 'admin-pipeline',
-            endpoint: 'POST /admin/pipeline/daily-sync',
-            forwarded_to: 'daily-sync',
-            execution_mode: 'queued_dispatch',
-            dispatch_status: 'failed',
-            request_payload: body,
-          },
-        })
-        .eq('id', logRow.id)
-
-      return json(500, { ok: false, error: String(error), log_id: logRow.id })
+    const edgeRuntime = (globalThis as typeof globalThis & { EdgeRuntime?: EdgeRuntimeLike }).EdgeRuntime
+    if (edgeRuntime?.waitUntil) {
+      edgeRuntime.waitUntil(dispatchDailySync)
+    } else {
+      void dispatchDailySync
     }
+
+    return json(202, {
+      ok: true,
+      queued: true,
+      data: {
+        log_id: logRow.id,
+        message: 'Daily sync queued and dispatching in background.',
+        dispatch_status: 'queued',
+      },
+    })
   }
 
   // POST /scan — trigger broad market scan
