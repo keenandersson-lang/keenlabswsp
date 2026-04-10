@@ -423,6 +423,8 @@ interface BenchmarkSnapshot {
   changePercent: number | null;
   isBullish: boolean | null;
   lastUpdated: string | null;
+  prevCloseDate: string | null;
+  calcDate: string | null;
 }
 
 async function fetchQualifiedScanCount(): Promise<number | null> {
@@ -452,7 +454,7 @@ async function fetchQualifiedScanCount(): Promise<number | null> {
 function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): BenchmarkSnapshot {
   const latest = rows.find((row) => row.symbol === symbol) ?? null;
   if (!latest) {
-    return { price: null, changePercent: null, isBullish: null, lastUpdated: null };
+    return { price: null, changePercent: null, isBullish: null, lastUpdated: null, prevCloseDate: null, calcDate: null };
   }
 
   const slope = typeof latest.ma50_slope === 'string' ? latest.ma50_slope.trim().toLowerCase() : null;
@@ -467,6 +469,8 @@ function buildBenchmarkSnapshot(rows: IndicatorSnapshotRow[], symbol: string): B
       : null,
     isBullish,
     lastUpdated: latest.created_at ?? null,
+    prevCloseDate: typeof (latest as any).prev_close_date === 'string' ? (latest as any).prev_close_date : null,
+    calcDate: typeof (latest as any).calc_date === 'string' ? (latest as any).calc_date : null,
   };
 }
 
