@@ -58,6 +58,106 @@ function getPreviousTradingDay() {
   return date.toISOString().slice(0, 10)
 }
 
+/** Return all trading days (Mon-Fri) between two dates, exclusive of both endpoints */
+function getTradingDaysBetween(fromDate: string, toDate: string): string[] {
+  const dates: string[] = []
+  const start = new Date(fromDate + 'T00:00:00Z')
+  const end = new Date(toDate + 'T00:00:00Z')
+  const cursor = new Date(start)
+  cursor.setUTCDate(cursor.getUTCDate() + 1) // start from day after fromDate
+
+  while (cursor < end) {
+    const dow = cursor.getUTCDay()
+    if (dow !== 0 && dow !== 6) {
+      dates.push(cursor.toISOString().slice(0, 10))
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return dates
+}
+
+/** Fetch and upsert a single bar for a symbol on a given date. Returns true if bar written. */
+async function fetchAndUpsertBar(symbol: string, date: string): Promise<{ ok: boolean; error?: string }> {
+  const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${date}/${date}?adjusted=true&apiKey=${POLYGON_API_KEY}`
+  let response = await fetch(url)
+  if (response.status === 429) {
+    await sleep(13_000)
+    response = await fetch(url)
+  }
+  if (!response.ok) return { ok: false, error: `http_${response.status}` }
+
+  const payload = await response.json().catch(() => null)
+  const bar = payload?.results?.[0] ?? null
+  if (!bar) return { ok: false, error: 'no_results' }
+
+  const { error: upsertError } = await supabase
+    .from('daily_prices')
+    .upsert({
+      symbol,
+      date,
+      open: bar.o,
+      high: bar.h,
+      low: bar.l,
+      close: bar.c,
+      volume: Math.round(bar.v),
+      data_source: 'polygon',
+    }, { onConflict: 'symbol,date' })
+
+  if (upsertError) return { ok: false, error: `upsert:${upsertError.message}` }
+  return { ok: true }
+}
+
+/** Detect and fill benchmark date gaps. Returns summary. */
+async function fillBenchmarkGaps(asOfDate: string): Promise<{
+  gapDates: string[]
+  filled: number
+  errors: string[]
+}> {
+  // Find the latest date each benchmark has in daily_prices
+  const { data: latestRows } = await supabase
+    .from('daily_prices')
+    .select('symbol, date')
+    .in('symbol', [...BENCHMARK_SYMBOLS])
+    .order('date', { ascending: false })
+    .limit(4 * 30) // enough to cover each symbol's latest
+
+  const latestBySymbol: Record<string, string> = {}
+  for (const row of latestRows ?? []) {
+    if (!latestBySymbol[row.symbol]) {
+      latestBySymbol[row.symbol] = row.date
+    }
+  }
+
+  // Find the oldest "latest date" across benchmarks — that's where the gap starts
+  const latestDates = BENCHMARK_SYMBOLS.map(s => latestBySymbol[s]).filter(Boolean)
+  if (latestDates.length === 0) return { gapDates: [], filled: 0, errors: ['no_benchmark_data_at_all'] }
+
+  const oldestLatest = latestDates.sort()[0] // earliest of the latest dates
+  const gapDates = getTradingDaysBetween(oldestLatest, asOfDate)
+
+  if (gapDates.length === 0) return { gapDates: [], filled: 0, errors: [] }
+
+  let filled = 0
+  const errors: string[] = []
+
+  for (const gapDate of gapDates) {
+    for (const symbol of BENCHMARK_SYMBOLS) {
+      // Skip if this symbol already has data for this date
+      if (latestBySymbol[symbol] && latestBySymbol[symbol] >= gapDate) continue
+
+      const result = await fetchAndUpsertBar(symbol, gapDate)
+      if (result.ok) {
+        filled++
+      } else {
+        errors.push(`${symbol}:${gapDate}:${result.error}`)
+      }
+      await sleep(250) // rate limit courtesy
+    }
+  }
+
+  return { gapDates, filled, errors }
+}
+
 function normalizeRequestedSymbols(value: unknown) {
   if (!Array.isArray(value)) return null
 
