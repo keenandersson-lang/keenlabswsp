@@ -492,6 +492,8 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
     created_at: row.calc_date ? `${row.calc_date}T16:00:00Z` : null,
     above_ma50: row.above_ma50 ?? null,
     ma50_slope: row.ma50_slope ?? null,
+    prev_close_date: row.prev_close_date ?? null,
+    calc_date: row.calc_date ?? null,
   })) as IndicatorSnapshotRow[];
   const sp500 = buildBenchmarkSnapshot(rows, SP500_BENCHMARK.symbol);
   const nasdaq = buildBenchmarkSnapshot(rows, NASDAQ_BENCHMARK.symbol);
@@ -528,6 +530,10 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
       marketTrend,
       lastUpdated: latestUpdate,
       dataSource: benchmarkFetchStatus === 'failed' ? 'fallback' : 'live',
+      sp500PrevCloseDate: sp500.prevCloseDate,
+      nasdaqPrevCloseDate: nasdaq.prevCloseDate,
+      sp500CalcDate: sp500.calcDate,
+      nasdaqCalcDate: nasdaq.calcDate,
     },
     benchmarkFetchStatus,
   };
