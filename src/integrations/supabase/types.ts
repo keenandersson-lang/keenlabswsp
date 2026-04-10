@@ -907,6 +907,7 @@ export type Database = {
           close: number
           ma50_slope: string
           pct_change_1d: number
+          prev_close_date: string
           symbol: string
         }[]
       }
