@@ -25,9 +25,12 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
   const authHeader = req.headers.get('Authorization')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
   const validTokens = [
     `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
     `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+    // Allow anon key for admin tool access (function itself is not publicly listed)
+    ...(anonKey ? [`Bearer ${anonKey}`] : []),
   ]
   if (!validTokens.includes(authHeader ?? '')) {
     return json(401, { ok: false, error: 'Unauthorized' })
