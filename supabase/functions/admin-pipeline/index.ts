@@ -24,19 +24,18 @@ function json(status: number, body: unknown) {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
-  const authHeader = req.headers.get('Authorization')
-  const apikeyHeader = req.headers.get('apikey')
+  // Auth: accept SYNC_SECRET_KEY, service_role key, or anon key (for admin tooling)
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const apikeyHeader = req.headers.get('apikey') ?? ''
   const syncKey = Deno.env.get('SYNC_SECRET_KEY') ?? ''
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
   
-  const isAuthorized = 
-    authHeader === `Bearer ${syncKey}` ||
-    authHeader === `Bearer ${serviceKey}` ||
-    apikeyHeader === anonKey ||
-    apikeyHeader === serviceKey
+  const knownTokens = [syncKey, serviceKey, anonKey].filter(Boolean)
+  const providedToken = authHeader.replace('Bearer ', '')
   
-  if (!isAuthorized) {
+  if (!knownTokens.includes(providedToken) && !knownTokens.includes(apikeyHeader)) {
+    console.log('[admin-pipeline] Auth rejected. Auth header prefix:', authHeader.slice(0, 30), 'apikey prefix:', apikeyHeader.slice(0, 30))
     return json(401, { ok: false, error: 'Unauthorized' })
   }
 
