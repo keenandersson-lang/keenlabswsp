@@ -24,18 +24,26 @@ function json(status: number, body: unknown) {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
-  // Auth: accept SYNC_SECRET_KEY, service_role key, or anon key (for admin tooling)
+  // Auth: accept SYNC_SECRET_KEY or service_role key
   const authHeader = req.headers.get('Authorization') ?? ''
-  const apikeyHeader = req.headers.get('apikey') ?? ''
+  const providedToken = authHeader.replace('Bearer ', '')
   const syncKey = Deno.env.get('SYNC_SECRET_KEY') ?? ''
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
   
-  const knownTokens = [syncKey, serviceKey, anonKey].filter(Boolean)
-  const providedToken = authHeader.replace('Bearer ', '')
+  let isAuthorized = providedToken === syncKey || providedToken === serviceKey
   
-  if (!knownTokens.includes(providedToken) && !knownTokens.includes(apikeyHeader)) {
-    console.log('[admin-pipeline] Auth rejected. Auth header prefix:', authHeader.slice(0, 30), 'apikey prefix:', apikeyHeader.slice(0, 30))
+  // Also accept authenticated admin users (for Lovable tooling)
+  if (!isAuthorized && authHeader.startsWith('Bearer ')) {
+    const authClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    )
+    const { data } = await authClient.auth.getUser()
+    if (data?.user) isAuthorized = true
+  }
+  
+  if (!isAuthorized) {
     return json(401, { ok: false, error: 'Unauthorized' })
   }
 
