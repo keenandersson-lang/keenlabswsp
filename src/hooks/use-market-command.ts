@@ -15,6 +15,7 @@ export function useMarketCommand(request: MarketCommandSnapshotRequest = {}) {
       request.sector ?? null,
       request.industry ?? null,
       request.symbol ?? null,
+      request.universeTier ?? null,
     ],
     queryFn: () => fetchMarketCommandSnapshot({ ...request, intervalMs }),
     refetchInterval: intervalMs,
