@@ -15,7 +15,8 @@ const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
 
 const MAX_EXECUTION_MS = 55_000
 const BETWEEN_SYMBOL_MS = 250
-const RATE_LIMIT_BACKOFF_MS = 13_500
+const INITIAL_BACKOFF_MS = 13_500
+const MAX_CONSECUTIVE_429 = 3
 const DB_BATCH_SIZE = 50
 
 const EXCHANGE_MAP: Record<string, string> = {
@@ -132,7 +133,9 @@ Deno.serve(async (req: Request) => {
     let failed = 0
     let promoted = 0
     let rateLimited = 0
+    let consecutive429 = 0
     let timedOut = false
+    let rateLimitAbort = false
     const errors: string[] = []
     const promotions: string[] = []
     const enrichedSymbols: string[] = []
@@ -141,21 +144,36 @@ Deno.serve(async (req: Request) => {
       if (Date.now() - startedAt >= MAX_EXECUTION_MS) { timedOut = true; break }
       if (enriched + failed >= maxSymbols) { timedOut = true; break }
 
+      // If we hit too many consecutive 429s, stop early with a clear message
+      if (consecutive429 >= MAX_CONSECUTIVE_429) {
+        rateLimitAbort = true
+        errors.push(`Stopped: ${MAX_CONSECUTIVE_429} consecutive rate-limit errors — Polygon API quota likely exhausted for this window`)
+        break
+      }
+
       try {
         const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_KEY}`
         let res = await fetch(url)
 
         if (res.status === 429) {
           rateLimited++
-          await sleep(RATE_LIMIT_BACKOFF_MS)
+          consecutive429++
+          const backoffMs = INITIAL_BACKOFF_MS * consecutive429 // escalating backoff
+          console.log(`[bulk-enrich] 429 for ${sym.symbol}, backoff ${backoffMs}ms (consecutive: ${consecutive429})`)
+          await sleep(backoffMs)
           if (Date.now() - startedAt >= MAX_EXECUTION_MS) { timedOut = true; break }
           res = await fetch(url)
           if (res.status === 429) {
+            rateLimited++
+            consecutive429++
             failed++
-            errors.push(`${sym.symbol}: rate-limited after retry`)
+            errors.push(`${sym.symbol}: rate-limited after backoff`)
             continue
           }
         }
+
+        // Successful non-429 response resets the consecutive counter
+        consecutive429 = 0
 
         if (res.status === 404) { skipped++; continue }
         if (!res.ok) { failed++; errors.push(`${sym.symbol}: HTTP ${res.status}`); continue }
@@ -236,11 +254,25 @@ Deno.serve(async (req: Request) => {
 
     const processed = enriched + failed + skipped
     const nextOffset = offset + processed
-    const hasMore = timedOut || symbols.length === DB_BATCH_SIZE
+    const hasMore = (timedOut || symbols.length === DB_BATCH_SIZE) && !rateLimitAbort
+
+    // Determine final status
+    let finalStatus: string
+    if (rateLimitAbort) {
+      finalStatus = 'rate_limited'
+    } else if (failed === 0 && !timedOut) {
+      finalStatus = 'success'
+    } else if (enriched > 0) {
+      finalStatus = 'partial'
+    } else if (failed > 0) {
+      finalStatus = 'error'
+    } else {
+      finalStatus = 'success'
+    }
 
     if (logRow?.id) {
       await supabase.from('data_sync_log').update({
-        status: failed === 0 && !timedOut ? 'success' : 'partial',
+        status: finalStatus,
         symbols_processed: processed,
         symbols_failed: failed,
         completed_at: new Date().toISOString(),
@@ -248,6 +280,8 @@ Deno.serve(async (req: Request) => {
         metadata: {
           offset, next_offset: nextOffset, enriched, skipped, failed,
           promoted, rate_limited: rateLimited, timed_out: timedOut,
+          rate_limit_abort: rateLimitAbort,
+          consecutive_429_at_exit: consecutive429,
           total_remaining: (totalRemaining ?? 0) - enriched,
           promotions: promotions.slice(0, 20),
           elapsed_ms: Date.now() - startedAt,
@@ -257,7 +291,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonRes({
       ok: true, enriched, skipped, failed, promoted, processed,
-      rateLimited, timedOut, offset, nextOffset, hasMore,
+      rateLimited, rateLimitAbort, timedOut, offset, nextOffset, hasMore,
       totalRemaining: (totalRemaining ?? 0) - enriched,
       enrichedSymbols: enrichedSymbols.slice(0, 30),
       promotions: promotions.slice(0, 20),

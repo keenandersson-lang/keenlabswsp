@@ -52,19 +52,20 @@ Deno.serve(async (req: Request) => {
   const route = path[path.length - 1]
   const secondToLast = path[path.length - 2]
 
-  // POST /backfill — trigger Yahoo historical backfill via the existing edge function pattern
+  // POST /backfill — trigger Yahoo historical backfill
   if (req.method === 'POST' && route === 'backfill') {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
     const limit = typeof body.limit === 'number' ? body.limit : 10
     const offset = typeof body.offset === 'number' ? body.offset : 0
 
     // Log the run
-    await supabase.from('data_sync_log').insert({
+    const { data: logRow } = await supabase.from('data_sync_log').insert({
       sync_type: 'backfill',
       status: 'running',
       data_source: 'yahoo',
+      started_at: new Date().toISOString(),
       metadata: { source: 'admin-pipeline', limit, offset },
-    })
+    }).select('id').single()
 
     // Call the existing backfill RPC for each symbol
     const { data: symbols, error: fetchErr } = await supabase.rpc('get_symbols_needing_backfill', {
@@ -72,12 +73,88 @@ Deno.serve(async (req: Request) => {
       p_offset: offset,
     })
 
-    if (fetchErr) return json(500, { ok: false, error: fetchErr.message })
+    if (fetchErr) {
+      if (logRow?.id) {
+        await supabase.from('data_sync_log').update({
+          status: 'error',
+          completed_at: new Date().toISOString(),
+          error_message: fetchErr.message,
+        }).eq('id', logRow.id)
+      }
+      return json(500, { ok: false, error: fetchErr.message })
+    }
 
-    return json(200, {
+    const symbolList = symbols ?? []
+
+    if (symbolList.length === 0) {
+      if (logRow?.id) {
+        await supabase.from('data_sync_log').update({
+          status: 'success',
+          completed_at: new Date().toISOString(),
+          symbols_processed: 0,
+          metadata: { source: 'admin-pipeline', limit, offset, message: 'no_symbols_needing_backfill' },
+        }).eq('id', logRow.id)
+      }
+      return json(200, { ok: true, data: { symbols_queued: 0, message: 'No symbols need backfill' } })
+    }
+
+    // Fire-and-forget: call historical-backfill edge function
+    const functionsBaseUrl = `${Deno.env.get('SUPABASE_URL')!}/functions/v1`
+
+    const backgroundBackfill = (async () => {
+      try {
+        const bfRes = await fetch(`${functionsBaseUrl}/historical-backfill`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${syncKey}`,
+          },
+          body: JSON.stringify({ limit, offset }),
+        })
+
+        const bfPayload = await bfRes.json().catch(() => null)
+        const succeeded = bfPayload?.enriched ?? bfPayload?.processed ?? symbolList.length
+        const failed = bfPayload?.failed ?? 0
+
+        if (logRow?.id) {
+          await supabase.from('data_sync_log').update({
+            status: bfRes.ok && failed === 0 ? 'success' : bfRes.ok ? 'partial' : 'error',
+            completed_at: new Date().toISOString(),
+            symbols_processed: succeeded,
+            symbols_failed: failed,
+            error_message: !bfRes.ok ? `HTTP ${bfRes.status}` : null,
+            metadata: {
+              source: 'admin-pipeline',
+              limit,
+              offset,
+              backfill_response: bfPayload,
+            },
+          }).eq('id', logRow.id)
+        }
+      } catch (err) {
+        if (logRow?.id) {
+          await supabase.from('data_sync_log').update({
+            status: 'error',
+            completed_at: new Date().toISOString(),
+            error_message: String(err).slice(0, 500),
+          }).eq('id', logRow.id)
+        }
+      }
+    })()
+
+    const edgeRuntime = (globalThis as typeof globalThis & { EdgeRuntime?: EdgeRuntimeLike }).EdgeRuntime
+    if (edgeRuntime?.waitUntil) {
+      edgeRuntime.waitUntil(backgroundBackfill)
+    } else {
+      await backgroundBackfill
+    }
+
+    return json(202, {
       ok: true,
+      queued: true,
       data: {
-        symbols_queued: (symbols ?? []).length,
+        log_id: logRow?.id ?? null,
+        symbols_queued: symbolList.length,
         message: 'Backfill pipeline started',
       },
     })
@@ -87,8 +164,10 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'POST' && route === 'daily-sync') {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
 
+    // This is just a dispatch proxy — daily-sync creates its own log row.
+    // We create a thin "dispatch" log that we finalize immediately.
     const { data: logRow, error: logInsertError } = await supabase.from('data_sync_log').insert({
-      sync_type: 'daily_sync',
+      sync_type: 'daily_sync_dispatch',
       status: 'running',
       data_source: 'admin-pipeline',
       started_at: new Date().toISOString(),
@@ -96,8 +175,6 @@ Deno.serve(async (req: Request) => {
         source: 'admin-pipeline',
         endpoint: 'POST /admin/pipeline/daily-sync',
         forwarded_to: 'daily-sync',
-        execution_mode: 'queued_dispatch',
-        dispatch_status: 'queued',
         request_payload: body,
       },
     }).select('id').single()
@@ -119,49 +196,38 @@ Deno.serve(async (req: Request) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
           },
-          body: JSON.stringify({ ...body, logId: logRow.id }),
+          body: JSON.stringify({ ...body }),
         })
-
-        if (syncResponse.ok) {
-          return
-        }
 
         const syncPayload = await syncResponse.json().catch(() => null)
 
-        await supabase
-          .from('data_sync_log')
-          .update({
-            status: 'failed',
-            completed_at: new Date().toISOString(),
-            error_message: syncPayload?.error ?? `daily-sync dispatch HTTP ${syncResponse.status}`,
-            metadata: {
-              source: 'admin-pipeline',
-              endpoint: 'POST /admin/pipeline/daily-sync',
-              forwarded_to: 'daily-sync',
-              execution_mode: 'queued_dispatch',
-              dispatch_status: 'failed',
-              request_payload: body,
-              dispatch_response: syncPayload,
-            },
-          })
-          .eq('id', logRow.id)
+        // Finalize the dispatch log — daily-sync manages its own detailed log
+        await supabase.from('data_sync_log').update({
+          status: syncResponse.ok ? 'success' : 'error',
+          completed_at: new Date().toISOString(),
+          error_message: syncResponse.ok ? null : (syncPayload?.error ?? `HTTP ${syncResponse.status}`),
+          metadata: {
+            source: 'admin-pipeline',
+            endpoint: 'POST /admin/pipeline/daily-sync',
+            forwarded_to: 'daily-sync',
+            dispatch_status: syncResponse.ok ? 'dispatched' : 'failed',
+            downstream_log_id: syncPayload?.logId ?? null,
+            request_payload: body,
+          },
+        }).eq('id', logRow.id)
       } catch (error) {
-        await supabase
-          .from('data_sync_log')
-          .update({
-            status: 'failed',
-            completed_at: new Date().toISOString(),
-            error_message: String(error),
-            metadata: {
-              source: 'admin-pipeline',
-              endpoint: 'POST /admin/pipeline/daily-sync',
-              forwarded_to: 'daily-sync',
-              execution_mode: 'queued_dispatch',
-              dispatch_status: 'failed',
-              request_payload: body,
-            },
-          })
-          .eq('id', logRow.id)
+        await supabase.from('data_sync_log').update({
+          status: 'error',
+          completed_at: new Date().toISOString(),
+          error_message: String(error).slice(0, 500),
+          metadata: {
+            source: 'admin-pipeline',
+            endpoint: 'POST /admin/pipeline/daily-sync',
+            forwarded_to: 'daily-sync',
+            dispatch_status: 'failed',
+            request_payload: body,
+          },
+        }).eq('id', logRow.id)
       }
     })()
 
@@ -169,7 +235,7 @@ Deno.serve(async (req: Request) => {
     if (edgeRuntime?.waitUntil) {
       edgeRuntime.waitUntil(dispatchDailySync)
     } else {
-      void dispatchDailySync
+      await dispatchDailySync
     }
 
     return json(202, {
