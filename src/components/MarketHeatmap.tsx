@@ -94,6 +94,18 @@ export function MarketHeatmap({
     return `${sector.avgChange >= 0 ? '+' : ''}${sector.avgChange.toFixed(2)}%`;
   };
 
+  const heatmapTrustScore = (stock: EvaluatedStock): number => {
+    const taxonomyQuality = stock.industry !== 'Unknown' && stock.industry !== 'Other' ? 10 : -12;
+    const breakoutQuality = stock.audit.breakoutQualityPass ? 15 : 0;
+    const rsStrength = Math.max(-10, Math.min(20, (stock.audit.mansfieldValue ?? 0) * 10));
+    const liquidity = Math.max(0, Math.min(18, (stock.audit.volumeMultiple ?? 0) * 6));
+    const setupQuality = stock.isValidWspEntry ? 12 : 0;
+    const supportQuality = stock.supportsFullWsp ? 8 : -6;
+    const blockerPenalty = stock.blockedReasons.length * 3;
+
+    return (stock.score ?? 0) + taxonomyQuality + breakoutQuality + rsStrength + liquidity + setupQuality + supportQuality - blockerPenalty;
+  };
+
   return (
     <section className="space-y-1.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -120,6 +132,8 @@ export function MarketHeatmap({
           const sectorHeatVal = getSectorHeatValue(sector);
           const topStocks = [...sector.stocks]
             .sort((a, b) => {
+              const trustDelta = heatmapTrustScore(b) - heatmapTrustScore(a);
+              if (trustDelta !== 0) return trustDelta;
               if (colorMode === 'sectorRS') {
                 return (b.audit?.mansfieldSectorValue ?? -Infinity) - (a.audit?.mansfieldSectorValue ?? -Infinity);
               }
