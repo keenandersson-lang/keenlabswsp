@@ -626,6 +626,7 @@ export type Database = {
           sic_description: string | null
           support_level: string | null
           symbol: string
+          universe_tier: string
           updated_at: string | null
         }
         Insert: {
@@ -652,6 +653,7 @@ export type Database = {
           sic_description?: string | null
           support_level?: string | null
           symbol: string
+          universe_tier?: string
           updated_at?: string | null
         }
         Update: {
@@ -678,6 +680,7 @@ export type Database = {
           sic_description?: string | null
           support_level?: string | null
           symbol?: string
+          universe_tier?: string
           updated_at?: string | null
         }
         Relationships: []
