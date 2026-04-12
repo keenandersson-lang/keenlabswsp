@@ -8,6 +8,9 @@ export interface IndustryRankingRow {
   symbol_count: number;
   avg_wsp_score: number;
   breakout_count: number;
+  breakout_rate?: number;
+  bullish_count?: number;
+  bearish_count?: number;
   valid_entry_count: number;
   buy_count: number;
   watch_count: number;
@@ -15,7 +18,7 @@ export interface IndustryRankingRow {
   rank_position: number;
 }
 
-export function useIndustryRanking(leadingOnly = true, limit = 15) {
+export function useIndustryRanking(leadingOnly = true, limit: number | null = 15) {
   return useQuery<IndustryRankingRow[]>({
     queryKey: ['industry-ranking', leadingOnly, limit],
     queryFn: async () => {

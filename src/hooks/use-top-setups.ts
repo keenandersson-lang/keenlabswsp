@@ -57,7 +57,7 @@ export function useTopSetups() {
           industry: r.industry ?? 'Unknown',
           pattern: toPattern(r.pattern),
           recommendation: toRecommendation(r.recommendation),
-          score: r.score ?? 0,
+          score: Math.max(0, Math.min(5, r.score ?? 0)),
           maxScore: 5,
           price: typeof (payload as any).close === 'number' ? (payload as any).close : null,
           changePercent: typeof (payload as any).pct_change_1d === 'number' ? (payload as any).pct_change_1d : 0,

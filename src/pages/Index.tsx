@@ -97,7 +97,7 @@ const Index = () => {
     return lookup;
   }, [heatmapRows, topSetups]);
 
-  // Fetch fallback close prices for top setups missing prices
+  // Fetch fallback close prices for top setups missing prices via RPC
   const topSetupSymbolsWithMissingPrice = useMemo(
     () => topSetups.filter((s) => s.price == null || s.price <= 0).map((s) => s.symbol),
     [topSetups]
@@ -107,17 +107,15 @@ const Index = () => {
     queryKey: ['dashboard-top-setup-fallback-closes', topSetupSymbolsWithMissingPrice],
     enabled: topSetupSymbolsWithMissingPrice.length > 0,
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .from('daily_prices')
-        .select('symbol, close, date')
-        .in('symbol', topSetupSymbolsWithMissingPrice)
-        .order('date', { ascending: false });
+      const { data: rows, error } = await (supabase as any).rpc('get_latest_symbol_indicators', {
+        p_symbols: topSetupSymbolsWithMissingPrice,
+      });
       if (error) throw error;
       const latestCloseBySymbol: Record<string, number> = {};
       for (const row of rows ?? []) {
-        if (latestCloseBySymbol[row.symbol] != null) continue;
-        if (typeof row.close !== 'number' || !Number.isFinite(row.close) || row.close <= 0) continue;
-        latestCloseBySymbol[row.symbol] = row.close;
+        const close = Number((row as any).close);
+        if (!Number.isFinite(close) || close <= 0) continue;
+        latestCloseBySymbol[(row as any).symbol] = close;
       }
       return latestCloseBySymbol;
     },
