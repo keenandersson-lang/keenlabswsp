@@ -9,6 +9,58 @@ const corsHeaders = {
 const BENCHMARK_SYMBOLS = ['SPY', 'QQQ', 'DIA', 'IWM'] as const
 const POLYGON_API_KEY = Deno.env.get('POLYGON_API_KEY') ?? ''
 const STATEMENT_TIMEOUT_MS = '600000'
+const ENRICH_BATCH_SIZE = 50
+const ENRICH_DELAY_MS = 300
+
+const EXCHANGE_MAP: Record<string, string> = {
+  XNYS: 'NYSE', XNAS: 'NASDAQ', XASE: 'AMEX', ARCX: 'ARCA',
+  BATS: 'BATS', XNGS: 'NASDAQ', XNCM: 'NASDAQ', XNMS: 'NASDAQ',
+  NYSE: 'NYSE', NASDAQ: 'NASDAQ', AMEX: 'AMEX', ARCA: 'ARCA',
+}
+
+const TYPE_MAP: Record<string, string> = {
+  CS: 'CS', ADRC: 'ADR', ADRR: 'ADR', ADRW: 'ADR',
+  ETF: 'ETF', ETN: 'ETF', ETV: 'ETF',
+  WARRANT: 'WARRANT', RIGHT: 'RIGHT', UNIT: 'UNIT',
+  PFD: 'PFD', FUND: 'FUND', SP: 'SP', BOND: 'BOND',
+  OS: 'OS', GDR: 'GDR', NOTE: 'NOTE',
+}
+
+const BENCHMARKS_SET = new Set(['SPY','QQQ','DIA','IWM','XLK','XLV','XLF','XLE','XLY','XLI','XLC','XLP','XLB','XLRE','XLU'])
+const METALS_SET = new Set(['GLD','SLV','COPX','GDX','PPLT'])
+
+function normalizeText(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function classifyPromotion(row: Record<string, unknown>) {
+  const symbol = String(row.symbol ?? '').toUpperCase()
+  const exchange = String(row.exchange ?? row.primary_exchange ?? '').toUpperCase()
+  const isEtf = Boolean(row.is_etf)
+  const isAdr = Boolean(row.is_adr)
+  const isCommonStock = Boolean(row.is_common_stock)
+  const isClassificationEligible = ['canonicalized', 'manually_reviewed'].includes(String(row.classification_status ?? ''))
+  const hasClassificationQuality = isClassificationEligible && ['high', 'medium'].includes(String(row.classification_confidence_level ?? ''))
+
+  if (!row.is_active) return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false }
+  if (BENCHMARKS_SET.has(symbol)) return { support_level: 'sector_benchmark_proxy', eligible_for_backfill: true, eligible_for_full_wsp: false }
+  if (METALS_SET.has(symbol)) return { support_level: 'metals_limited', eligible_for_backfill: true, eligible_for_full_wsp: false }
+  if (isEtf || isAdr) return { support_level: 'data_only', eligible_for_backfill: false, eligible_for_full_wsp: false }
+
+  if (row.support_level === 'full_wsp_equity' && isCommonStock && ['NYSE', 'NASDAQ'].includes(exchange)) {
+    return { support_level: 'full_wsp_equity', eligible_for_backfill: true, eligible_for_full_wsp: true }
+  }
+  if (isCommonStock && hasClassificationQuality && ['NYSE', 'NASDAQ'].includes(exchange)) {
+    return { support_level: 'full_wsp_equity', eligible_for_backfill: true, eligible_for_full_wsp: true }
+  }
+  if (isCommonStock && ['NYSE', 'NASDAQ', 'AMEX', 'ARCA'].includes(exchange)) {
+    return { support_level: 'limited_equity', eligible_for_backfill: true, eligible_for_full_wsp: false }
+  }
+  return { support_level: 'excluded', eligible_for_backfill: false, eligible_for_full_wsp: false }
+}
+
 
 type EdgeRuntimeLike = {
   waitUntil?: (promise: Promise<unknown>) => void
