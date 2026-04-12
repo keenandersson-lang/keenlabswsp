@@ -14,7 +14,7 @@ const icons: Record<WSPPattern, React.ReactNode> = {
 };
 
 const config: Record<WSPPattern, { label: string; color: string; bg: string; border: string; action: string }> = {
-  base_or_climbing: { label: 'Base/Climbing', color: 'text-accent', bg: 'bg-accent/10', border: 'border-accent/30', action: 'BEVAKA' },
+  base_or_climbing: { label: 'Base', color: 'text-accent', bg: 'bg-accent/10', border: 'border-accent/30', action: 'BEVAKA' },
   base: { label: 'Base', color: 'text-accent', bg: 'bg-accent/10', border: 'border-accent/30', action: 'BEVAKA' },
   climbing: { label: 'Climbing', color: 'text-signal-buy', bg: 'bg-signal-buy/10', border: 'border-signal-buy/30', action: 'KÖP om gate PASS' },
   tired: { label: 'Tired', color: 'text-signal-caution', bg: 'bg-signal-caution/10', border: 'border-signal-caution/30', action: 'SÄLJ' },
@@ -22,7 +22,7 @@ const config: Record<WSPPattern, { label: string; color: string; bg: string; bor
 };
 
 export function PatternSummary({ counts }: PatternSummaryProps) {
-  const patterns: WSPPattern[] = ['climbing', 'base_or_climbing', 'tired', 'downhill'];
+  const patterns: WSPPattern[] = ['climbing', 'base', 'tired', 'downhill'];
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

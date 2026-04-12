@@ -51,7 +51,7 @@ function patternLabel(pattern: string | null) {
   if (!pattern) return '—';
   const map: Record<string, string> = {
     climbing: '📈 Climbing',
-    base_or_climbing: '📊 Base/Climbing',
+    base_or_climbing: '📊 Base',
     base: '📊 Base',
     tired: '⚠️ Tired',
     downhill: '📉 Downhill',

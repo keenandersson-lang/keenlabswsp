@@ -121,7 +121,7 @@ function toWspPattern(value: string | null | undefined): WSPPattern {
     case 'climbing':
       return 'climbing';
     case 'base_or_climbing':
-      return 'base_or_climbing';
+      return 'base';
     case 'downhill':
       return 'downhill';
     case 'base':
@@ -544,10 +544,10 @@ async function fetchMarketOverviewFromIndicators(nowIso: string): Promise<{
 
 const SCANNER_PATTERN_PRIORITY: Record<string, number> = {
   climbing: 4,
-  base_or_climbing: 3,
+  base_or_climbing: 2,
   base: 2,
-  tired: 2,
-  downhill: 1,
+  tired: 1,
+  downhill: 0,
 };
 
 const MARKET_HEATMAP_SECTOR_ETFS: Record<string, string> = {
@@ -781,7 +781,7 @@ function buildDirectScannerStock(
     : (ma150 !== null ? currentPrice > ma150 : false);
   const slope50Positive = ma50SlopeTrend === 'rising';
   const effectivePattern = rowPattern ?? payloadPattern;
-  const hasBreakout = effectivePattern === 'climbing' || effectivePattern === 'base_or_climbing';
+  const hasBreakout = effectivePattern === 'climbing';
   const mansfieldValid = mansfieldRs !== null && mansfieldRs > 0;
   const volumeValid = Number(p.volume_ratio) >= DIRECT_SCANNER_VOLUME_MIN;
   const wspCriteriaPassCount = [aboveMa50, slope50Positive, aboveMa150, volumeValid, mansfieldValid].filter(Boolean).length;
@@ -1612,7 +1612,7 @@ export async function fetchWspPatternCounts(): Promise<WspPatternCounts> {
   };
 
   counts.climbing = Number(payload.climbing ?? 0);
-  counts.base_or_climbing = Number(payload.base ?? 0);
+  counts.base = Number(payload.base ?? 0);
   counts.downhill = Number(payload.downhill ?? 0);
 
   return counts;

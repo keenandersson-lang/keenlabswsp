@@ -18,7 +18,7 @@ interface StockTableProps {
   scannedRowCount?: number;
 }
 
-type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
+type ScannerPattern = 'climbing' | 'base' | 'downhill' | 'tired';
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
 type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'mansfieldRSSector' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
@@ -60,7 +60,7 @@ const patternFilters: { value: FilterValue; label: string }[] = [
   { value: 'market_not_aligned', label: 'Blockerad: svag marknad' },
   { value: 'pattern_not_climbing', label: 'Blockerad: ej CLIMBING' },
   { value: 'climbing', label: 'Climbing' },
-  { value: 'base_or_climbing', label: 'Base/Climbing' },
+  { value: 'base', label: 'Base' },
   { value: 'base', label: 'Base' },
   { value: 'tired', label: 'Tired' },
   { value: 'downhill', label: 'Downhill' },
@@ -92,9 +92,9 @@ const IMPORTANT_WARNING_SET = new Set<IndicatorWarning>([
 
 const scannerPatternPriority: Record<string, number> = {
   climbing: 4,
-  base_or_climbing: 3,
+  base_or_climbing: 2,
   base: 2,
-  tired: 2,
+  tired: 1,
   downhill: 1,
 };
 
@@ -103,7 +103,7 @@ function mapScannerPatternToWspPattern(pattern: string | null | undefined): WSPP
     case 'climbing':
       return 'climbing';
     case 'base_or_climbing':
-      return 'base_or_climbing';
+      return 'base';
     case 'base':
       return 'base';
     case 'tired':
@@ -170,7 +170,7 @@ export function StockTable({
         return getRowPresentationTruth(stock).recommendation === filter;
       }
       if (blockedReasonFilters.includes(filter as WSPBlockedReason)) return stock.blockedReasons.includes(filter as WSPBlockedReason);
-      if (filter === 'climbing' || filter === 'base_or_climbing' || filter === 'base' || filter === 'tired' || filter === 'downhill') {
+      if (filter === 'climbing' || filter === 'base' || filter === 'tired' || filter === 'downhill') {
         return getEffectiveWspPattern(stock) === filter;
       }
       return stock.scannerPattern === filter;
