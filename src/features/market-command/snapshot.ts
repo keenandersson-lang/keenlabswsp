@@ -19,6 +19,7 @@ export async function fetchMarketCommandSnapshot(
     page: request.page,
     pageSize: request.pageSize,
     forceRefresh: request.forceRefresh,
+    universeTier: request.universeTier,
   });
 
   return buildMarketCommandSnapshot(screener, request);
