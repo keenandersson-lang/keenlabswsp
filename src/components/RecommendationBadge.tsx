@@ -16,7 +16,6 @@ const fallbackConfig: { colorClass: string; bgClass: string; borderClass: string
 function normalizeRecommendation(recommendation: string): string {
   const upper = recommendation.trim().toUpperCase();
   if (!upper) return 'OKÄND';
-  if (upper === 'AVVAKTA') return 'BEVAKA';
   if (upper === 'BUY') return 'KÖP';
   if (upper === 'WATCH') return 'BEVAKA';
   if (upper === 'SELL') return 'SÄLJ';

@@ -66,15 +66,20 @@ export function useEquityScreener({
   return useQuery<{ rows: ScreenerRow[]; totalCount: number }>({
     queryKey: ['equity-screener', page, pageSize, universeTier, sector, industry, pattern, signalFilter],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', {
+      const rpcArgs: Record<string, unknown> = {
         p_page: page,
         p_page_size: pageSize,
         p_universe_tier: universeTier,
         p_sector: sector,
         p_industry: industry,
-        p_pattern_stage: pattern,
-        p_signal_filter: signalFilter,
-      });
+        p_pattern_stage: pattern === 'Alla stadier' ? null : pattern,
+      };
+
+      if (signalFilter !== null) {
+        rpcArgs.p_signal_filter = signalFilter;
+      }
+
+      const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', rpcArgs);
       if (error) throw error;
       const rawRows = (data ?? []) as RawRow[];
       return {
