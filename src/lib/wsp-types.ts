@@ -153,6 +153,7 @@ export interface StockAudit {
   volumeValid: boolean;
   mansfieldLookbackBars: number;
   mansfieldValue: number | null;
+  mansfieldSectorValue: number | null;
   mansfieldValuePrev: number | null;
   mansfieldTrend: MansfieldTrend;
   mansfieldUptrend: boolean;

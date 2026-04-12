@@ -207,6 +207,7 @@ interface ScannerPayload {
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
   mansfield_rs?: number | string | null;
+  mansfield_rs_sector?: number | string | null;
   pattern?: string | null;
   wsp_pattern?: string | null;
   wsp_score?: number | null;
