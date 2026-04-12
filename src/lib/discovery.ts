@@ -271,7 +271,7 @@ function sortByOpportunity(a: EvaluatedStock, b: EvaluatedStock): number {
     const breakoutReadiness = stock.audit.breakoutValid ? 12 : 0;
     const rsStrength = clamp((stock.audit.mansfieldValue ?? 0) * 10, -10, 22);
     const liquidity = clamp((stock.audit.volumeMultiple ?? 0) * 5, 0, 18);
-    const highProximity = clamp(12 + (stock.audit.pctFrom52WeekHigh ?? -25) * 0.5, 0, 14);
+    const highProximity = clamp(12 + ((stock.audit as any).pctFrom52WeekHigh ?? -25) * 0.5, 0, 14);
     const taxonomyQuality = stock.industry && stock.industry !== 'Unknown' && stock.industry !== 'Other' ? 8 : -8;
     const blockerPenalty = stock.blockedReasons.length * 3;
 
