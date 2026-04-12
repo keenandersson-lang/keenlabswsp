@@ -66,25 +66,44 @@ export function useEquityScreener({
   return useQuery<{ rows: ScreenerRow[]; totalCount: number }>({
     queryKey: ['equity-screener', page, pageSize, universeTier, sector, industry, pattern, signalFilter],
     queryFn: async () => {
+      const patternArg = pattern === 'Alla stadier' ? null : pattern;
       const rpcArgs: Record<string, unknown> = {
         p_page: page,
         p_page_size: pageSize,
         p_universe_tier: universeTier,
         p_sector: sector,
         p_industry: industry,
-        p_pattern_stage: pattern === 'Alla stadier' ? null : pattern,
+        p_pattern: patternArg,
       };
 
-      if (signalFilter !== null) {
-        rpcArgs.p_signal_filter = signalFilter;
+      const [rowsResult, countResult] = await Promise.all([
+        (supabase as any).rpc('get_equity_screener_rows', rpcArgs),
+        (supabase as any).rpc('get_equity_screener_count', {
+          p_universe_tier: universeTier,
+          p_sector: sector,
+          p_industry: industry,
+          p_pattern: patternArg,
+        }),
+      ]);
+
+      if (rowsResult.error) throw rowsResult.error;
+      const rawRows = (rowsResult.data ?? []) as RawRow[];
+      let parsed = rawRows.map(parseRow);
+
+      // Client-side signal filtering (not supported by RPC)
+      if (signalFilter === 'breakout') {
+        parsed = parsed.filter((r) => r.recommendation === 'KÖP');
+      } else if (signalFilter === 'bullish') {
+        parsed = parsed.filter((r) => r.recommendation === 'BEVAKA' && r.pattern_state === 'climbing');
+      } else if (signalFilter === 'bearish') {
+        parsed = parsed.filter((r) => r.recommendation === 'SÄLJ' || r.recommendation === 'UNDVIK');
       }
 
-      const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', rpcArgs);
-      if (error) throw error;
-      const rawRows = (data ?? []) as RawRow[];
+      const totalCount = countResult.error ? rawRows.length : Number(countResult.data ?? rawRows.length);
+
       return {
-        rows: rawRows.map(parseRow),
-        totalCount: Number(rawRows[0]?.total_count ?? 0),
+        rows: parsed,
+        totalCount,
       };
     },
     staleTime: 60_000,
