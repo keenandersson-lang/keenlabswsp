@@ -454,6 +454,7 @@ Deno.serve(async (req: Request) => {
             }
           }
           console.log(`[daily-sync] Auto-enriched ${enriched} symbols, ${enrichFailed} failed`)
+          } // end pre-flight else
         }
       } catch (enrichErr) {
         console.error(`[daily-sync] Auto-enrich step error: ${String(enrichErr).slice(0, 200)}`)
