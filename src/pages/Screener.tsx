@@ -8,7 +8,7 @@ import { MarketHeader } from '@/components/MarketHeader';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import type { EvaluatedStock } from '@/lib/wsp-types';
 import { useQueryClient } from '@tanstack/react-query';
-import { Scan } from 'lucide-react';
+import { Scan, ShieldCheck, Expand } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
