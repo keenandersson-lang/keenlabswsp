@@ -9,7 +9,7 @@ const corsHeaders = {
 const BENCHMARK_SYMBOLS = ['SPY', 'QQQ', 'DIA', 'IWM'] as const
 const POLYGON_API_KEY = Deno.env.get('POLYGON_API_KEY') ?? ''
 const STATEMENT_TIMEOUT_MS = '600000'
-const ENRICH_BATCH_SIZE = 50
+const ENRICH_BATCH_SIZE = 200
 const ENRICH_DELAY_MS = 300
 
 const EXCHANGE_MAP: Record<string, string> = {
