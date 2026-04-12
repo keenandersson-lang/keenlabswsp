@@ -15,6 +15,8 @@ export interface ScreenerRow {
   mansfieldRs: number | null;
 }
 
+export type ScreenerSignalFilter = 'breakout' | 'bullish' | 'bearish';
+
 interface RawRow {
   symbol: string;
   sector: string | null;
@@ -34,7 +36,7 @@ function parseRow(r: RawRow): ScreenerRow {
     industry: r.industry ?? 'Unknown',
     pattern_state: r.pattern_state ?? 'base',
     recommendation: r.recommendation ?? 'BEVAKA',
-    wsp_score: r.wsp_score ?? 0,
+    wsp_score: Math.max(0, Math.min(5, r.wsp_score ?? 0)),
     price: typeof p.close === 'number' ? p.close : null,
     changePercent: typeof p.pct_change_1d === 'number' ? p.pct_change_1d : 0,
     volumeRatio: typeof p.volume_ratio === 'number' ? p.volume_ratio : null,
@@ -49,6 +51,7 @@ interface ScreenerParams {
   sector?: string | null;
   industry?: string | null;
   pattern?: string | null;
+  signalFilter?: ScreenerSignalFilter | null;
 }
 
 export function useEquityScreener({
@@ -58,9 +61,10 @@ export function useEquityScreener({
   sector = null,
   industry = null,
   pattern = null,
+  signalFilter = null,
 }: ScreenerParams) {
   return useQuery<{ rows: ScreenerRow[]; totalCount: number }>({
-    queryKey: ['equity-screener', page, pageSize, universeTier, sector, industry, pattern],
+    queryKey: ['equity-screener', page, pageSize, universeTier, sector, industry, pattern, signalFilter],
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', {
         p_page: page,
@@ -69,6 +73,7 @@ export function useEquityScreener({
         p_sector: sector,
         p_industry: industry,
         p_pattern_stage: pattern,
+        p_signal_filter: signalFilter,
       });
       if (error) throw error;
       const rawRows = (data ?? []) as RawRow[];

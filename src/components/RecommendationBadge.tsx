@@ -14,9 +14,15 @@ interface RecommendationBadgeProps {
 const fallbackConfig: { colorClass: string; bgClass: string; borderClass: string; glow?: string } = { colorClass: 'text-muted-foreground', bgClass: 'bg-muted/10', borderClass: 'border-muted' };
 
 function normalizeRecommendation(recommendation: string): string {
-  const upper = recommendation.toUpperCase();
+  const upper = recommendation.trim().toUpperCase();
+  if (!upper) return 'OKÄND';
   if (upper === 'AVVAKTA') return 'BEVAKA';
-  return upper;
+  if (upper === 'BUY') return 'KÖP';
+  if (upper === 'WATCH') return 'BEVAKA';
+  if (upper === 'SELL') return 'SÄLJ';
+  if (upper === 'AVOID') return 'UNDVIK';
+  if (upper === 'KÖP' || upper === 'BEVAKA' || upper === 'SÄLJ' || upper === 'UNDVIK') return upper;
+  return 'OKÄND';
 }
 
 export function RecommendationBadge({ recommendation }: RecommendationBadgeProps) {

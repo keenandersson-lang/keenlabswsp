@@ -25,10 +25,11 @@ export default function Screener() {
   const selectedSector = searchParams.get('sector') || null;
   const selectedIndustry = searchParams.get('industry') || null;
   const selectedPattern = searchParams.get('pattern_stage') || null;
+  const selectedSignal = searchParams.get('signal') || null;
   const [universeTier, setUniverseTier] = useState<'core' | 'expanded'>('core');
   const [page, setPage] = useState(0);
 
-  const { data: industryRanking = [] } = useIndustryRanking(false, 120);
+  const { data: industryRanking = [] } = useIndustryRanking(false, null);
   const { data: sectorRanking = [] } = useSectorRanking();
   const { data: screenerData, isLoading, isFetching } = useEquityScreener({
     page,
@@ -37,6 +38,7 @@ export default function Screener() {
     sector: selectedSector,
     industry: selectedIndustry,
     pattern: selectedPattern,
+    signalFilter: (selectedSignal as 'breakout' | 'bullish' | 'bearish' | null),
   });
   const rows = screenerData?.rows ?? [];
   const totalCount = screenerData?.totalCount ?? 0;
@@ -116,11 +118,11 @@ export default function Screener() {
       <div className="rounded-md border border-border bg-card px-3 py-2.5 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">FILTER</h3>
-          {(selectedSector || selectedIndustry || selectedPattern) && (
+          {(selectedSector || selectedIndustry || selectedPattern || selectedSignal) && (
             <button
               type="button"
               className="rounded border border-border px-2 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"
-              onClick={() => updateFilter({ sector: null, industry: null, pattern_stage: null })}
+              onClick={() => updateFilter({ sector: null, industry: null, pattern_stage: null, signal: null })}
             >
               Rensa alla
             </button>
@@ -186,9 +188,27 @@ export default function Screener() {
           ))}
         </div>
 
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { value: null, label: 'Alla signaler' },
+            { value: 'breakout', label: 'Breakout' },
+            { value: 'bullish', label: 'Bullish' },
+            { value: 'bearish', label: 'Bearish' },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              className={`rounded border px-2 py-1 text-[10px] font-mono ${selectedSignal === opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : !selectedSignal && !opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              onClick={() => updateFilter({ signal: opt.value })}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         {/* Active filter summary */}
         <p className="text-[9px] font-mono text-muted-foreground">
-          {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'} · {selectedPattern ?? 'Alla stadier'} · {totalCount} resultat
+          {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'} · {selectedPattern ?? 'Alla stadier'} · {selectedSignal ?? 'Alla signaler'} · {totalCount} resultat
         </p>
       </div>
 
