@@ -370,14 +370,22 @@ Deno.serve(async (req: Request) => {
           .limit(ENRICH_BATCH_SIZE)
 
         if (unenriched && unenriched.length > 0) {
-          console.log(`[daily-sync] Auto-enriching ${unenriched.length} unenriched symbols`)
-          for (const sym of unenriched) {
-            try {
-              const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_API_KEY}`
-              const res = await fetch(url)
-              if (res.status === 429) {
-                console.log(`[daily-sync] Enrichment rate-limited at ${sym.symbol}, stopping batch`)
-                break
+          // Pre-flight: test Polygon quota with a lightweight call before committing
+          const probeUrl = `https://api.polygon.io/v3/reference/tickers/AAPL?apiKey=${POLYGON_API_KEY}`
+          const probeRes = await fetch(probeUrl).catch(() => null)
+          if (!probeRes || probeRes.status === 429) {
+            console.log(`[daily-sync] Enrichment pre-flight 429 — Polygon quota exhausted, skipping batch`)
+          } else {
+            // Wait 1s after probe to respect rate budget
+            await sleep(1000)
+            console.log(`[daily-sync] Auto-enriching ${unenriched.length} unenriched symbols`)
+            for (const sym of unenriched) {
+              try {
+                const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_API_KEY}`
+                const res = await fetch(url)
+                if (res.status === 429) {
+                  console.log(`[daily-sync] Enrichment rate-limited at ${sym.symbol}, stopping batch`)
+                  break
               }
               if (res.status === 404) { continue }
               if (!res.ok) { enrichFailed++; continue }
