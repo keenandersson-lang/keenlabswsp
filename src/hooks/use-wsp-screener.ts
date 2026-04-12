@@ -207,6 +207,7 @@ interface ScannerPayload {
   above_ma150?: boolean | null;
   volume_ratio?: number | null;
   mansfield_rs?: number | string | null;
+  mansfield_rs_sector?: number | string | null;
   pattern?: string | null;
   wsp_pattern?: string | null;
   wsp_score?: number | null;
@@ -342,6 +343,7 @@ function buildDefaultAudit(overrides?: Partial<StockAudit>): StockAudit {
     volumeValid: false,
     mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
     mansfieldValue: null,
+    mansfieldSectorValue: null,
     mansfieldValuePrev: null,
     mansfieldTrend: 'flat',
     mansfieldUptrend: false,
@@ -900,6 +902,7 @@ function buildDirectScannerStock(
       volumeValid,
       mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
       mansfieldValue: mansfieldRs,
+      mansfieldSectorValue: parseOptionalNumericValue(p.mansfield_rs_sector),
       mansfieldValuePrev: mansfieldRs,
       mansfieldTrend: mansfieldRs === null ? 'flat' : (mansfieldRs > 0 ? 'rising' : mansfieldRs < 0 ? 'falling' : 'flat') as MansfieldTrend,
       mansfieldUptrend: mansfieldValid,
