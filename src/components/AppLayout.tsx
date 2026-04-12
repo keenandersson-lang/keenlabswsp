@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X, Table2 } from 'lucide-react';
+import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X, Table2, Factory } from 'lucide-react';
 import { useSymbolSearch } from '@/hooks/use-symbol-search';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: Layers },
   { path: '/screener', label: 'Screener', icon: Scan },
+  { path: '/industries', label: 'Industrier', icon: Factory },
   { path: '/sectors', label: 'Sektorer', icon: BarChart3 },
   { path: '/market-summary', label: 'Market Summary', icon: Table2 },
   { path: '/watchlist', label: 'Watchlist', icon: Star },
