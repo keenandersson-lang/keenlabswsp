@@ -13,6 +13,7 @@ import NotFound from "./pages/NotFound";
 import Admin from "./pages/Admin";
 import Backtest from "./pages/Backtest";
 import MarketSummary from "./pages/MarketSummary";
+import Industries from "./pages/Industries";
 
 const queryClient = new QueryClient();
 
