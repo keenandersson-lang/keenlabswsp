@@ -1114,23 +1114,14 @@ export type Database = {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
       }
-      materialize_wsp_indicators_from_prices:
-        | {
-            Args: {
-              p_as_of_date?: string
-              p_min_bars?: number
-              p_symbols?: string[]
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_as_of_date?: string
-              p_min_bars?: number
-              p_symbols?: string[]
-            }
-            Returns: Json
-          }
+      materialize_wsp_indicators_from_prices: {
+        Args: {
+          p_as_of_date?: string
+          p_min_bars?: number
+          p_symbols?: string[]
+        }
+        Returns: Json
+      }
       materialize_wsp_indicators_logged: {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
