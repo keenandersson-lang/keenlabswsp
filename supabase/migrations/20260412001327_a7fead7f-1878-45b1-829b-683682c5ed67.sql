@@ -1,0 +1,1 @@
+ALTER VIEW public.market_scan_results_latest SET (security_invoker = on);
