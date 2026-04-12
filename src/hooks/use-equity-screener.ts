@@ -72,7 +72,7 @@ export function useEquityScreener({
         p_universe_tier: universeTier,
         p_sector: sector,
         p_industry: industry,
-        p_pattern_stage: pattern === 'Alla stadier' ? null : pattern,
+        p_pattern: pattern === 'Alla stadier' ? null : pattern,
       };
 
       if (signalFilter !== null) {

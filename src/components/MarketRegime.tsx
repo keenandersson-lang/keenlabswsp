@@ -105,12 +105,16 @@ export function MarketRegime({ market }: MarketRegimeProps) {
 
   useEffect(() => {
     const loadMetals = async () => {
-      const { data, error } = await (supabase as any).rpc('get_latest_symbol_indicators', {
-        p_symbols: ['GLD', 'SLV'],
-      });
+      const { data, error } = await supabase
+        .from('wsp_indicators')
+        .select('symbol, close, ma50, calc_date')
+        .in('symbol', ['GLD', 'SLV'])
+        .order('calc_date', { ascending: false });
       if (error) throw error;
       const bySymbol = new Map<string, any>();
-      for (const row of data ?? []) bySymbol.set(row.symbol, row);
+      for (const row of data ?? []) {
+        if (!bySymbol.has(row.symbol)) bySymbol.set(row.symbol, row);
+      }
 
       setMetals([
         {

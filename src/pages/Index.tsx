@@ -107,9 +107,11 @@ const Index = () => {
     queryKey: ['dashboard-top-setup-fallback-closes', topSetupSymbolsWithMissingPrice],
     enabled: topSetupSymbolsWithMissingPrice.length > 0,
     queryFn: async () => {
-      const { data: rows, error } = await (supabase as any).rpc('get_latest_symbol_indicators', {
-        p_symbols: topSetupSymbolsWithMissingPrice,
-      });
+      const { data: rows, error } = await supabase
+        .from('wsp_indicators')
+        .select('symbol, close, calc_date')
+        .in('symbol', topSetupSymbolsWithMissingPrice)
+        .order('calc_date', { ascending: false });
       if (error) throw error;
       const latestCloseBySymbol: Record<string, number> = {};
       for (const row of rows ?? []) {
