@@ -192,7 +192,7 @@ const Index = () => {
               (Topp {industryRanking.length} inom ledande sektorer)
             </span>
           </div>
-          <Link to="/screener" className="text-[10px] font-mono text-primary hover:underline">Screener →</Link>
+          <Link to="/industries" className="text-[10px] font-mono text-primary hover:underline">Alla industrier →</Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 p-2">
           {industryRanking.slice(0, 12).map((ind) => (

@@ -1,192 +1,65 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchWspPatternCounts, fetchWspScreenerData, type WspPatternCounts } from '@/hooks/use-wsp-screener';
-import { useMarketCommand } from '@/hooks/use-market-command';
-import { StockTable } from '@/components/StockTable';
-import { PatternSummary } from '@/components/PatternSummary';
+import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useEquityScreener, useScreenerCount, type ScreenerRow } from '@/hooks/use-equity-screener';
+import { useSectorRanking } from '@/hooks/use-sector-ranking';
+import { PatternBadge } from '@/components/PatternBadge';
+import { RecommendationBadge } from '@/components/RecommendationBadge';
+import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { CreditsBadge } from '@/components/CreditsBadge';
-import { MarketHeader } from '@/components/MarketHeader';
-import { WSP_CONFIG } from '@/lib/wsp-config';
-import type { EvaluatedStock } from '@/lib/wsp-types';
-import { useQueryClient } from '@tanstack/react-query';
-import { Scan, ShieldCheck, Expand } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
+import { Scan, ShieldCheck, Expand, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+
+const PATTERN_OPTIONS = [
+  { value: null as string | null, label: 'Alla stadier' },
+  { value: 'climbing', label: 'Climbing' },
+  { value: 'base', label: 'Base' },
+  { value: 'tired', label: 'Tired' },
+  { value: 'downhill', label: 'Downhill' },
+];
+
+const PAGE_SIZE = 50;
 
 export default function Screener() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
-  const [page, setPage] = useState(0);
-  const [loadedStocks, setLoadedStocks] = useState<EvaluatedStock[]>([]);
-  const selectedSectorParam = searchParams.get('sector');
-  const selectedIndustryParam = searchParams.get('industry');
-  const selectedSector = selectedSectorParam && selectedSectorParam.trim().length > 0 ? selectedSectorParam : null;
-  const selectedIndustry = selectedIndustryParam && selectedIndustryParam.trim().length > 0 ? selectedIndustryParam : null;
+  const selectedSector = searchParams.get('sector') || null;
+  const selectedIndustry = searchParams.get('industry') || null;
+  const selectedPattern = searchParams.get('pattern') || null;
   const [universeTier, setUniverseTier] = useState<'core' | 'expanded'>('core');
-  const PAGE_SIZE = 50;
-  const queryClient = useQueryClient();
-  const { data: commandSnapshot, isFetching, isLoading } = useMarketCommand({
-    intervalMs: pollingIntervalMs,
+  const [page, setPage] = useState(0);
+
+  const { data: sectorRanking = [] } = useSectorRanking();
+  const { data: rows = [], isLoading, isFetching } = useEquityScreener({
     page,
     pageSize: PAGE_SIZE,
+    universeTier,
     sector: selectedSector,
     industry: selectedIndustry,
+    pattern: selectedPattern,
+  });
+  const { data: totalCount = 0 } = useScreenerCount({
     universeTier,
-  });
-  const { data: patternCounts } = useQuery<WspPatternCounts>({
-    queryKey: ['wsp-pattern-counts'],
-    queryFn: fetchWspPatternCounts,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    sector: selectedSector,
+    industry: selectedIndustry,
+    pattern: selectedPattern,
   });
 
-  const stocks = loadedStocks;
-  const market = commandSnapshot?.market.overview;
-  const providerStatus = commandSnapshot?.runtime.providerStatus;
-  const trust = commandSnapshot?.trust;
-  const discoveryMeta = commandSnapshot?.runtime.discoveryMeta;
-  const sectorStatuses = commandSnapshot?.sectors.items
-    .map((sectorItem) => sectorItem.status)
-    .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
-
-  useEffect(() => {
-    const pageStocks = commandSnapshot?.equities.items;
-    if (!pageStocks) return;
-
-    setLoadedStocks((previous) => {
-      const baseStocks = page === 0 ? [] : previous;
-      const existingSymbols = new Set(baseStocks.map((stock) => stock.symbol));
-      const nextUnique = pageStocks.filter((stock) => !existingSymbols.has(stock.symbol));
-      return [...baseStocks, ...nextUnique];
-    });
-  }, [commandSnapshot?.equities.items, page]);
-
-  useEffect(() => {
-    setPage(0);
-    setLoadedStocks([]);
-  }, [pollingIntervalMs, selectedSector, selectedIndustry, universeTier]);
-
-  const equityStocks = useMemo(() => stocks.filter(s => isCanonicalGicsSector(s.sector)), [stocks]);
-  const activeSector = commandSnapshot?.sectors.activeSector ?? selectedSector;
-  const activeIndustry = commandSnapshot?.industries.activeIndustry ?? selectedIndustry;
-
-  const visibleSectors = commandSnapshot?.sectors.items ?? [];
-  const visibleIndustries = commandSnapshot?.industries.items ?? [];
-  const visibleIndustryTotal = useMemo(() => {
-    return visibleSectors
-      .filter((sector) => activeSector ? sector.sector === activeSector : true)
-      .reduce((sum, sector) => sum + sector.industryCount, 0);
-  }, [activeSector, visibleSectors]);
-
-  const industryFocusItems = useMemo(() => {
-    if (!activeSector) return [];
-    return visibleIndustries
-      .filter((industry) => industry.sector === activeSector)
-      .slice(0, 8);
-  }, [activeSector, visibleIndustries]);
-
-  const activeIndustrySnapshot = useMemo(() => {
-    if (!activeIndustry) return null;
-    if (activeSector) {
-      return visibleIndustries.find((industry) => industry.industry === activeIndustry && industry.sector === activeSector) ?? null;
+  const updateFilter = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams);
+    for (const [key, val] of Object.entries(updates)) {
+      if (val) params.set(key, val);
+      else params.delete(key);
     }
-    return visibleIndustries.find((industry) => industry.industry === activeIndustry) ?? null;
-  }, [activeIndustry, activeSector, visibleIndustries]);
-
-  const filteredStocks = useMemo(() => equityStocks, [equityStocks]);
-  const detailLinkSearch = useMemo(() => {
-    const params = new URLSearchParams();
-    if (activeSector) params.set('sector', activeSector);
-    if (activeIndustry) params.set('industry', activeIndustry);
-    const serialized = params.toString();
-    return serialized ? `?${serialized}` : '';
-  }, [activeIndustry, activeSector]);
-
-  const industryCoverage = useMemo(() => {
-    if (!activeIndustry) return null;
-    const matching = filteredStocks.filter((stock) => stock.industry === activeIndustry).length;
-    return {
-      matching,
-      total: filteredStocks.length,
-    };
-  }, [activeIndustry, filteredStocks]);
-  const contextResultSummary = useMemo(() => {
-    if (!activeSector && !activeIndustry) return null;
-    if (filteredStocks.length === 0) return null;
-
-    const buy = filteredStocks.filter((stock) => stock.finalRecommendation === 'KÖP').length;
-    const validEntries = filteredStocks.filter((stock) => stock.isValidWspEntry).length;
-    const breakoutValid = filteredStocks.filter((stock) => stock.audit?.breakoutValid ?? stock.gate.breakoutValid).length;
-    const avgScore = filteredStocks.reduce((sum, stock) => sum + (stock.score ?? 0), 0) / filteredStocks.length;
-    const avgVolumeMultiple = filteredStocks.reduce((sum, stock) => sum + (stock.audit?.volumeMultiple ?? 0), 0) / filteredStocks.length;
-    const strongestScores = filteredStocks
-      .slice()
-      .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
-      .slice(0, 3)
-      .map((stock) => stock.symbol);
-    const strongestMomentum = filteredStocks
-      .slice()
-      .sort((left, right) => right.changePercent - left.changePercent)
-      .slice(0, 3)
-      .map((stock) => `${stock.symbol} ${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`);
-
-    return {
-      buy,
-      validEntries,
-      breakoutValid,
-      avgScore: Number(avgScore.toFixed(2)),
-      avgVolumeMultiple: Number(avgVolumeMultiple.toFixed(2)),
-      strongestScores,
-      strongestMomentum,
-    };
-  }, [activeIndustry, activeSector, filteredStocks]);
-  const canLoadMore = (providerStatus?.symbolCount ?? 0) > stocks.length;
-  const scannedRowCount = providerStatus?.symbolCount ?? equityStocks.length;
-
-  const counts = useMemo(() => ({
-    buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
-    sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
-    watchCount: stocks.filter((s) => s.finalRecommendation === 'BEVAKA').length,
-    avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
-  }), [stocks]);
-
-  const handleManualRefresh = async () => {
-    await queryClient.fetchQuery({
-      queryKey: ['wsp-screener', pollingIntervalMs, page, PAGE_SIZE],
-      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, page, pageSize: PAGE_SIZE, universeTier }),
-    });
-  };
-
-  const updateSelection = (next: { sector?: string | null; industry?: string | null }) => {
-    const params = new URLSearchParams(searchParams);
-    const nextSector = Object.prototype.hasOwnProperty.call(next, 'sector')
-      ? next.sector ?? null
-      : activeSector ?? null;
-    const nextIndustry = Object.prototype.hasOwnProperty.call(next, 'industry')
-      ? next.industry ?? null
-      : activeIndustry ?? null;
-
-    if (nextSector) params.set('sector', nextSector);
-    else params.delete('sector');
-
-    if (nextIndustry) params.set('industry', nextIndustry);
-    else params.delete('industry');
-
     setSearchParams(params, { replace: true });
+    setPage(0);
   };
 
-  const clearSelection = () => {
-    const params = new URLSearchParams(searchParams);
-    params.delete('sector');
-    params.delete('industry');
-    setSearchParams(params, { replace: true });
-  };
+  const canLoadMore = (page + 1) * PAGE_SIZE < totalCount;
 
-  if (!market || !providerStatus || !trust) {
+  if (isLoading && rows.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <Scan className={`h-6 w-6 mx-auto mb-2 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
+          <Scan className="h-6 w-6 mx-auto mb-2 animate-spin text-primary" />
           <p className="text-xs text-muted-foreground font-mono">Laddar screener...</p>
         </div>
       </div>
@@ -195,39 +68,26 @@ export default function Screener() {
 
   return (
     <div className="space-y-4 px-4 py-4 max-w-7xl mx-auto pb-20 md:pb-4">
-      <MarketHeader
-        market={market}
-        buyCount={counts.buyCount}
-        sellCount={counts.sellCount}
-        watchCount={counts.watchCount}
-        avoidCount={counts.avoidCount}
-        totalStocks={stocks.length}
-        trust={trust}
-        sectorStatuses={sectorStatuses}
-        isFetching={isFetching}
-        pollingIntervalMs={pollingIntervalMs}
-        onRefresh={handleManualRefresh}
-        onPollingIntervalChange={setPollingIntervalMs}
-      />
-
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-start gap-3">
           <Scan className="mt-0.5 h-4 w-4 text-primary flex-shrink-0" />
           <div>
-            <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">STOCK SCANNER</h2>
+            <h2 className="text-xs font-bold text-foreground font-mono tracking-wider">WSP SCREENER</h2>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              Visar {filteredStocks.length} av {Math.max(equityStocks.length, scannedRowCount)} aktier
-              {trust.displayState !== 'LIVE' && <span className="text-signal-caution"> · {trust.displayState}</span>}
+              Visar {rows.length} av {totalCount} aktier
+              {isFetching && <span className="text-primary"> · Uppdaterar...</span>}
             </p>
           </div>
         </div>
         <CreditsBadge />
       </div>
 
+      {/* Universe tier toggle */}
       <div className="flex items-center gap-1.5">
         <button
           type="button"
-          onClick={() => setUniverseTier('core')}
+          onClick={() => { setUniverseTier('core'); setPage(0); }}
           className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-mono font-semibold transition-colors ${
             universeTier === 'core'
               ? 'border-primary/50 bg-primary/10 text-foreground'
@@ -239,7 +99,7 @@ export default function Screener() {
         </button>
         <button
           type="button"
-          onClick={() => setUniverseTier('expanded')}
+          onClick={() => { setUniverseTier('expanded'); setPage(0); }}
           className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-mono font-semibold transition-colors ${
             universeTier === 'expanded'
               ? 'border-primary/50 bg-primary/10 text-foreground'
@@ -250,196 +110,166 @@ export default function Screener() {
           Expanded Universe
         </button>
         <span className="ml-2 text-[9px] font-mono text-muted-foreground">
-          {universeTier === 'core' ? '✓ High-trust · 11 GICS sectors · Daily updates' : '🔄 Growing coverage · Broader US equity scan'}
+          {universeTier === 'core' ? '✓ High-trust · 11 GICS sectors' : '🔄 Broader US equity scan'}
         </span>
       </div>
 
-      <div className="rounded-md border border-border bg-card px-3 py-2.5">
+      {/* Filter bar */}
+      <div className="rounded-md border border-border bg-card px-3 py-2.5 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">SECTOR → INDUSTRY → EQUITY</h3>
-            <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">
-              {activeSector ?? 'Alla sektorer'} → {activeIndustry ?? 'Alla industrier'} → {filteredStocks.length} aktier
-            </p>
-          </div>
-          {(activeSector || activeIndustry) && (
+          <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">FILTER</h3>
+          {(selectedSector || selectedIndustry || selectedPattern) && (
             <button
               type="button"
               className="rounded border border-border px-2 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"
-              onClick={clearSelection}
+              onClick={() => updateFilter({ sector: null, industry: null, pattern: null })}
             >
-              Rensa val
+              Rensa alla
             </button>
           )}
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        {/* Sector pills */}
+        <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
-            className={`rounded border px-2 py-1 text-[10px] font-mono ${activeSector == null ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
-            onClick={() => updateSelection({ sector: null, industry: null })}
+            className={`rounded border px-2 py-1 text-[10px] font-mono ${!selectedSector ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            onClick={() => updateFilter({ sector: null, industry: null })}
           >
-            Alla sektorer ({visibleSectors.length})
+            Alla sektorer
           </button>
-          {visibleSectors.map((sector) => (
+          {sectorRanking.map((s) => (
             <button
-              key={sector.sector}
+              key={s.sector_name}
               type="button"
-              className={`rounded border px-2 py-1 text-[10px] font-mono ${activeSector === sector.sector ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
-              onClick={() => updateSelection({ sector: sector.sector, industry: null })}
-              title={`Top industries: ${sector.topIndustries.join(', ') || 'n/a'}`}
+              className={`rounded border px-2 py-1 text-[10px] font-mono ${selectedSector === s.sector_name ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              onClick={() => updateFilter({ sector: s.sector_name, industry: null })}
             >
-              {sector.sector} · {sector.industryCount} industrier · {sector.equityCount} aktier
+              {s.sector_name}
+              {s.is_leading && <span className="ml-1 text-signal-buy">★</span>}
             </button>
           ))}
         </div>
 
-        {activeSector && (
-          <div className="mt-2 rounded border border-border/60 bg-background p-2">
-            <p className="text-[10px] font-mono text-muted-foreground mb-1">Industrier sorterade på rankScore · visar {industryFocusItems.length} av {visibleIndustryTotal}</p>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                className={`rounded border px-2 py-1 text-[10px] font-mono ${activeIndustry == null ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                onClick={() => updateSelection({ industry: null })}
-              >
-                Alla industrier
-              </button>
-              {industryFocusItems.map((industry) => (
-                <button
-                  key={`${industry.sector}-${industry.industry}`}
-                  type="button"
-                  className={`rounded border px-2 py-1 text-left text-[10px] font-mono ${activeIndustry === industry.industry ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                  onClick={() => updateSelection({ industry: industry.industry })}
-                >
-                  <span className="block truncate">{industry.industry}</span>
-                  <span className="block text-[9px]">
-                    R {industry.rankScore.toFixed(1)} · BO {industry.breakoutCount} · VE {industry.validEntryCount} · KÖP {industry.recommendationCounts.buy}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Pattern stage pills */}
+        <div className="flex flex-wrap gap-1.5">
+          {PATTERN_OPTIONS.map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              className={`rounded border px-2 py-1 text-[10px] font-mono ${selectedPattern === opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : !selectedPattern && !opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              onClick={() => updateFilter({ pattern: opt.value })}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-        {activeIndustrySnapshot && (
-          <div className="mt-2 rounded border border-primary/20 bg-primary/5 p-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">
-                  INDUSTRIKONTEXT · {activeIndustrySnapshot.industry}
-                </h4>
-                <p className="mt-0.5 text-[10px] font-mono text-muted-foreground">
-                  {activeIndustrySnapshot.sector} · Rank {activeIndustrySnapshot.rankScore.toFixed(1)} · {activeIndustrySnapshot.equityCount} kandidataktier
-                </p>
-              </div>
-              {industryCoverage && (
-                <span className="rounded border border-border bg-background px-2 py-1 text-[10px] font-mono text-muted-foreground">
-                  Laddat i tabellen: {industryCoverage.matching}/{industryCoverage.total} aktier i denna industri
-                </span>
-              )}
-            </div>
+        {/* Active filter summary */}
+        <p className="text-[9px] font-mono text-muted-foreground">
+          {selectedSector ?? 'Alla sektorer'} → {selectedIndustry ?? 'Alla industrier'} · {selectedPattern ?? 'Alla stadier'} · {totalCount} resultat
+        </p>
+      </div>
 
-            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Snittscore</p>
-                <p className="text-[11px] font-mono text-foreground">{activeIndustrySnapshot.averageScore.toFixed(2)}</p>
-              </div>
-              <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Snittförändring</p>
-                <p className={`text-[11px] font-mono ${activeIndustrySnapshot.averageChangePercent >= 0 ? 'text-signal-buy' : 'text-signal-sell'}`}>
-                  {activeIndustrySnapshot.averageChangePercent >= 0 ? '+' : ''}
-                  {activeIndustrySnapshot.averageChangePercent.toFixed(2)}%
-                </p>
-              </div>
-              <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Breakouts / Valid</p>
-                <p className="text-[11px] font-mono text-foreground">
-                  {activeIndustrySnapshot.breakoutCount} / {activeIndustrySnapshot.validEntryCount}
-                </p>
-              </div>
-              <div className="rounded border border-border bg-background px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Signals</p>
-                <p className="text-[11px] font-mono text-foreground">
-                  KÖP {activeIndustrySnapshot.recommendationCounts.buy} · BEV {activeIndustrySnapshot.recommendationCounts.watch}
-                </p>
-                <p className="text-[10px] font-mono text-muted-foreground">
-                  SÄLJ {activeIndustrySnapshot.recommendationCounts.sell} · UNDV {activeIndustrySnapshot.recommendationCounts.avoid}
-                </p>
-              </div>
-            </div>
-
-            {activeIndustrySnapshot.topEquities.length > 0 && (
-              <p className="mt-2 text-[10px] font-mono text-muted-foreground">
-                Starkaste aktier i urvalet: {activeIndustrySnapshot.topEquities.join(', ')}
-              </p>
-            )}
-          </div>
-        )}
-
-        {contextResultSummary && (
-          <div className="mt-2 rounded border border-border/60 bg-background p-2">
-            <h4 className="text-[10px] font-bold font-mono tracking-wider text-foreground">RESULTAT I AKTUELLT URVAL</h4>
-            <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-              <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">KÖP-andel</p>
-                <p className="text-[11px] font-mono text-foreground">
-                  {contextResultSummary.buy}/{filteredStocks.length}
-                </p>
-              </div>
-              <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Giltiga WSP-lägen</p>
-                <p className="text-[11px] font-mono text-foreground">
-                  {contextResultSummary.validEntries}/{filteredStocks.length}
-                </p>
-              </div>
-              <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Giltiga breakouts</p>
-                <p className="text-[11px] font-mono text-foreground">
-                  {contextResultSummary.breakoutValid}/{filteredStocks.length}
-                </p>
-              </div>
-              <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Snittscore</p>
-                <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgScore}</p>
-              </div>
-              <div className="rounded border border-border bg-card px-2 py-1.5">
-                <p className="text-[9px] font-mono text-muted-foreground">Snitt volymmultipel</p>
-                <p className="text-[11px] font-mono text-foreground">{contextResultSummary.avgVolumeMultiple.toFixed(2)}x</p>
-              </div>
-            </div>
-            <p className="mt-1.5 text-[10px] font-mono text-muted-foreground">
-              Högst score: {contextResultSummary.strongestScores.join(', ') || 'inga'} · Starkt momentum: {contextResultSummary.strongestMomentum.join(', ') || 'inga'}
-            </p>
+      {/* Results table */}
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/50 text-left text-[10px] text-muted-foreground font-mono">
+              <th className="px-3 py-2">#</th>
+              <th className="px-2 py-2">SYMBOL</th>
+              <th className="px-2 py-2">PRIS</th>
+              <th className="px-2 py-2">ÄNDR.</th>
+              <th className="px-2 py-2">MÖNSTER</th>
+              <th className="px-2 py-2 text-center">SCORE</th>
+              <th className="px-2 py-2">VOL</th>
+              <th className="px-2 py-2">SEKTOR → INDUSTRI</th>
+              <th className="px-2 py-2">SIGNAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <ScreenerTableRow key={row.symbol} row={row} rank={page * PAGE_SIZE + idx + 1} />
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && (
+          <div className="p-6 text-center text-sm text-muted-foreground font-mono">
+            Inga resultat matchar aktuella filter.
           </div>
         )}
       </div>
 
-      <PatternSummary counts={patternCounts ?? { climbing: 0, base_or_climbing: 0, base: 0, tired: 0, downhill: 0 }} />
-      <div className="relative">
-        <StockTable
-          stocks={filteredStocks}
-          discoveryMeta={discoveryMeta}
-          detailLinkSearch={detailLinkSearch}
-          contextLabel={activeIndustry ?? activeSector}
-          topFocusSymbols={activeIndustrySnapshot?.topEquities ?? []}
-          showContextRank={Boolean(activeSector || activeIndustry)}
-          scannedRowCount={scannedRowCount}
-        />
-
-        {canLoadMore && (
-          <div className="sticky bottom-3 z-20 flex justify-center pt-3">
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-mono text-muted-foreground">
+          Sida {page + 1} · Visar {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalCount)} av {totalCount}
+        </p>
+        <div className="flex gap-2">
+          {page > 0 && (
             <button
               type="button"
-              onClick={() => setPage((previous) => previous + 1)}
-              className="rounded-md border border-border bg-card/95 px-4 py-2 text-xs font-semibold text-foreground shadow-sm backdrop-blur hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isFetching}
+              onClick={() => setPage((p) => p - 1)}
+              className="rounded border border-border px-3 py-1.5 text-xs font-mono text-foreground hover:bg-muted"
             >
-              {isFetching ? 'Laddar...' : 'Ladda fler'}
+              ← Föregående
             </button>
-          </div>
-        )}
+          )}
+          {canLoadMore && (
+            <button
+              type="button"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={isFetching}
+              className="rounded border border-border px-3 py-1.5 text-xs font-mono text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {isFetching ? 'Laddar...' : 'Nästa →'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function ScreenerTableRow({ row, rank }: { row: ScreenerRow; rank: number }) {
+  const positive = row.changePercent >= 0;
+  return (
+    <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+      <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{rank}</td>
+      <td className="px-2 py-2">
+        <Link to={`/stock/${row.symbol}`} className="hover:text-primary transition-colors">
+          <span className="font-mono text-xs font-bold text-foreground">{row.symbol}</span>
+        </Link>
+      </td>
+      <td className="px-2 py-2 font-mono text-xs text-foreground">
+        {row.price != null ? `$${row.price.toFixed(2)}` : '—'}
+      </td>
+      <td className="px-2 py-2">
+        <span className={`flex items-center gap-0.5 font-mono text-xs font-medium ${positive ? 'text-signal-buy' : 'text-signal-sell'}`}>
+          {positive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+          {positive ? '+' : ''}{row.changePercent.toFixed(2)}%
+        </span>
+      </td>
+      <td className="px-2 py-2"><PatternBadge pattern={row.pattern_state as WSPPattern} /></td>
+      <td className="px-2 py-2 text-center">
+        <div className="flex justify-center">
+          <WSPScoreRing score={row.wsp_score} maxScore={5} size={32} />
+        </div>
+      </td>
+      <td className="px-2 py-2">
+        <span className={`font-mono text-xs ${row.volumeRatio != null && row.volumeRatio >= 2 ? 'text-signal-buy font-semibold' : 'text-muted-foreground'}`}>
+          {row.volumeRatio != null ? `${row.volumeRatio.toFixed(1)}x` : '—'}
+        </span>
+      </td>
+      <td className="px-2 py-2 text-[9px] text-muted-foreground truncate max-w-[160px]">
+        <Link
+          to={`/screener?sector=${encodeURIComponent(row.sector)}&industry=${encodeURIComponent(row.industry)}`}
+          className="hover:text-foreground"
+        >
+          {row.sector} → {row.industry}
+        </Link>
+      </td>
+      <td className="px-2 py-2"><RecommendationBadge recommendation={row.recommendation as WSPRecommendation} /></td>
+    </tr>
   );
 }
