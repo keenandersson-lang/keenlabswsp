@@ -153,7 +153,7 @@ export default function Screener() {
   const handleManualRefresh = async () => {
     await queryClient.fetchQuery({
       queryKey: ['wsp-screener', pollingIntervalMs, page, PAGE_SIZE],
-      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, page, pageSize: PAGE_SIZE }),
+      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, page, pageSize: PAGE_SIZE, universeTier }),
     });
   };
 
