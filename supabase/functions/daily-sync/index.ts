@@ -213,17 +213,24 @@ Deno.serve(async (req: Request) => {
     try {
       if (!POLYGON_API_KEY) throw new Error('POLYGON_API_KEY is not configured')
 
-      // 1. Get eligible symbols from DB
-      const { data: symbolRows, error: symbolError } = await supabase
-        .from('symbols')
-        .select('symbol')
-        .eq('is_active', true)
-        .eq('eligible_for_backfill', true)
-        .limit(2000)
-
-      if (symbolError) throw new Error(`Symbol fetch error: ${symbolError.message}`)
-
-      const eligibleSet = new Set((symbolRows ?? []).map((r: { symbol: string }) => r.symbol))
+      // 1. Get ALL eligible symbols from DB (paginate past 1000-row default)
+      const eligibleSet = new Set<string>()
+      let page = 0
+      const PAGE_SIZE = 1000
+      while (true) {
+        const { data: symbolRows, error: symbolError } = await supabase
+          .from('symbols')
+          .select('symbol')
+          .eq('is_active', true)
+          .eq('eligible_for_backfill', true)
+          .order('symbol')
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+        if (symbolError) throw new Error(`Symbol fetch error: ${symbolError.message}`)
+        if (!symbolRows || symbolRows.length === 0) break
+        for (const r of symbolRows) eligibleSet.add(r.symbol)
+        if (symbolRows.length < PAGE_SIZE) break
+        page++
+      }
       console.log(`[daily-sync] ${eligibleSet.size} eligible symbols for ${asOfDate}`)
 
       await updateLog(logId!, {
