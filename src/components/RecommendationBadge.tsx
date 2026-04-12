@@ -11,7 +11,7 @@ interface RecommendationBadgeProps {
   recommendation: string;
 }
 
-const fallbackConfig = { colorClass: 'text-muted-foreground', bgClass: 'bg-muted/10', borderClass: 'border-muted' } as const;
+const fallbackConfig: { colorClass: string; bgClass: string; borderClass: string; glow?: string } = { colorClass: 'text-muted-foreground', bgClass: 'bg-muted/10', borderClass: 'border-muted' };
 
 export function RecommendationBadge({ recommendation }: RecommendationBadgeProps) {
   const normalized = (recommendation === 'AVVAKTA' ? 'BEVAKA' : recommendation) as WSPRecommendation;
