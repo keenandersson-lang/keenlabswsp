@@ -12,6 +12,7 @@ import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
+import { UniverseCoverage } from '@/components/UniverseCoverage';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
@@ -196,6 +197,8 @@ const Index = () => {
       </div>
 
       <MarketRegime market={market} />
+
+      <UniverseCoverage />
 
       <div className="rounded-md border border-border bg-card px-3 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
