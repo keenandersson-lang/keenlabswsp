@@ -115,9 +115,10 @@ const Index = () => {
       if (error) throw error;
       const latestCloseBySymbol: Record<string, number> = {};
       for (const row of rows ?? []) {
-        const close = Number((row as any).close);
+        if (latestCloseBySymbol[row.symbol] != null) continue;
+        const close = Number(row.close);
         if (!Number.isFinite(close) || close <= 0) continue;
-        latestCloseBySymbol[(row as any).symbol] = close;
+        latestCloseBySymbol[row.symbol] = close;
       }
       return latestCloseBySymbol;
     },
