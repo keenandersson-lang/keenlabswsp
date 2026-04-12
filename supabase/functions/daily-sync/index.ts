@@ -356,6 +356,101 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[daily-sync] Materialized indicators for ${totalMaterialized} symbols, ${matErrors} chunk errors`)
 
+      // 7. Auto-enrich unenriched symbols (industry classification)
+      let enriched = 0
+      let enrichFailed = 0
+      const enrichedSymbols: string[] = []
+      try {
+        const { data: unenriched } = await supabase
+          .from('symbols')
+          .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, canonical_sector, canonical_industry')
+          .eq('is_active', true)
+          .is('enriched_at', null)
+          .order('symbol')
+          .limit(ENRICH_BATCH_SIZE)
+
+        if (unenriched && unenriched.length > 0) {
+          console.log(`[daily-sync] Auto-enriching ${unenriched.length} unenriched symbols`)
+          for (const sym of unenriched) {
+            try {
+              const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_API_KEY}`
+              const res = await fetch(url)
+              if (res.status === 429) {
+                console.log(`[daily-sync] Enrichment rate-limited at ${sym.symbol}, stopping batch`)
+                break
+              }
+              if (res.status === 404) { continue }
+              if (!res.ok) { enrichFailed++; continue }
+
+              const data = await res.json().catch(() => null)
+              if (!data?.results) { enrichFailed++; continue }
+
+              const details = data.results
+              const rawType = normalizeText(details.type)
+              const instrumentType = rawType ? (TYPE_MAP[rawType] ?? rawType) : null
+              const isEtf = instrumentType === 'ETF'
+              const isAdr = instrumentType === 'ADR'
+              const isCommonStock = instrumentType === 'CS'
+              const rawExchange = normalizeText(details.primary_exchange ?? details.exchange)
+              const normalizedExchange = rawExchange ? (EXCHANGE_MAP[rawExchange] ?? rawExchange) : null
+              const sicCode = normalizeText(details.sic_code)
+              const sicDesc = normalizeText(details.sic_description)
+              const companyName = normalizeText(details.name)
+
+              const classification = computeSectorIndustryClassification({
+                symbol: sym.symbol,
+                rawSector: normalizeText(details.market ?? details.sector) || sym.sector,
+                rawIndustry: normalizeText(details.industry) || normalizeText(sicDesc) || sym.industry,
+                sector: sym.sector,
+                industry: sym.industry,
+                sicCode,
+                sicDescription: sicDesc,
+                exchange: normalizedExchange || sym.exchange,
+                primaryExchange: normalizedExchange || sym.primary_exchange,
+                instrumentType: instrumentType || sym.instrument_type,
+                isEtf: isEtf || sym.is_etf,
+                isAdr: isAdr || sym.is_adr,
+                isCommonStock: isCommonStock || sym.is_common_stock,
+              })
+
+              const update: Record<string, unknown> = {
+                enriched_at: new Date().toISOString(),
+                canonical_sector: classification.canonicalSector ?? 'Unknown',
+                canonical_industry: classification.canonicalIndustry ?? 'Unknown',
+                classification_confidence_level: classification.confidenceLevel,
+                classification_status: classification.classificationStatus,
+                sector: classification.canonicalSector ?? sym.sector ?? 'Unknown',
+                industry: classification.canonicalIndustry ?? sym.industry,
+                is_common_stock: isCommonStock || sym.is_common_stock || false,
+                is_etf: isEtf || sym.is_etf || false,
+                is_adr: isAdr || sym.is_adr || false,
+              }
+
+              if (normalizedExchange) update.primary_exchange = normalizedExchange
+              if (instrumentType) update.instrument_type = instrumentType
+              if (sicCode) update.sic_code = sicCode
+              if (sicDesc) update.sic_description = sicDesc
+              if (companyName && !sym.name) update.name = companyName
+
+              const promotion = classifyPromotion({ ...sym, ...update })
+              update.support_level = promotion.support_level
+              update.eligible_for_backfill = promotion.eligible_for_backfill
+              update.eligible_for_full_wsp = promotion.eligible_for_full_wsp
+
+              await supabase.from('symbols').update(update).eq('symbol', sym.symbol)
+              enriched++
+              enrichedSymbols.push(sym.symbol)
+              await sleep(ENRICH_DELAY_MS)
+            } catch {
+              enrichFailed++
+            }
+          }
+          console.log(`[daily-sync] Auto-enriched ${enriched} symbols, ${enrichFailed} failed`)
+        }
+      } catch (enrichErr) {
+        console.error(`[daily-sync] Auto-enrich step error: ${String(enrichErr).slice(0, 200)}`)
+      }
+
       const finalStatus = upsertErrors === 0 && matErrors === 0 ? 'success'
         : rowsWritten > 0 ? 'partial' : 'error'
 
@@ -381,6 +476,9 @@ Deno.serve(async (req: Request) => {
           total_materialized: totalMaterialized,
           mat_errors: matErrors,
           benchmark_materialization: benchmarkMat,
+          auto_enriched: enriched,
+          auto_enrich_failed: enrichFailed,
+          auto_enriched_symbols: enrichedSymbols.slice(0, 20),
           elapsed_ms: Date.now() - startedAt,
         },
       })
