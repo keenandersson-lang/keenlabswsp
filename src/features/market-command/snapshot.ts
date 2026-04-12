@@ -8,6 +8,7 @@ export interface MarketCommandSnapshotRequest extends MarketCommandSelection {
   page?: number;
   pageSize?: number;
   forceRefresh?: boolean;
+  universeTier?: string | null;
 }
 
 export async function fetchMarketCommandSnapshot(
@@ -18,6 +19,7 @@ export async function fetchMarketCommandSnapshot(
     page: request.page,
     pageSize: request.pageSize,
     forceRefresh: request.forceRefresh,
+    universeTier: request.universeTier,
   });
 
   return buildMarketCommandSnapshot(screener, request);

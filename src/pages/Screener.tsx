@@ -8,7 +8,7 @@ import { MarketHeader } from '@/components/MarketHeader';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import type { EvaluatedStock } from '@/lib/wsp-types';
 import { useQueryClient } from '@tanstack/react-query';
-import { Scan } from 'lucide-react';
+import { Scan, ShieldCheck, Expand } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
@@ -22,6 +22,7 @@ export default function Screener() {
   const selectedIndustryParam = searchParams.get('industry');
   const selectedSector = selectedSectorParam && selectedSectorParam.trim().length > 0 ? selectedSectorParam : null;
   const selectedIndustry = selectedIndustryParam && selectedIndustryParam.trim().length > 0 ? selectedIndustryParam : null;
+  const [universeTier, setUniverseTier] = useState<'core' | 'expanded'>('core');
   const PAGE_SIZE = 50;
   const queryClient = useQueryClient();
   const { data: commandSnapshot, isFetching, isLoading } = useMarketCommand({
@@ -30,6 +31,7 @@ export default function Screener() {
     pageSize: PAGE_SIZE,
     sector: selectedSector,
     industry: selectedIndustry,
+    universeTier,
   });
   const { data: patternCounts } = useQuery<WspPatternCounts>({
     queryKey: ['wsp-pattern-counts'],
@@ -62,7 +64,7 @@ export default function Screener() {
   useEffect(() => {
     setPage(0);
     setLoadedStocks([]);
-  }, [pollingIntervalMs, selectedSector, selectedIndustry]);
+  }, [pollingIntervalMs, selectedSector, selectedIndustry, universeTier]);
 
   const equityStocks = useMemo(() => stocks.filter(s => isCanonicalGicsSector(s.sector)), [stocks]);
   const activeSector = commandSnapshot?.sectors.activeSector ?? selectedSector;
@@ -151,7 +153,7 @@ export default function Screener() {
   const handleManualRefresh = async () => {
     await queryClient.fetchQuery({
       queryKey: ['wsp-screener', pollingIntervalMs, page, PAGE_SIZE],
-      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, page, pageSize: PAGE_SIZE }),
+      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true, page, pageSize: PAGE_SIZE, universeTier }),
     });
   };
 
@@ -220,6 +222,36 @@ export default function Screener() {
           </div>
         </div>
         <CreditsBadge />
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setUniverseTier('core')}
+          className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-mono font-semibold transition-colors ${
+            universeTier === 'core'
+              ? 'border-primary/50 bg-primary/10 text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <ShieldCheck className="h-3.5 w-3.5" />
+          Core Universe
+        </button>
+        <button
+          type="button"
+          onClick={() => setUniverseTier('expanded')}
+          className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-mono font-semibold transition-colors ${
+            universeTier === 'expanded'
+              ? 'border-primary/50 bg-primary/10 text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <Expand className="h-3.5 w-3.5" />
+          Expanded Universe
+        </button>
+        <span className="ml-2 text-[9px] font-mono text-muted-foreground">
+          {universeTier === 'core' ? '✓ High-trust · 11 GICS sectors · Daily updates' : '🔄 Growing coverage · Broader US equity scan'}
+        </span>
       </div>
 
       <div className="rounded-md border border-border bg-card px-3 py-2.5">
