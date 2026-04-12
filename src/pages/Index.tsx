@@ -12,6 +12,7 @@ import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
+import { UniverseCoverage } from '@/components/UniverseCoverage';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
