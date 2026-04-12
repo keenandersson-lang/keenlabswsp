@@ -941,6 +941,7 @@ export type Database = {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      display_industry: { Args: { raw_industry: string }; Returns: string }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -1045,6 +1046,21 @@ export type Database = {
           wsp_pattern: string
         }[]
       }
+      get_industry_ranking: {
+        Args: { p_leading_only?: boolean; p_limit?: number }
+        Returns: {
+          avg_wsp_score: number
+          breakout_count: number
+          buy_count: number
+          display_industry: string
+          rank_position: number
+          rank_score: number
+          sector: string
+          symbol_count: number
+          valid_entry_count: number
+          watch_count: number
+        }[]
+      }
       get_market_summary: {
         Args: never
         Returns: {
@@ -1066,6 +1082,21 @@ export type Database = {
           pct_above_ma50: number
           sector_name: string
           stock_count: number
+        }[]
+      }
+      get_sector_ranking: {
+        Args: never
+        Returns: {
+          avg_pct_today: number
+          avg_wsp_score: number
+          is_leading: boolean
+          pct_above_ma50: number
+          rank_position: number
+          sector_name: string
+          symbol_count: number
+          top_pattern: string
+          wsp_regime: string
+          wsp_setups: number
         }[]
       }
       get_symbol_detail: {
