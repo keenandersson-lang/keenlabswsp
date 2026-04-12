@@ -1131,10 +1131,15 @@ export type Database = {
           read_ct: number
         }[]
       }
-      refresh_scanner_universe_snapshot: {
-        Args: { p_as_of_date: string; p_run_label: string }
-        Returns: number
-      }
+      refresh_scanner_universe_snapshot:
+        | {
+            Args: { p_as_of_date: string; p_run_label: string }
+            Returns: number
+          }
+        | {
+            Args: { p_as_of_date: string; p_run_label: string }
+            Returns: number
+          }
       run_broad_market_scan: {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
