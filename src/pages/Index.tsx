@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchWspScreenerData } from '@/hooks/use-wsp-screener';
 import { useMarketCommand } from '@/hooks/use-market-command';
+import { useSectorRanking, type SectorRankingRow } from '@/hooks/use-sector-ranking';
+import { useIndustryRanking, type IndustryRankingRow } from '@/hooks/use-industry-ranking';
+import { useTopSetups, type TopSetupDisplay } from '@/hooks/use-top-setups';
 import { WSP_CONFIG } from '@/lib/wsp-config';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { MarketHeader } from '@/components/MarketHeader';
 import { MarketRegime } from '@/components/MarketRegime';
 import { MarketHeatmap } from '@/components/MarketHeatmap';
@@ -13,31 +15,26 @@ import { WSPScoreRing } from '@/components/WSPScoreRing';
 import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { UniverseCoverage } from '@/components/UniverseCoverage';
-import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers } from 'lucide-react';
+import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers, Crown, Factory } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
-import { supabase } from '@/integrations/supabase/client';
 import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
-
-interface TopSetup {
-  symbol: string;
-  sector: string;
-  industry: string;
-  pattern: WSPPattern;
-  recommendation: WSPRecommendation;
-  score: number;
-  maxScore: number;
-  name: string;
-  price: number | null;
-  changePercent: number;
-  volumeMultiple: number | null;
-}
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  // Module 1: Market regime — still from useMarketCommand for MarketHeader/heatmap
   const { data: commandSnapshot, isFetching, isLoading, isError } = useMarketCommand({ intervalMs: pollingIntervalMs });
+
+  // Module 1: Sector ranking — direct from DB
+  const { data: sectorRanking = [] } = useSectorRanking();
+
+  // Module 1: Industry ranking — direct from DB  
+  const { data: industryRanking = [] } = useIndustryRanking(true, 15);
+
+  // Module 2+3: Top setups — direct from DB trust-ranked RPC
+  const { data: topSetups = [], isLoading: topSetupsLoading } = useTopSetups();
 
   const stocks = commandSnapshot?.equities.items ?? [];
   const providerStatus = commandSnapshot?.runtime.providerStatus;
@@ -50,7 +47,6 @@ const Index = () => {
     .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
 
   const equityStocks = useMemo(() => stocks.filter((s) => isCanonicalGicsSector(s.sector)), [stocks]);
-  const qualifiedEquities = useMemo(() => equityStocks.filter((s) => s.industry && s.industry !== 'Unknown' && s.industry !== 'Stocks'), [equityStocks]);
 
   const counts = useMemo(() => {
     if (commandSnapshot) {
@@ -61,61 +57,28 @@ const Index = () => {
         avoidCount: commandSnapshot.market.breadth.avoid,
       };
     }
+    return { buyCount: 0, sellCount: 0, watchCount: 0, avoidCount: 0 };
+  }, [commandSnapshot]);
 
-    return {
-      buyCount: stocks.filter((s) => s.finalRecommendation === 'KÖP').length,
-      sellCount: stocks.filter((s) => s.finalRecommendation === 'SÄLJ').length,
-      watchCount: stocks.filter((s) => s.finalRecommendation === 'BEVAKA').length,
-      avoidCount: stocks.filter((s) => s.finalRecommendation === 'UNDVIK').length,
-    };
-  }, [commandSnapshot, stocks]);
-
-  const topSetups = useMemo<TopSetup[]>(() => (
-    qualifiedEquities
-      .slice(0, 10)
-      .map((stock) => ({
-        symbol: stock.symbol,
-        sector: stock.sector,
-        industry: stock.industry,
-        pattern: stock.pattern,
-        recommendation: stock.finalRecommendation,
-        score: stock.score ?? 0,
-        maxScore: stock.maxScore ?? 9,
-        name: stock.name || stock.symbol,
-        price: Number.isFinite(stock.price) && stock.price > 0 ? stock.price : null,
-        changePercent: Number.isFinite(stock.changePercent) ? stock.changePercent : 0,
-        volumeMultiple: stock.audit.volumeMultiple ?? null,
-      }))
-  ), [qualifiedEquities]);
-
-  const topSetupsLoading = isLoading || (isFetching && topSetups.length === 0);
   const symbolContextLookup = useMemo(() => {
     const lookup = new Map<string, { sector: string; industry: string }>();
     for (const stock of stocks) {
       lookup.set(stock.symbol, { sector: stock.sector, industry: stock.industry });
     }
+    // Also include top setups symbols
+    for (const setup of topSetups) {
+      if (!lookup.has(setup.symbol)) {
+        lookup.set(setup.symbol, { sector: setup.sector, industry: setup.industry });
+      }
+    }
     return lookup;
-  }, [stocks]);
+  }, [stocks, topSetups]);
 
+  // Fetch fallback close prices for top setups missing prices
   const topSetupSymbolsWithMissingPrice = useMemo(
-    () => topSetups.filter((stock) => stock.price == null || stock.price <= 0).map((stock) => stock.symbol),
+    () => topSetups.filter((s) => s.price == null || s.price <= 0).map((s) => s.symbol),
     [topSetups]
   );
-
-  const sectorIndustrySummary = useMemo(() => {
-    const sectors = commandSnapshot?.sectors.items ?? [];
-    const industries = commandSnapshot?.industries.items ?? [];
-    const topSector = sectors[0] ?? null;
-
-    const topIndustries = industries.slice(0, 6);
-
-    return {
-      sectorCount: sectors.length,
-      industryCount: industries.length,
-      topSector,
-      topIndustries,
-    };
-  }, [commandSnapshot?.industries.items, commandSnapshot?.sectors.items]);
 
   const { data: topSetupFallbackCloseMap = {} } = useQuery({
     queryKey: ['dashboard-top-setup-fallback-closes', topSetupSymbolsWithMissingPrice],
@@ -126,27 +89,18 @@ const Index = () => {
         .select('symbol, close, date')
         .in('symbol', topSetupSymbolsWithMissingPrice)
         .order('date', { ascending: false });
-
       if (error) throw error;
-
       const latestCloseBySymbol: Record<string, number> = {};
-
       for (const row of rows ?? []) {
         if (latestCloseBySymbol[row.symbol] != null) continue;
         if (typeof row.close !== 'number' || !Number.isFinite(row.close) || row.close <= 0) continue;
         latestCloseBySymbol[row.symbol] = row.close;
       }
-
       return latestCloseBySymbol;
     },
   });
 
-  const handleManualRefresh = async () => {
-    await queryClient.fetchQuery({
-      queryKey: ['wsp-screener', pollingIntervalMs],
-      queryFn: () => fetchWspScreenerData({ intervalMs: pollingIntervalMs, forceRefresh: true }),
-    });
-  };
+  const handleManualRefresh = async () => {};
 
   const buildStockDetailPath = (symbol: string, sector?: string, industry?: string) => {
     const params = new URLSearchParams();
@@ -155,6 +109,10 @@ const Index = () => {
     const serialized = params.toString();
     return `/stock/${symbol}${serialized ? `?${serialized}` : ''}`;
   };
+
+  // Leading sectors
+  const leadingSectors = useMemo(() => sectorRanking.filter((s) => s.is_leading), [sectorRanking]);
+  const laggingSectors = useMemo(() => sectorRanking.filter((s) => !s.is_leading), [sectorRanking]);
 
   if (!market || !providerStatus || !debugSummary || !discoveryMeta || !trust) {
     return (
@@ -172,7 +130,7 @@ const Index = () => {
 
   return (
     <div className="space-y-3 px-2 py-2 sm:px-4 sm:py-4 sm:space-y-4 max-w-7xl mx-auto pb-20 md:pb-4">
-      {/* Zone 1 — Market Overview */}
+      {/* MODULE 1 — Step 1: Market Overview + Regime */}
       <MarketHeader
         market={market}
         buyCount={counts.buyCount}
@@ -190,55 +148,60 @@ const Index = () => {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">DASHBOARD</h2>
-          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Scannat universum · {providerStatus.symbolCount} skannade aktier · {new Set(equityStocks.map(s => s.sector)).size} GICS-sektorer · {equityStocks.length} med sektortillhörighet</p>
+          <h2 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">MODULE 1 — TOP-DOWN ANALYSIS</h2>
+          <p className="text-[9px] text-muted-foreground font-mono mt-0.5">Market → Sector → Industry → Equity</p>
         </div>
         <CreditsBadge />
       </div>
 
       <MarketRegime market={market} />
 
-      <UniverseCoverage />
-
-      <div className="rounded-md border border-border bg-card px-3 py-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-start gap-2">
-            <Layers className="mt-0.5 h-3.5 w-3.5 text-primary" />
-            <div>
-              <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">SECTOR → INDUSTRY → EQUITY</h3>
-              <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">
-                {sectorIndustrySummary.sectorCount} sektorer → {sectorIndustrySummary.industryCount} industrier → {qualifiedEquities.length} aktier med sektor+industri av {equityStocks.length} med GICS-sektor ({providerStatus.symbolCount} totalt skannade)
-              </p>
-            </div>
+      {/* MODULE 1 — Step 2: Leading Sectors */}
+      <section className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+          <div className="flex items-center gap-2">
+            <Crown className="h-3.5 w-3.5 text-primary" />
+            <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">LEDANDE SEKTORER</h3>
+            <span className="text-[8px] font-mono text-muted-foreground">
+              ({leadingSectors.length} av {sectorRanking.length} sektorer)
+            </span>
           </div>
-          <Link to="/screener" className="text-[10px] font-mono text-primary hover:underline">
-            Öppna hela flödet →
-          </Link>
+          <Link to="/sectors" className="text-[10px] font-mono text-primary hover:underline">Alla sektorer →</Link>
         </div>
-
-        {sectorIndustrySummary.topSector && (
-          <div className="mt-2 rounded border border-border/60 bg-background p-2">
-            <p className="text-[10px] font-mono text-muted-foreground">
-              Starkast sektor nu: <span className="text-foreground">{sectorIndustrySummary.topSector.sector}</span> · {sectorIndustrySummary.topSector.industryCount} industrier · {sectorIndustrySummary.topSector.equityCount} aktier
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 p-2">
+          {leadingSectors.map((s) => (
+            <SectorCard key={s.sector_name} sector={s} navigate={navigate} />
+          ))}
+        </div>
+        {laggingSectors.length > 0 && (
+          <div className="border-t border-border/40 px-3 py-2">
+            <p className="text-[9px] font-mono text-muted-foreground">
+              Eftersläpande: {laggingSectors.map((s) => `${s.sector_name} (${s.wsp_regime})`).join(' · ')}
             </p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {sectorIndustrySummary.topIndustries.map((industry) => (
-                <Link
-                  key={`${industry.sector}-${industry.industry}`}
-                  to={`/screener?sector=${encodeURIComponent(industry.sector)}&industry=${encodeURIComponent(industry.industry)}`}
-                  className="rounded border border-border px-2 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"
-                  title={`${industry.sector} · R ${industry.rankScore.toFixed(1)} · BO ${industry.breakoutCount} · VE ${industry.validEntryCount} · KÖP ${industry.recommendationCounts.buy}`}
-                >
-                  <span className="block text-foreground truncate max-w-[180px]">{industry.industry}</span>
-                  <span className="block text-[9px]">Rank {industry.rankScore.toFixed(1)} · Breakout {industry.breakoutCount} · Giltiga lägen {industry.validEntryCount} · KÖP {industry.recommendationCounts.buy}</span>
-                </Link>
-              ))}
-            </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Zone 2 — Compact Sector Heatmap */}
+      {/* MODULE 1 — Step 3: Leading Industries */}
+      <section className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+          <div className="flex items-center gap-2">
+            <Factory className="h-3.5 w-3.5 text-primary" />
+            <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">LEDANDE INDUSTRIER</h3>
+            <span className="text-[8px] font-mono text-muted-foreground">
+              (Topp {industryRanking.length} inom ledande sektorer)
+            </span>
+          </div>
+          <Link to="/screener" className="text-[10px] font-mono text-primary hover:underline">Screener →</Link>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 p-2">
+          {industryRanking.slice(0, 12).map((ind) => (
+            <IndustryCard key={`${ind.sector}-${ind.display_industry}`} industry={ind} navigate={navigate} />
+          ))}
+        </div>
+      </section>
+
+      {/* MODULE 2+3 — Equity Analysis + Scoring: Heatmap */}
       <MarketHeatmap
         stocks={equityStocks}
         sectorStatuses={sectorStatuses}
@@ -253,30 +216,27 @@ const Index = () => {
         onSectorSelect={(sector) => navigate(`/screener?sector=${encodeURIComponent(sector)}`)}
       />
 
-      {/* Zone 3 — Top 10 WSP Setups */}
-      <div className="rounded-lg border border-border bg-card">
+      <UniverseCoverage />
+
+      {/* MODULE 2+3 — Top 10 WSP Setups (from trust-ranked RPC) */}
+      <section className="rounded-lg border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-3 py-2 sm:px-4 sm:py-3">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-3.5 w-3.5 text-primary" />
             <h3 className="text-[10px] sm:text-xs font-bold text-foreground font-mono tracking-wider">BÄSTA WSP-SETUPS</h3>
             <span className="text-[8px] font-mono text-muted-foreground">({topSetupsLoading ? '…' : topSetups.length})</span>
+            <span className="text-[8px] font-mono text-primary/60">via trust-rank</span>
           </div>
-          <Link
-            to="/screener"
-            className="text-[10px] font-mono text-primary hover:underline"
-          >
-            Visa alla →
-          </Link>
+          <Link to="/screener" className="text-[10px] font-mono text-primary hover:underline">Visa alla →</Link>
         </div>
         {/* Mobile: card layout */}
         <div className="grid grid-cols-2 gap-1.5 p-2 sm:hidden">
-          {topSetups.map((stock) => (
+          {topSetups.slice(0, 10).map((stock) => (
             <div key={stock.symbol} className="rounded border border-border bg-background p-2 hover:border-primary/30 transition-colors">
               <div className="flex items-center justify-between gap-1">
                 <Link to={buildStockDetailPath(stock.symbol, stock.sector, stock.industry)} className="font-mono text-[10px] font-bold text-foreground hover:text-primary">{stock.symbol}</Link>
                 <RecommendationBadge recommendation={stock.recommendation} />
               </div>
-              <div className="text-[8px] text-muted-foreground truncate">{stock.name}</div>
               <Link
                 to={`/screener?sector=${encodeURIComponent(stock.sector)}&industry=${encodeURIComponent(stock.industry)}`}
                 className="mt-0.5 block text-[8px] text-primary hover:underline truncate"
@@ -301,7 +261,8 @@ const Index = () => {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/50 text-left text-[10px] text-muted-foreground font-mono">
-                <th className="px-3 py-1.5">SYMBOL</th>
+                <th className="px-3 py-1.5">#</th>
+                <th className="px-2 py-1.5">SYMBOL</th>
                 <th className="px-2 py-1.5">PRIS</th>
                 <th className="px-2 py-1.5">ÄNDR.</th>
                 <th className="px-2 py-1.5">MÖNSTER</th>
@@ -312,13 +273,13 @@ const Index = () => {
               </tr>
             </thead>
             <tbody>
-              {topSetups.map((stock) => (
-                <TopSetupRow key={stock.symbol} stock={stock} fallbackCloseMap={topSetupFallbackCloseMap} buildStockDetailPath={buildStockDetailPath} />
+              {topSetups.slice(0, 10).map((stock, idx) => (
+                <TopSetupRow key={stock.symbol} stock={stock} rank={idx + 1} fallbackCloseMap={topSetupFallbackCloseMap} buildStockDetailPath={buildStockDetailPath} />
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
       {/* Debug panel */}
       <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} market={market} discoveryMeta={discoveryMeta} />
@@ -326,33 +287,82 @@ const Index = () => {
   );
 };
 
-function getDisplayPrice(stock: TopSetup, fallbackCloseMap: Record<string, number>) {
+function SectorCard({ sector, navigate }: { sector: SectorRankingRow; navigate: (path: string) => void }) {
+  const regimeColor = sector.wsp_regime === 'Bullish' ? 'text-signal-buy' : sector.wsp_regime === 'Bearish' ? 'text-signal-sell' : 'text-signal-caution';
+  const regimeBorder = sector.wsp_regime === 'Bullish' ? 'border-signal-buy/20' : sector.wsp_regime === 'Bearish' ? 'border-signal-sell/20' : 'border-signal-caution/20';
+
+  return (
+    <button
+      onClick={() => navigate(`/screener?sector=${encodeURIComponent(sector.sector_name)}`)}
+      className={`rounded border ${regimeBorder} bg-background p-2.5 text-left hover:border-primary/30 transition-colors w-full`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[10px] font-bold text-foreground">{sector.sector_name}</span>
+        <span className={`font-mono text-[9px] font-bold ${regimeColor}`}>#{sector.rank_position} {sector.wsp_regime.toUpperCase()}</span>
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[9px] font-mono text-muted-foreground">
+        <span>{sector.pct_above_ma50.toFixed(0)}% &gt; MA50</span>
+        <span>Snitt {sector.avg_wsp_score.toFixed(1)}/5</span>
+        <span>{sector.wsp_setups} setups</span>
+      </div>
+      <div className="mt-0.5 text-[8px] font-mono text-muted-foreground">
+        {sector.symbol_count} aktier · Dag {sector.avg_pct_today >= 0 ? '+' : ''}{sector.avg_pct_today.toFixed(1)}%
+      </div>
+    </button>
+  );
+}
+
+function IndustryCard({ industry, navigate }: { industry: IndustryRankingRow; navigate: (path: string) => void }) {
+  return (
+    <button
+      onClick={() => navigate(`/screener?sector=${encodeURIComponent(industry.sector)}&industry=${encodeURIComponent(industry.display_industry)}`)}
+      className="rounded border border-border bg-background p-2.5 text-left hover:border-primary/30 transition-colors w-full"
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[10px] font-bold text-foreground truncate max-w-[160px]">{industry.display_industry}</span>
+        <span className="font-mono text-[9px] text-primary">#{industry.rank_position}</span>
+      </div>
+      <div className="mt-0.5 text-[8px] font-mono text-muted-foreground">{industry.sector}</div>
+      <div className="mt-1 flex items-center gap-2 text-[9px] font-mono text-muted-foreground">
+        <span>Snitt {industry.avg_wsp_score.toFixed(1)}/5</span>
+        <span>{industry.symbol_count} aktier</span>
+        <span className="text-signal-buy">{industry.buy_count} KÖP</span>
+        <span>{industry.watch_count} BEV</span>
+      </div>
+      {industry.breakout_count > 0 && (
+        <div className="mt-0.5 text-[8px] font-mono text-signal-buy font-bold">⚡ {industry.breakout_count} breakout</div>
+      )}
+    </button>
+  );
+}
+
+function getDisplayPrice(stock: TopSetupDisplay, fallbackCloseMap: Record<string, number>) {
   const candidate = typeof stock.price === 'number' && Number.isFinite(stock.price) && stock.price > 0
     ? stock.price
     : fallbackCloseMap[stock.symbol];
-
   return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
 function TopSetupRow({
   stock,
+  rank,
   fallbackCloseMap,
   buildStockDetailPath,
 }: {
-  stock: TopSetup;
+  stock: TopSetupDisplay;
+  rank: number;
   fallbackCloseMap: Record<string, number>;
   buildStockDetailPath: (symbol: string, sector?: string, industry?: string) => string;
 }) {
   const positive = stock.changePercent >= 0;
-  const volumeMultiple = stock.volumeMultiple;
   const displayPrice = getDisplayPrice(stock, fallbackCloseMap);
 
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{rank}</td>
+      <td className="px-2 py-2">
         <Link to={buildStockDetailPath(stock.symbol, stock.sector, stock.industry)} className="hover:text-primary transition-colors">
           <span className="font-mono text-xs font-bold text-foreground">{stock.symbol}</span>
-          <span className="block text-[8px] text-muted-foreground truncate max-w-[80px]">{stock.name}</span>
         </Link>
       </td>
       <td className="px-2 py-2 font-mono text-xs text-foreground">${displayPrice.toFixed(2)}</td>
@@ -369,8 +379,8 @@ function TopSetupRow({
         </div>
       </td>
       <td className="px-2 py-2">
-        <span className={`font-mono text-xs ${volumeMultiple != null && volumeMultiple >= 2 ? 'text-signal-buy font-semibold' : 'text-muted-foreground'}`}>
-          {volumeMultiple != null ? `${volumeMultiple.toFixed(1)}x` : '—'}
+        <span className={`font-mono text-xs ${stock.volumeMultiple != null && stock.volumeMultiple >= 2 ? 'text-signal-buy font-semibold' : 'text-muted-foreground'}`}>
+          {stock.volumeMultiple != null ? `${stock.volumeMultiple.toFixed(1)}x` : '—'}
         </span>
       </td>
       <td className="px-2 py-2 text-[9px] text-muted-foreground truncate max-w-[160px]">
