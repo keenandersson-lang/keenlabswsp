@@ -1014,17 +1014,22 @@ function buildSectorStatusesFromStocks(stocks: EvaluatedStock[]): SectorStatus[]
   });
 }
 
-async function fetchDirectFromSupabase(page: number = 0, pageSize?: number): Promise<EvaluatedStock[]> {
-  console.log('[WSP] fetchDirectFromSupabase called, page:', page, 'pageSize:', pageSize);
+async function fetchDirectFromSupabase(page: number = 0, pageSize?: number, universeTier?: string | null): Promise<EvaluatedStock[]> {
+  console.log('[WSP] fetchDirectFromSupabase called, page:', page, 'pageSize:', pageSize, 'tier:', universeTier);
   const sectorTrends = await fetchSectorTrends();
   const normalizedPage = Number.isFinite(page) && page >= 0 ? Math.floor(page) : 0;
   const hasPagination = typeof pageSize === 'number' && Number.isFinite(pageSize) && pageSize > 0;
   const normalizedPageSize = hasPagination ? Math.floor(pageSize as number) : null;
 
-  const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', {
+  const rpcParams: Record<string, unknown> = {
     p_page: normalizedPage,
     p_page_size: hasPagination && normalizedPageSize !== null ? normalizedPageSize : 5000,
-  });
+  };
+  if (universeTier) {
+    rpcParams.p_universe_tier = universeTier;
+  }
+
+  const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', rpcParams);
 
   if (error) {
     throw new Error(error.message);
