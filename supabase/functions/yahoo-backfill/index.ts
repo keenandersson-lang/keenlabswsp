@@ -25,7 +25,7 @@ type PriceRow = {
   volume: number
 }
 
-const BATCH_SIZE = 10
+const BATCH_SIZE = 50
 const BATCH_DELAY_MS = 1000
 const DEFAULT_DAYS = 730
 
