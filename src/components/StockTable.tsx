@@ -20,7 +20,7 @@ interface StockTableProps {
 
 type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
-type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
+type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'mansfieldRSSector' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
 interface RowPresentationTruth {
   recommendation: WSPRecommendation;
@@ -73,7 +73,8 @@ const quickSorts: { key: SortKey; label: string }[] = [
   { key: 'logicViolations', label: 'Flest regelbrott' },
   { key: 'volumeMultiple', label: 'Högst volymmultipel' },
   { key: 'breakoutAge', label: 'Nyast breakout' },
-  { key: 'mansfieldRS', label: 'Starkast Mansfield' },
+  { key: 'mansfieldRS', label: 'Starkast RS vs SPY' },
+  { key: 'mansfieldRSSector', label: 'Starkast RS vs Sektor' },
   { key: 'missingIndicators', label: 'Mest saknad data' },
 ];
 
@@ -178,6 +179,7 @@ export function StockTable({
       const dir = sortDir === 'desc' ? -1 : 1;
       if (sortBy === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
       if (sortBy === 'mansfieldRS') return dir * ((a.audit?.mansfieldValue ?? Number.NEGATIVE_INFINITY) - (b.audit?.mansfieldValue ?? Number.NEGATIVE_INFINITY));
+      if (sortBy === 'mansfieldRSSector') return dir * ((a.audit?.mansfieldSectorValue ?? Number.NEGATIVE_INFINITY) - (b.audit?.mansfieldSectorValue ?? Number.NEGATIVE_INFINITY));
       if (sortBy === 'volumeMultiple') return dir * ((a.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY) - (b.audit?.volumeMultiple ?? Number.NEGATIVE_INFINITY));
       if (sortBy === 'logicViolations') return dir * (a.logicViolations.length - b.logicViolations.length);
       if (sortBy === 'breakoutAge') return dir * ((normalizeBreakoutAge(a.audit) ?? Number.POSITIVE_INFINITY) - (normalizeBreakoutAge(b.audit) ?? Number.POSITIVE_INFINITY));
