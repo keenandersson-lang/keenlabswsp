@@ -59,10 +59,10 @@ export default function StockDetail() {
     queryKey: ['stock-detail-indicator', requestedSymbol],
     enabled: Boolean(requestedSymbol) && !hasCanonicalTruth,
     staleTime: 60_000,
-    queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null; pct_change_1d: number | null } | null> => {
+    queryFn: async (): Promise<{ volume_ratio: number | null; mansfield_rs: number | null; mansfield_rs_sector: number | null; pct_change_1d: number | null } | null> => {
       const { data, error } = await supabase
         .from('wsp_indicators')
-        .select('volume_ratio, mansfield_rs, pct_change_1d')
+        .select('volume_ratio, mansfield_rs, mansfield_rs_sector, pct_change_1d')
         .eq('symbol', requestedSymbol)
         .order('calc_date', { ascending: false })
         .limit(1)
@@ -256,6 +256,9 @@ export default function StockDetail() {
   const indicatorMansfieldRs = hasCanonicalTruth
     ? (canonicalStock?.audit.mansfieldValue ?? stockWithMeta.audit.mansfieldValue ?? null)
     : (indicatorQuery.data?.mansfield_rs ?? stockWithMeta.audit.mansfieldValue ?? null);
+  const indicatorMansfieldRsSector = hasCanonicalTruth
+    ? (canonicalStock?.audit.mansfieldSectorValue ?? null)
+    : (indicatorQuery.data?.mansfield_rs_sector ?? null);
   const indicatorDailyChange = hasCanonicalTruth ? canonicalStock?.changePercent : indicatorQuery.data?.pct_change_1d;
   const headerChangePercent = typeof indicatorDailyChange === 'number' && Number.isFinite(indicatorDailyChange)
     ? indicatorDailyChange
@@ -333,6 +336,14 @@ export default function StockDetail() {
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-mono text-muted-foreground">
               Sektor: {stockWithMeta.sector}
             </span>
+            <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-mono ${indicatorMansfieldRs != null && indicatorMansfieldRs > 0 ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : indicatorMansfieldRs != null ? 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell' : 'border-border bg-card text-muted-foreground'}`}>
+              RS vs SPY: {indicatorMansfieldRs != null ? indicatorMansfieldRs.toFixed(2) : 'N/A'}
+            </span>
+            {indicatorMansfieldRsSector != null && (
+              <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-mono ${indicatorMansfieldRsSector > 0 ? 'border-signal-buy/30 bg-signal-buy/10 text-signal-buy' : 'border-signal-sell/30 bg-signal-sell/10 text-signal-sell'}`}>
+                RS vs Sektor: {indicatorMansfieldRsSector.toFixed(2)}
+              </span>
+            )}
             {isMetals && (
               <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[10px] font-mono text-accent">METAL</span>
             )}
