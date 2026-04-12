@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeSectorName } from '@/lib/market-normalization';
 
 export interface ScreenerRow {
   symbol: string;
@@ -21,6 +22,7 @@ interface RawRow {
   pattern_state: string | null;
   recommendation: string | null;
   wsp_score: number | null;
+  total_count?: number | null;
   payload: Record<string, unknown> | null;
 }
 
@@ -28,7 +30,7 @@ function parseRow(r: RawRow): ScreenerRow {
   const p = (r.payload ?? {}) as Record<string, unknown>;
   return {
     symbol: r.symbol,
-    sector: r.sector ?? 'Unknown',
+    sector: normalizeSectorName(r.sector),
     industry: r.industry ?? 'Unknown',
     pattern_state: r.pattern_state ?? 'base',
     recommendation: r.recommendation ?? 'BEVAKA',
@@ -57,7 +59,7 @@ export function useEquityScreener({
   industry = null,
   pattern = null,
 }: ScreenerParams) {
-  return useQuery<ScreenerRow[]>({
+  return useQuery<{ rows: ScreenerRow[]; totalCount: number }>({
     queryKey: ['equity-screener', page, pageSize, universeTier, sector, industry, pattern],
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_equity_screener_rows', {
@@ -66,27 +68,14 @@ export function useEquityScreener({
         p_universe_tier: universeTier,
         p_sector: sector,
         p_industry: industry,
-        p_pattern: pattern,
+        p_pattern_stage: pattern,
       });
       if (error) throw error;
-      return ((data ?? []) as RawRow[]).map(parseRow);
-    },
-    staleTime: 60_000,
-  });
-}
-
-export function useScreenerCount(params: Omit<ScreenerParams, 'page' | 'pageSize'>) {
-  return useQuery<number>({
-    queryKey: ['equity-screener-count', params.universeTier, params.sector, params.industry, params.pattern],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_equity_screener_count', {
-        p_universe_tier: params.universeTier ?? null,
-        p_sector: params.sector ?? null,
-        p_industry: params.industry ?? null,
-        p_pattern: params.pattern ?? null,
-      });
-      if (error) throw error;
-      return typeof data === 'number' ? data : 0;
+      const rawRows = (data ?? []) as RawRow[];
+      return {
+        rows: rawRows.map(parseRow),
+        totalCount: Number(rawRows[0]?.total_count ?? 0),
+      };
     },
     staleTime: 60_000,
   });

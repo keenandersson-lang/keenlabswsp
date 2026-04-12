@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMarketCommand } from '@/hooks/use-market-command';
 import { useSectorRanking, type SectorRankingRow } from '@/hooks/use-sector-ranking';
 import { useIndustryRanking, type IndustryRankingRow } from '@/hooks/use-industry-ranking';
 import { useTopSetups, type TopSetupDisplay } from '@/hooks/use-top-setups';
+import { useEquityScreener } from '@/hooks/use-equity-screener';
 import { WSP_CONFIG } from '@/lib/wsp-config';
 import { useQuery } from '@tanstack/react-query';
 import { MarketHeader } from '@/components/MarketHeader';
@@ -12,58 +12,81 @@ import { MarketHeatmap } from '@/components/MarketHeatmap';
 import { PatternBadge } from '@/components/PatternBadge';
 import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
-import { DebugPanel } from '@/components/DebugPanel';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { UniverseCoverage } from '@/components/UniverseCoverage';
 import { RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp, Layers, Crown, Factory } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { isCanonicalGicsSector } from '@/lib/wsp-data-contract';
 import { supabase } from '@/integrations/supabase/client';
+import type { MarketOverview, ScreenerTrustContract } from '@/lib/wsp-types';
 
 const Index = () => {
   const [pollingIntervalMs, setPollingIntervalMs] = useState(WSP_CONFIG.refreshInterval);
   const navigate = useNavigate();
 
-  // Module 1: Market regime — still from useMarketCommand for MarketHeader/heatmap
-  const { data: commandSnapshot, isFetching, isLoading, isError } = useMarketCommand({ intervalMs: pollingIntervalMs });
+  const { data: benchmarkRows = [], isFetching, isLoading, isError, refetch } = useQuery({
+    queryKey: ['dashboard-benchmark-prices'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_benchmark_prices');
+      if (error) throw error;
+      return (data ?? []) as Array<{ symbol: string; close: number; pct_change_1d: number; calc_date: string }>;
+    },
+    refetchInterval: pollingIntervalMs,
+    staleTime: Math.max(15_000, pollingIntervalMs / 2),
+  });
 
-  // Module 1: Sector ranking — direct from DB
   const { data: sectorRanking = [] } = useSectorRanking();
-
-  // Module 1: Industry ranking — direct from DB  
   const { data: industryRanking = [] } = useIndustryRanking(true, 15);
-
-  // Module 2+3: Top setups — direct from DB trust-ranked RPC
   const { data: topSetups = [], isLoading: topSetupsLoading } = useTopSetups();
+  const { data: heatmapData } = useEquityScreener({ page: 0, pageSize: 300, universeTier: 'core' });
 
-  const stocks = commandSnapshot?.equities.items ?? [];
-  const providerStatus = commandSnapshot?.runtime.providerStatus;
-  const market = commandSnapshot?.market.overview;
-  const trust = commandSnapshot?.trust;
-  const debugSummary = commandSnapshot?.runtime.debugSummary;
-  const discoveryMeta = commandSnapshot?.runtime.discoveryMeta;
-  const sectorStatuses = commandSnapshot?.sectors.items
-    .map((sectorItem) => sectorItem.status)
-    .filter((status): status is NonNullable<typeof status> => status !== null) ?? [];
-
-  const equityStocks = useMemo(() => stocks.filter((s) => isCanonicalGicsSector(s.sector)), [stocks]);
+  const heatmapRows = (heatmapData?.rows ?? []).filter((row) => isCanonicalGicsSector(row.sector));
+  const sectorStatuses = sectorRanking.map((sector) => ({
+    sector: sector.sector_name,
+    isBullish: sector.wsp_regime === 'Bullish',
+    changePercent: sector.avg_pct_today,
+    sma50AboveSma200: sector.pct_above_ma50 > 60,
+  }));
+  const spy = benchmarkRows.find((row) => row.symbol === 'SPY');
+  const qqq = benchmarkRows.find((row) => row.symbol === 'QQQ');
+  const market: MarketOverview = {
+    sp500Change: Number(spy?.pct_change_1d ?? 0),
+    nasdaqChange: Number(qqq?.pct_change_1d ?? 0),
+    sp500Price: spy?.close ?? null,
+    nasdaqPrice: qqq?.close ?? null,
+    sp500Symbol: 'SPY',
+    nasdaqSymbol: 'QQQ',
+    benchmarkState: 'live',
+    benchmarkLastUpdated: spy?.calc_date ?? new Date().toISOString(),
+    marketTrend: (spy?.pct_change_1d ?? 0) >= 0 && (qqq?.pct_change_1d ?? 0) >= 0 ? 'bullish' : (spy?.pct_change_1d ?? 0) < 0 && (qqq?.pct_change_1d ?? 0) < 0 ? 'bearish' : 'neutral',
+    lastUpdated: spy?.calc_date ?? new Date().toISOString(),
+    dataSource: 'live',
+    pollingIntervalMs,
+    sp500CalcDate: spy?.calc_date ?? null,
+    nasdaqCalcDate: qqq?.calc_date ?? null,
+  };
+  const trust: ScreenerTrustContract = {
+    uiState: 'LIVE',
+    displayState: 'LIVE',
+    isLive: true,
+    fallbackActive: false,
+    benchmarkState: 'live',
+    dataProvenance: 'direct_db',
+  };
 
   const counts = useMemo(() => {
-    if (commandSnapshot) {
-      return {
-        buyCount: commandSnapshot.market.breadth.buy,
-        sellCount: commandSnapshot.market.breadth.sell,
-        watchCount: commandSnapshot.market.breadth.watch,
-        avoidCount: commandSnapshot.market.breadth.avoid,
-      };
-    }
-    return { buyCount: 0, sellCount: 0, watchCount: 0, avoidCount: 0 };
-  }, [commandSnapshot]);
+    return {
+      buyCount: heatmapRows.filter((row) => row.recommendation === 'KÖP').length,
+      sellCount: heatmapRows.filter((row) => row.recommendation === 'SÄLJ').length,
+      watchCount: heatmapRows.filter((row) => ['BEVAKA', 'AVVAKTA'].includes(row.recommendation)).length,
+      avoidCount: heatmapRows.filter((row) => row.recommendation === 'UNDVIK').length,
+    };
+  }, [heatmapRows]);
 
   const symbolContextLookup = useMemo(() => {
     const lookup = new Map<string, { sector: string; industry: string }>();
-    for (const stock of stocks) {
-      lookup.set(stock.symbol, { sector: stock.sector, industry: stock.industry });
+    for (const row of heatmapRows) {
+      lookup.set(row.symbol, { sector: row.sector, industry: row.industry });
     }
     // Also include top setups symbols
     for (const setup of topSetups) {
@@ -72,7 +95,7 @@ const Index = () => {
       }
     }
     return lookup;
-  }, [stocks, topSetups]);
+  }, [heatmapRows, topSetups]);
 
   // Fetch fallback close prices for top setups missing prices
   const topSetupSymbolsWithMissingPrice = useMemo(
@@ -100,7 +123,7 @@ const Index = () => {
     },
   });
 
-  const handleManualRefresh = async () => {};
+  const handleManualRefresh = async () => { await refetch(); };
 
   const buildStockDetailPath = (symbol: string, sector?: string, industry?: string) => {
     const params = new URLSearchParams();
@@ -114,7 +137,7 @@ const Index = () => {
   const leadingSectors = useMemo(() => sectorRanking.filter((s) => s.is_leading), [sectorRanking]);
   const laggingSectors = useMemo(() => sectorRanking.filter((s) => !s.is_leading), [sectorRanking]);
 
-  if (!market || !providerStatus || !debugSummary || !discoveryMeta || !trust) {
+  if (!market) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
         <RefreshCw className={`h-8 w-8 ${isLoading ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
@@ -137,7 +160,7 @@ const Index = () => {
         sellCount={counts.sellCount}
         watchCount={counts.watchCount}
         avoidCount={counts.avoidCount}
-        totalStocks={commandSnapshot?.market.breadth.total ?? stocks.length}
+        totalStocks={heatmapRows.length}
         trust={trust}
         sectorStatuses={sectorStatuses}
         isFetching={isFetching}
@@ -203,7 +226,7 @@ const Index = () => {
 
       {/* MODULE 2+3 — Equity Analysis + Scoring: Heatmap */}
       <MarketHeatmap
-        stocks={equityStocks}
+        stocks={heatmapRows}
         sectorStatuses={sectorStatuses}
         trust={trust}
         activeSector={null}
@@ -280,9 +303,6 @@ const Index = () => {
           </table>
         </div>
       </section>
-
-      {/* Debug panel */}
-      <DebugPanel providerStatus={providerStatus} debugSummary={debugSummary} market={market} discoveryMeta={discoveryMeta} />
     </div>
   );
 };

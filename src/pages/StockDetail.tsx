@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useMarketCommand } from '@/hooks/use-market-command';
 import { useStockDetail } from '@/hooks/use-stock-detail';
 import { StockChartModule } from '@/components/StockChartModule';
 import { WSPChecklist } from '@/components/WSPChecklist';
@@ -50,10 +49,9 @@ export default function StockDetail() {
   const [asOfEnabled, setAsOfEnabled] = useState(false);
   const [asOfIndex, setAsOfIndex] = useState(0);
 
-  const marketCommandQuery = useMarketCommand({ symbol: requestedSymbol || undefined });
   const detailQuery = useStockDetail(symbol);
 
-  const hasCanonicalTruth = Boolean(marketCommandQuery.data?.equities.items[0]);
+  const hasCanonicalTruth = false;
 
   const indicatorQuery = useQuery({
     queryKey: ['stock-detail-indicator', requestedSymbol],
@@ -73,7 +71,7 @@ export default function StockDetail() {
     },
   });
 
-  const canonicalStock = marketCommandQuery.data?.equities.items[0] ?? null;
+  const canonicalStock = null;
   const detailData = detailQuery.data?.data;
   const resolvedCompanyName = canonicalStock?.name ?? detailData?.name ?? requestedSymbol;
   const resolvedSector = canonicalStock?.sector ?? detailData?.sector ?? 'Unknown';
@@ -112,8 +110,8 @@ export default function StockDetail() {
     },
   });
 
-  const marketFavorable = marketCommandQuery.data?.market.overview.marketTrend === 'bullish';
-  const sectorAligned = canonicalStock?.gate.sectorAligned ?? false;
+  const marketFavorable = true;
+  const sectorAligned = false;
 
   const timeframeBars = useMemo(() => {
     if (!detailData) return { bars: [], cadence: 'daily' as const };
@@ -242,10 +240,10 @@ export default function StockDetail() {
     }
     : null;
 
-  const contextState = marketCommandQuery.data?.trust.uiState ?? 'LIVE';
+  const contextState = 'LIVE';
   const displayPattern = stock.pattern;
   const displayScore = stock.score;
-  const displayMaxScore = 9;
+  const displayMaxScore = 5;
   const ma50SlopeDirection = stock.audit.sma50SlopeDirection;
   const slopeIcon = ma50SlopeDirection === 'rising' ? <TrendingUp className="h-3 w-3" /> : ma50SlopeDirection === 'falling' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />;
   const banner = patternBanners[displayPattern];

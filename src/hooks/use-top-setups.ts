@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { WSPPattern, WSPRecommendation } from '@/lib/wsp-types';
+import { normalizeSectorName } from '@/lib/market-normalization';
 
 export interface TopSetupRow {
   symbol: string;
@@ -9,7 +10,8 @@ export interface TopSetupRow {
   pattern: string;
   recommendation: string;
   score: number;
-  vol_ratio: number | null;
+  vol_ratio?: number | null;
+  vol_multiplier?: number | null;
   payload?: Record<string, unknown>;
 }
 
@@ -51,7 +53,7 @@ export function useTopSetups() {
         const payload = r.payload ?? {};
         return {
           symbol: r.symbol,
-          sector: r.sector ?? 'Unknown',
+          sector: normalizeSectorName(r.sector),
           industry: r.industry ?? 'Unknown',
           pattern: toPattern(r.pattern),
           recommendation: toRecommendation(r.recommendation),
@@ -59,7 +61,7 @@ export function useTopSetups() {
           maxScore: 5,
           price: typeof (payload as any).close === 'number' ? (payload as any).close : null,
           changePercent: typeof (payload as any).pct_change_1d === 'number' ? (payload as any).pct_change_1d : 0,
-          volumeMultiple: r.vol_ratio ?? null,
+          volumeMultiple: r.vol_multiplier ?? r.vol_ratio ?? null,
         };
       });
     },

@@ -7,12 +7,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { Factory, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function Industries() {
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
   const [expandedIndustry, setExpandedIndustry] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const { data: sectorRanking = [] } = useSectorRanking();
-  const { data: industryRanking = [], isLoading } = useIndustryRanking(!showAll, showAll ? 100 : 30);
+  const { data: industryRanking = [], isLoading } = useIndustryRanking(!showAll, showAll ? 120 : 70);
 
   // Fetch top equities for expanded industry
   const { data: industryEquities = [] } = useQuery({
@@ -57,7 +57,7 @@ export default function Industries() {
             INDUSTRIÖVERSIKT
           </h1>
           <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-            Module 1 — Industriranking baserad på WSP-logik · {industryRanking.length} industrier
+            Module 1 — Industriranking baserad på WSP-logik · Visar topp {Math.min(industryRanking.length, 70)} grupper
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -70,7 +70,7 @@ export default function Industries() {
                 : 'border-border text-muted-foreground hover:text-foreground'
             }`}
           >
-            {showAll ? 'Alla industrier' : 'Enbart ledande sektorer'}
+            {showAll ? 'Top 70+' : 'Ledande sektorer'}
           </button>
           <Link to="/" className="text-[10px] font-mono text-primary hover:underline">← Dashboard</Link>
         </div>
@@ -109,7 +109,7 @@ export default function Industries() {
             </tr>
           </thead>
           <tbody>
-            {industryRanking.map((ind) => {
+            {industryRanking.slice(0, 70).map((ind) => {
               const isExpanded = expandedIndustry === ind.display_industry;
               const isLeadingSector = leadingSectors.includes(ind.sector);
               return (
