@@ -1362,6 +1362,7 @@ export async function fetchWspScreenerData(options?: {
   forceRefresh?: boolean;
   page?: number;
   pageSize?: number;
+  universeTier?: string | null;
 }): Promise<ScreenerApiResponse> {
   const qualifiedScanCount = await fetchQualifiedScanCount();
   const applyQualifiedScanCount = (payload: ScreenerApiResponse): ScreenerApiResponse => {
