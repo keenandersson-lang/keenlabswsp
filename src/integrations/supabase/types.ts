@@ -390,6 +390,39 @@ export type Database = {
           },
         ]
       }
+      pipeline_health_checks: {
+        Row: {
+          check_name: string
+          checked_at: string
+          current_value: string | null
+          id: number
+          message: string
+          run_id: string
+          status: string
+          threshold: string | null
+        }
+        Insert: {
+          check_name: string
+          checked_at?: string
+          current_value?: string | null
+          id?: never
+          message: string
+          run_id?: string
+          status: string
+          threshold?: string | null
+        }
+        Update: {
+          check_name?: string
+          checked_at?: string
+          current_value?: string | null
+          id?: never
+          message?: string
+          run_id?: string
+          status?: string
+          threshold?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -1106,6 +1139,7 @@ export type Database = {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
       }
+      run_pipeline_health_checks: { Args: never; Returns: string }
       scanner_operator_snapshot: { Args: never; Returns: Json }
       validate_equity_snapshot: {
         Args: { p_snapshot_id: number }
