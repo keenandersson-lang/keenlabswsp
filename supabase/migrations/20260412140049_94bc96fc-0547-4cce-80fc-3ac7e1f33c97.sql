@@ -1,0 +1,1 @@
+ALTER TABLE public.wsp_indicators ADD COLUMN IF NOT EXISTS mansfield_rs_sector numeric;
