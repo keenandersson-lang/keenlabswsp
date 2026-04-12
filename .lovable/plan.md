@@ -1,6 +1,6 @@
 # Two-Layer Equity Product Architecture
 
-## Status: Phases 1–3 ✅ Complete | Phase 4 Planned
+## Status: Phases 1–4 ✅ Complete | Phase 5 Planned
 
 ---
 
@@ -20,7 +20,7 @@
 **Current qualifying count**: ~1,049 core symbols.
 
 **Data contract**:
-- Mansfield RS measured against SPY (current) → sector ETF (Phase 4)
+- Mansfield RS measured against SPY (`mansfield_rs`) AND sector ETF (`mansfield_rs_sector`) for core symbols
 - Each core equity maps to exactly one `canonical_sector` → one sector ETF
 - Dashboard, heatmap, and top-down flow use ONLY Module 1 data
 
@@ -56,83 +56,65 @@
 - Core/Expanded tabs on Screener page with visual badges
 - `get_equity_screener_rows` accepts `p_universe_tier` parameter (`'core'`, `'expanded'`, or NULL for all)
 - Tier filter threaded through `useMarketCommand` → `snapshot.ts` → RPC
+- Fixed PostgREST PGRST203 ambiguity by dropping old 2-parameter overload
 
 ### Phase 3 — Dashboard Coverage Widget ✅
 - `get_universe_coverage_stats` RPC returns core/expanded/benchmark counts, indicator coverage %, and 7-day enrichment growth
 - `UniverseCoverage` component on dashboard with progress bars and trend labels
 - Live stats: Core ~1,049 (97% coverage) · Expanded ~9,600 (2% coverage, +1,032/week)
 
+### Phase 4 — Sector-Relative Mansfield RS ✅
+- **Database**: Added `mansfield_rs_sector` column to `wsp_indicators`
+- **Materialization**: Updated `materialize_wsp_indicators_from_prices` to compute sector-relative RS for core symbols using their mapped sector ETF (XLK, XLF, etc.)
+- **Benchmark tier fix**: Reclassified 11 sector ETFs from `universe_tier = 'expanded'` to `'benchmark'`
+- **Stock Detail UI**: Shows color-coded badges for both "RS vs SPY" and "RS vs Sektor" in header
+- **Screener**: Added "Starkast RS vs Sektor" sort option in Core Universe tab, plumbed `mansfield_rs_sector` through payload → `EvaluatedStock`
+- **Daily sync**: Triggered ETF price refresh to populate `mansfield_rs_sector` for current dates
+- **Verified**: Materialization produces correct values; UI displays both RS metrics
+
 ---
 
-## D. Phase 4 — Sector-Relative Mansfield RS (Planned)
+## D. Phase 5 — Production Hardening & Auto-Promotion (Planned)
 
 ### Goal
-Replace SPY-only Mansfield RS with sector-relative RS for core symbols, giving users a more precise measure of relative strength within their sector.
+Harden the two-layer architecture for daily production reliability, add auto-promotion of expanded symbols to core, and improve observability.
 
-### Formula
-`mansfield_rs_sector = ((Stock / Stock_SMA200) / (SectorETF / SectorETF_SMA200) - 1) * 100`
+### 5.1 Auto-Promotion Pipeline
+- When an expanded symbol gains valid GICS `canonical_sector` + `classification_confidence_level IN ('high','medium')` + ≥50 bars, auto-promote `universe_tier` to `'core'`
+- Run as part of daily materialization or as a separate scheduled function
+- Log promotions to `data_sync_log` for auditability
 
-### Data Changes
+### 5.2 Pipeline Health & Observability
+- Extend `run_pipeline_health_checks` to verify:
+  - All 11 sector ETFs have fresh prices (≤1 trading day stale)
+  - `mansfield_rs_sector` is non-NULL for ≥95% of core symbols on latest calc_date
+  - No universe_tier regressions (core count doesn't drop >5% day-over-day)
+- Surface health check results on Admin panel
 
-1. **New column on `wsp_indicators`**:
-   ```sql
-   ALTER TABLE wsp_indicators ADD COLUMN mansfield_rs_sector NUMERIC;
-   ```
+### 5.3 Heatmap Sector RS Toggle
+- Optional toggle on heatmap between SPY-relative and sector-relative RS coloring
+- Core symbols use `mansfield_rs_sector` when sector toggle active; expanded symbols always use `mansfield_rs`
 
-2. **Sector ETF mapping** (already implicit via `canonical_sector` → sector ETF):
-   | canonical_sector | ETF |
-   |---|---|
-   | Information Technology | XLK |
-   | Financials | XLF |
-   | Healthcare | XLV |
-   | Industrials | XLI |
-   | Consumer Discretionary | XLY |
-   | Consumer Staples | XLP |
-   | Energy | XLE |
-   | Utilities | XLU |
-   | Real Estate | XLRE |
-   | Communication Services | XLC |
-   | Materials | XLB |
-
-3. **Update `materialize_wsp_indicators_from_prices`**:
-   - For `universe_tier = 'core'` symbols: compute `mansfield_rs_sector` using sector ETF price/SMA200
-   - For `universe_tier = 'expanded'` symbols: leave `mansfield_rs_sector` NULL (continue using SPY-based `mansfield_rs`)
-   - Requires sector ETF to have ≥200 bars of history (already satisfied for all 11)
-
-4. **Update `get_symbol_detail`**: Return `mansfield_rs_sector` alongside existing `mansfield_rs`
-
-5. **Update `get_equity_screener_rows`**: Include `mansfield_rs_sector` in payload for core symbols
-
-### UI Changes
-
-1. **Stock Detail page**: Show both values for core symbols:
-   - "RS vs Sector (XLK): +3.2" — primary
-   - "RS vs SPY: +1.8" — secondary/tooltip
-   
-2. **Screener**: Sort/filter by sector-relative RS for core tab
-
-3. **Heatmap**: Optional toggle between SPY RS and sector RS coloring
+### 5.4 Industry-Level Drill-Down (Stretch)
+- Group core symbols by `canonical_industry` within each sector
+- Show industry-level RS aggregates in Sector Analysis view
+- Deferred until reliable industry ETF universe is available
 
 ### Prerequisites
-- All 11 sector ETFs must have `universe_tier = 'benchmark'` and ≥200 bars ✅
-- Core symbols must have valid `canonical_sector` mapping ✅
-
-### Implementation Steps
-1. Migration: Add `mansfield_rs_sector` column
-2. Update materialization RPC to compute sector-relative RS for core symbols
-3. Update `get_symbol_detail` and screener RPCs to surface the new column
-4. Update Stock Detail UI to display sector RS
-5. Update Screener to allow sorting by sector RS
+- Phase 4 fully operational ✅
+- Daily sync running reliably for all benchmarks ✅
+- Sector ETF prices current ✅
 
 ### Safety
-- Additive only — existing `mansfield_rs` (SPY-based) remains unchanged
-- Expanded universe continues using SPY-based RS
-- No breaking changes to existing queries or UI
+- Auto-promotion is additive — symbols only move core→expanded via manual admin action
+- Health checks are read-only alerts, not automated rollbacks
+- All changes backward-compatible with existing queries
 
 ---
 
 ## E. Future Considerations
 
-- **Auto-promotion**: When expanded symbols gain valid GICS sector + high/medium confidence, auto-promote to core tier
 - **Industry ETF mapping**: Deferred until reliable industry ETF universe is available
 - **Weekly delta tracking**: Store weekly coverage snapshots for trend visualization
+- **Multi-timeframe RS**: Weekly/monthly Mansfield RS alongside daily
+- **RS momentum**: Rate of change of Mansfield RS to detect improving/deteriorating relative strength
