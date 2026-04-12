@@ -266,9 +266,29 @@ export function buildDiscoverySnapshot(stocks: EvaluatedStock[], uiState: Screen
 }
 
 function sortByOpportunity(a: EvaluatedStock, b: EvaluatedStock): number {
-  const aMomentum = (a.audit.volumeMultiple ?? 0) + (a.audit.mansfieldValue ?? 0) + a.changePercent;
-  const bMomentum = (b.audit.volumeMultiple ?? 0) + (b.audit.mansfieldValue ?? 0) + b.changePercent;
-  return (b.score - a.score) || (bMomentum - aMomentum);
+  const opportunityScore = (stock: EvaluatedStock): number => {
+    const breakoutQuality = stock.audit.breakoutQualityPass ? 18 : 0;
+    const breakoutReadiness = stock.audit.breakoutValid ? 12 : 0;
+    const rsStrength = clamp((stock.audit.mansfieldValue ?? 0) * 10, -10, 22);
+    const liquidity = clamp((stock.audit.volumeMultiple ?? 0) * 5, 0, 18);
+    const highProximity = clamp(12 + (stock.audit.pctFrom52WeekHigh ?? -25) * 0.5, 0, 14);
+    const taxonomyQuality = stock.industry && stock.industry !== 'Unknown' && stock.industry !== 'Other' ? 8 : -8;
+    const blockerPenalty = stock.blockedReasons.length * 3;
+
+    return (stock.score ?? 0)
+      + breakoutQuality
+      + breakoutReadiness
+      + rsStrength
+      + liquidity
+      + highProximity
+      + taxonomyQuality
+      - blockerPenalty;
+  };
+
+  return opportunityScore(b) - opportunityScore(a)
+    || (b.score - a.score)
+    || ((b.audit.mansfieldValue ?? 0) - (a.audit.mansfieldValue ?? 0))
+    || ((b.audit.volumeMultiple ?? 0) - (a.audit.volumeMultiple ?? 0));
 }
 
 function isStrictBreakout(stock: EvaluatedStock): boolean {
