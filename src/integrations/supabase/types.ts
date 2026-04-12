@@ -727,6 +727,7 @@ export type Database = {
           mansfield_rs_sector: number | null
           pct_change_1d: number | null
           pct_from_52w_high: number | null
+          resistance_level: number | null
           symbol: string
           volume: number | null
           volume_ratio: number | null
@@ -747,6 +748,7 @@ export type Database = {
           mansfield_rs_sector?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
+          resistance_level?: number | null
           symbol: string
           volume?: number | null
           volume_ratio?: number | null
@@ -767,6 +769,7 @@ export type Database = {
           mansfield_rs_sector?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
+          resistance_level?: number | null
           symbol?: string
           volume?: number | null
           volume_ratio?: number | null

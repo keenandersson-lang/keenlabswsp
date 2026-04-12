@@ -94,7 +94,7 @@ Deno.serve(async (req: Request) => {
       .from('symbols')
       .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at, canonical_sector, canonical_industry')
       .eq('is_active', true)
-      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.')
+      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks')
       .order('symbol')
       .range(offset, offset + DB_BATCH_SIZE - 1)
 
@@ -113,7 +113,7 @@ Deno.serve(async (req: Request) => {
       .from('symbols')
       .select('symbol', { count: 'exact', head: true })
       .eq('is_active', true)
-      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.')
+      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks')
 
     // Log sync start
     const { data: logRow } = await supabase
