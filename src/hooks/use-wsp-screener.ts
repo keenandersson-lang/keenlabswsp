@@ -248,6 +248,7 @@ function sanitizePattern(value: unknown): WSPPattern {
 
 function sanitizeRecommendation(value: unknown): WSPRecommendation {
   if (value === 'KÖP' || value === 'BEVAKA' || value === 'SÄLJ' || value === 'UNDVIK') return value;
+  if (value === 'AVVAKTA') return 'BEVAKA';
   return 'BEVAKA';
 }
 
@@ -785,9 +786,14 @@ function buildDirectScannerStock(
   const allWspCriteriaPass = aboveMa50 && aboveMa150 && slope50Positive && volumeValid && mansfieldValid && effectivePattern === 'climbing';
   const scannerScore = typeof row.score === 'number' && Number.isFinite(row.score) ? row.score : wspCriteriaPassCount;
   const scannerPattern = row.pattern ?? effectivePattern ?? 'base';
-  const scannerRecommendation: WSPRecommendation = (row.recommendation === 'KÖP' || row.recommendation === 'BEVAKA' || row.recommendation === 'SÄLJ' || row.recommendation === 'UNDVIK')
-    ? row.recommendation
-    : (allWspCriteriaPass ? 'KÖP' : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA'));
+  const normalizedRecommendation: WSPRecommendation | null =
+    row.recommendation === 'KÖP' || row.recommendation === 'BEVAKA' || row.recommendation === 'SÄLJ' || row.recommendation === 'UNDVIK'
+      ? row.recommendation
+      : row.recommendation === 'AVVAKTA'
+        ? 'BEVAKA'
+        : null;
+  const scannerRecommendation: WSPRecommendation = normalizedRecommendation
+    ?? (allWspCriteriaPass ? 'KÖP' : (scannerPattern === 'downhill' ? 'UNDVIK' : scannerPattern === 'tired' ? 'SÄLJ' : 'BEVAKA'));
   const normalizedPattern = toWspPattern(scannerPattern);
   const sectorValue = row.sector ?? 'Unknown';
   const normalizedSector = row.sector ?? '';
