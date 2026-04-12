@@ -286,6 +286,14 @@ export default function Admin() {
           done: false,
         });
 
+        // Stop on rate-limit abort
+        if (data.rateLimitAbort) {
+          logs.push(`⚠️ Polygon API rate-limit — pausa och försök igen senare. Offset: ${data.nextOffset ?? offset}`);
+          setEnrichState(prev => ({ ...prev, running: false, offset: data.nextOffset ?? offset, logs: [...logs] }));
+          toast.warning('Bulk-enrich pausad: Polygon rate-limit nådd');
+          return;
+        }
+
         if (data.done || !data.hasMore || (remaining !== null && remaining <= 0)) {
           logs.push(`🏁 Klart! Totalt: ${totalEnriched} berikade, ${totalFailed} fel, ${totalPromoted} promoted`);
           setEnrichState(prev => ({ ...prev, running: false, done: true, logs: [...logs] }));
