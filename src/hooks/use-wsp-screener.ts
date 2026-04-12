@@ -343,6 +343,7 @@ function buildDefaultAudit(overrides?: Partial<StockAudit>): StockAudit {
     volumeValid: false,
     mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
     mansfieldValue: null,
+    mansfieldSectorValue: null,
     mansfieldValuePrev: null,
     mansfieldTrend: 'flat',
     mansfieldUptrend: false,
