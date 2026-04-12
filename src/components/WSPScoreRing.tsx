@@ -5,7 +5,8 @@ interface WSPScoreRingProps {
 }
 
 export function WSPScoreRing({ score, maxScore, size = 48 }: WSPScoreRingProps) {
-  const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
+  const boundedScore = Math.max(0, Math.min(score, maxScore));
+  const pct = maxScore > 0 ? (boundedScore / maxScore) * 100 : 0;
   const radius = (size - 6) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (pct / 100) * circumference;
@@ -49,7 +50,7 @@ export function WSPScoreRing({ score, maxScore, size = 48 }: WSPScoreRingProps) 
           color,
         }}
       >
-        {score}/{maxScore}
+        {boundedScore.toFixed(1).replace('.0', '')}/{maxScore}
       </span>
       <span className="text-[8px] font-mono text-muted-foreground mt-0.5">WSP</span>
     </div>

@@ -13,9 +13,15 @@ interface RecommendationBadgeProps {
 
 const fallbackConfig: { colorClass: string; bgClass: string; borderClass: string; glow?: string } = { colorClass: 'text-muted-foreground', bgClass: 'bg-muted/10', borderClass: 'border-muted' };
 
+function normalizeRecommendation(recommendation: string): string {
+  const upper = recommendation.toUpperCase();
+  if (upper === 'AVVAKTA') return 'BEVAKA';
+  return upper;
+}
+
 export function RecommendationBadge({ recommendation }: RecommendationBadgeProps) {
-  const normalized = (recommendation === 'AVVAKTA' ? 'BEVAKA' : recommendation) as WSPRecommendation;
-  const config = recConfig[normalized] ?? fallbackConfig;
+  const normalized = normalizeRecommendation(recommendation);
+  const config = recConfig[normalized as WSPRecommendation] ?? fallbackConfig;
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold border ${config.colorClass} ${config.bgClass} ${config.borderClass} ${config.glow ?? ''}`}

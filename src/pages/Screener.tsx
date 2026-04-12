@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useEquityScreener, useScreenerCount, type ScreenerRow } from '@/hooks/use-equity-screener';
+import { useEquityScreener, type ScreenerRow } from '@/hooks/use-equity-screener';
 import { useSectorRanking } from '@/hooks/use-sector-ranking';
+import { useIndustryRanking } from '@/hooks/use-industry-ranking';
 import { PatternBadge } from '@/components/PatternBadge';
 import { RecommendationBadge } from '@/components/RecommendationBadge';
 import { WSPScoreRing } from '@/components/WSPScoreRing';
@@ -23,12 +24,13 @@ export default function Screener() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSector = searchParams.get('sector') || null;
   const selectedIndustry = searchParams.get('industry') || null;
-  const selectedPattern = searchParams.get('pattern') || null;
+  const selectedPattern = searchParams.get('pattern_stage') || null;
   const [universeTier, setUniverseTier] = useState<'core' | 'expanded'>('core');
   const [page, setPage] = useState(0);
 
+  const { data: industryRanking = [] } = useIndustryRanking(false, 120);
   const { data: sectorRanking = [] } = useSectorRanking();
-  const { data: rows = [], isLoading, isFetching } = useEquityScreener({
+  const { data: screenerData, isLoading, isFetching } = useEquityScreener({
     page,
     pageSize: PAGE_SIZE,
     universeTier,
@@ -36,12 +38,8 @@ export default function Screener() {
     industry: selectedIndustry,
     pattern: selectedPattern,
   });
-  const { data: totalCount = 0 } = useScreenerCount({
-    universeTier,
-    sector: selectedSector,
-    industry: selectedIndustry,
-    pattern: selectedPattern,
-  });
+  const rows = screenerData?.rows ?? [];
+  const totalCount = screenerData?.totalCount ?? 0;
 
   const updateFilter = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams);
@@ -122,7 +120,7 @@ export default function Screener() {
             <button
               type="button"
               className="rounded border border-border px-2 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"
-              onClick={() => updateFilter({ sector: null, industry: null, pattern: null })}
+              onClick={() => updateFilter({ sector: null, industry: null, pattern_stage: null })}
             >
               Rensa alla
             </button>
@@ -151,6 +149,29 @@ export default function Screener() {
           ))}
         </div>
 
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            className={`rounded border px-2 py-1 text-[10px] font-mono ${!selectedIndustry ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            onClick={() => updateFilter({ industry: null })}
+          >
+            Alla industrier
+          </button>
+          {industryRanking
+            .filter((ind) => !selectedSector || ind.sector === selectedSector)
+            .slice(0, 70)
+            .map((ind) => (
+              <button
+                key={`${ind.sector}-${ind.display_industry}`}
+                type="button"
+                className={`rounded border px-2 py-1 text-[10px] font-mono ${selectedIndustry === ind.display_industry ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                onClick={() => updateFilter({ industry: ind.display_industry })}
+              >
+                {ind.display_industry}
+              </button>
+            ))}
+        </div>
+
         {/* Pattern stage pills */}
         <div className="flex flex-wrap gap-1.5">
           {PATTERN_OPTIONS.map((opt) => (
@@ -158,7 +179,7 @@ export default function Screener() {
               key={opt.label}
               type="button"
               className={`rounded border px-2 py-1 text-[10px] font-mono ${selectedPattern === opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : !selectedPattern && !opt.value ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
-              onClick={() => updateFilter({ pattern: opt.value })}
+              onClick={() => updateFilter({ pattern_stage: opt.value })}
             >
               {opt.label}
             </button>

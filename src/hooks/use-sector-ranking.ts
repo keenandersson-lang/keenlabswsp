@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeSectorName } from '@/lib/market-normalization';
 
 export interface SectorRankingRow {
   sector_name: string;
@@ -20,7 +21,10 @@ export function useSectorRanking() {
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc('get_sector_ranking');
       if (error) throw error;
-      return (data ?? []) as SectorRankingRow[];
+      return ((data ?? []) as SectorRankingRow[]).map((row) => ({
+        ...row,
+        sector_name: normalizeSectorName(row.sector_name),
+      }));
     },
     staleTime: 5 * 60_000,
   });
