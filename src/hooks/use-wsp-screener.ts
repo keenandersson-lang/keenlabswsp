@@ -1380,7 +1380,7 @@ export async function fetchWspScreenerData(options?: {
   try {
     let directStocks: EvaluatedStock[] = [];
     try {
-      const directResult = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize);
+      const directResult = await fetchDirectFromSupabase(options?.page ?? 0, options?.pageSize, options?.universeTier);
       directStocks = sanitizeStocks(directResult);
     } catch {
       directStocks = [];
