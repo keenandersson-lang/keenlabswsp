@@ -64,7 +64,7 @@ export default function Screener() {
   useEffect(() => {
     setPage(0);
     setLoadedStocks([]);
-  }, [pollingIntervalMs, selectedSector, selectedIndustry]);
+  }, [pollingIntervalMs, selectedSector, selectedIndustry, universeTier]);
 
   const equityStocks = useMemo(() => stocks.filter(s => isCanonicalGicsSector(s.sector)), [stocks]);
   const activeSector = commandSnapshot?.sectors.activeSector ?? selectedSector;
