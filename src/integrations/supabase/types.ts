@@ -996,18 +996,35 @@ export type Database = {
           snapshot_id: number
         }[]
       }
-      get_equity_screener_rows: {
-        Args: { p_page?: number; p_page_size?: number }
-        Returns: {
-          industry: string
-          pattern_state: string
-          payload: Json
-          recommendation: string
-          sector: string
-          symbol: string
-          wsp_score: number
-        }[]
-      }
+      get_equity_screener_rows:
+        | {
+            Args: {
+              p_page?: number
+              p_page_size?: number
+              p_universe_tier?: string
+            }
+            Returns: {
+              industry: string
+              pattern_state: string
+              payload: Json
+              recommendation: string
+              sector: string
+              symbol: string
+              wsp_score: number
+            }[]
+          }
+        | {
+            Args: { p_page?: number; p_page_size?: number }
+            Returns: {
+              industry: string
+              pattern_state: string
+              payload: Json
+              recommendation: string
+              sector: string
+              symbol: string
+              wsp_score: number
+            }[]
+          }
       get_equity_snapshot_coverage_report: { Args: never; Returns: Json }
       get_equity_snapshots: {
         Args: { p_limit?: number }
