@@ -18,7 +18,7 @@ interface StockTableProps {
   scannedRowCount?: number;
 }
 
-type ScannerPattern = 'climbing' | 'base_or_climbing' | 'downhill' | 'base' | 'tired';
+type ScannerPattern = 'climbing' | 'base' | 'downhill' | 'tired';
 type FilterValue = WSPPattern | WSPRecommendation | WSPBlockedReason | ScannerPattern | 'all' | 'valid-wsp';
 type SortKey = 'symbol' | 'score' | 'changePercent' | 'mansfieldRS' | 'mansfieldRSSector' | 'volumeMultiple' | 'logicViolations' | 'breakoutAge' | 'missingIndicators';
 
