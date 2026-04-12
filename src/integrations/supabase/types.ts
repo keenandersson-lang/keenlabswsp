@@ -1003,10 +1003,22 @@ export type Database = {
           snapshot_id: number
         }[]
       }
+      get_equity_screener_count: {
+        Args: {
+          p_industry?: string
+          p_pattern?: string
+          p_sector?: string
+          p_universe_tier?: string
+        }
+        Returns: number
+      }
       get_equity_screener_rows: {
         Args: {
+          p_industry?: string
           p_page?: number
           p_page_size?: number
+          p_pattern?: string
+          p_sector?: string
           p_universe_tier?: string
         }
         Returns: {
