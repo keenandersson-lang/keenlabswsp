@@ -1118,6 +1118,7 @@ export type Database = {
           vol_ratio: number
         }[]
       }
+      get_universe_coverage_stats: { Args: never; Returns: Json }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
