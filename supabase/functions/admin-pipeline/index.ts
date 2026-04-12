@@ -52,93 +52,43 @@ Deno.serve(async (req: Request) => {
   const route = path[path.length - 1]
   const secondToLast = path[path.length - 2]
 
-  // POST /backfill — trigger Yahoo historical backfill
+  // POST /backfill — trigger Yahoo historical backfill via DB RPC (no HTTP hop)
   if (req.method === 'POST' && route === 'backfill') {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>
-    const limit = typeof body.limit === 'number' ? body.limit : 10
-    const offset = typeof body.offset === 'number' ? body.offset : 0
+    const batchSize = typeof body.limit === 'number' ? body.limit : 10
 
-    // Log the run
-    const { data: logRow } = await supabase.from('data_sync_log').insert({
-      sync_type: 'backfill',
-      status: 'running',
-      data_source: 'yahoo',
-      started_at: new Date().toISOString(),
-      metadata: { source: 'admin-pipeline', limit, offset },
-    }).select('id').single()
+    // PRE-FLIGHT: check for already-running backfill
+    const { data: runningJobs } = await supabase
+      .from('data_sync_log')
+      .select('id, started_at')
+      .eq('sync_type', 'yahoo_backfill')
+      .eq('status', 'running')
+      .gte('started_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+      .order('started_at', { ascending: false })
+      .limit(1)
 
-    // Call the existing backfill RPC for each symbol
-    const { data: symbols, error: fetchErr } = await supabase.rpc('get_symbols_needing_backfill', {
-      p_limit: limit,
-      p_offset: offset,
-    })
-
-    if (fetchErr) {
-      if (logRow?.id) {
-        await supabase.from('data_sync_log').update({
-          status: 'error',
-          completed_at: new Date().toISOString(),
-          error_message: fetchErr.message,
-        }).eq('id', logRow.id)
-      }
-      return json(500, { ok: false, error: fetchErr.message })
+    if (runningJobs && runningJobs.length > 0) {
+      return json(200, {
+        ok: true,
+        skipped: true,
+        data: {
+          message: 'Backfill already running',
+          existing_run_id: runningJobs[0].id,
+          started_at: runningJobs[0].started_at,
+        },
+      })
     }
 
-    const symbolList = symbols ?? []
-
-    if (symbolList.length === 0) {
-      if (logRow?.id) {
-        await supabase.from('data_sync_log').update({
-          status: 'success',
-          completed_at: new Date().toISOString(),
-          symbols_processed: 0,
-          metadata: { source: 'admin-pipeline', limit, offset, message: 'no_symbols_needing_backfill' },
-        }).eq('id', logRow.id)
-      }
-      return json(200, { ok: true, data: { symbols_queued: 0, message: 'No symbols need backfill' } })
-    }
-
-    // Fire-and-forget: call historical-backfill edge function
-    const functionsBaseUrl = `${Deno.env.get('SUPABASE_URL')!}/functions/v1`
-
+    // Call the DB RPC directly in background — eliminates the HTTP hop that caused 504s.
+    // The RPC creates its own log row, handles overlap guard, rate-limiting, and error logging.
     const backgroundBackfill = (async () => {
       try {
-        const bfRes = await fetch(`${functionsBaseUrl}/historical-backfill`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${syncKey}`,
-          },
-          body: JSON.stringify({ limit, offset }),
+        await supabase.rpc('backfill_yahoo_batch_logged', {
+          p_batch_size: batchSize,
+          p_min_bars: 260,
         })
-
-        const bfPayload = await bfRes.json().catch(() => null)
-        const succeeded = bfPayload?.enriched ?? bfPayload?.processed ?? symbolList.length
-        const failed = bfPayload?.failed ?? 0
-
-        if (logRow?.id) {
-          await supabase.from('data_sync_log').update({
-            status: bfRes.ok && failed === 0 ? 'success' : bfRes.ok ? 'partial' : 'error',
-            completed_at: new Date().toISOString(),
-            symbols_processed: succeeded,
-            symbols_failed: failed,
-            error_message: !bfRes.ok ? `HTTP ${bfRes.status}` : null,
-            metadata: {
-              source: 'admin-pipeline',
-              limit,
-              offset,
-              backfill_response: bfPayload,
-            },
-          }).eq('id', logRow.id)
-        }
       } catch (err) {
-        if (logRow?.id) {
-          await supabase.from('data_sync_log').update({
-            status: 'error',
-            completed_at: new Date().toISOString(),
-            error_message: String(err).slice(0, 500),
-          }).eq('id', logRow.id)
-        }
+        console.error('[admin-pipeline/backfill] RPC error:', err)
       }
     })()
 
@@ -153,9 +103,8 @@ Deno.serve(async (req: Request) => {
       ok: true,
       queued: true,
       data: {
-        log_id: logRow?.id ?? null,
-        symbols_queued: symbolList.length,
-        message: 'Backfill pipeline started',
+        batch_size: batchSize,
+        message: 'Backfill dispatched via RPC (background, deduplicated)',
       },
     })
   }
