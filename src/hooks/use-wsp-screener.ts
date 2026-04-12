@@ -902,6 +902,7 @@ function buildDirectScannerStock(
       volumeValid,
       mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
       mansfieldValue: mansfieldRs,
+      mansfieldSectorValue: parseOptionalNumericValue(p.mansfield_rs_sector),
       mansfieldValuePrev: mansfieldRs,
       mansfieldTrend: mansfieldRs === null ? 'flat' : (mansfieldRs > 0 ? 'rising' : mansfieldRs < 0 ? 'falling' : 'flat') as MansfieldTrend,
       mansfieldUptrend: mansfieldValid,
