@@ -98,6 +98,7 @@ export function createStockAudit({
     volumeValid: gate.volumeSufficient,
     mansfieldLookbackBars: WSP_CONFIG.wsp.mansfieldLookbackBars,
     mansfieldValue: indicators.mansfieldRS,
+    mansfieldSectorValue: null,
     mansfieldValuePrev: indicators.mansfieldRSPrev,
     mansfieldTrend: indicators.mansfieldRSTrend,
     mansfieldUptrend: indicators.mansfieldUptrend,
