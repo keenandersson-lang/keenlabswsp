@@ -1073,6 +1073,10 @@ export type Database = {
         }
         Returns: Json
       }
+      materialize_wsp_indicators_logged: {
+        Args: { p_from_date?: string; p_to_date?: string }
+        Returns: undefined
+      }
       move_to_dlq: {
         Args: {
           dlq_name: string
