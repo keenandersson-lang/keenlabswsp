@@ -724,6 +724,7 @@ export type Database = {
           ma50: number | null
           ma50_slope: string | null
           mansfield_rs: number | null
+          mansfield_rs_sector: number | null
           pct_change_1d: number | null
           pct_from_52w_high: number | null
           symbol: string
@@ -743,6 +744,7 @@ export type Database = {
           ma50?: number | null
           ma50_slope?: string | null
           mansfield_rs?: number | null
+          mansfield_rs_sector?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
           symbol: string
@@ -762,6 +764,7 @@ export type Database = {
           ma50?: number | null
           ma50_slope?: string | null
           mansfield_rs?: number | null
+          mansfield_rs_sector?: number | null
           pct_change_1d?: number | null
           pct_from_52w_high?: number | null
           symbol?: string
@@ -1089,6 +1092,7 @@ export type Database = {
           ma50: number
           ma50_slope: string
           mansfield_rs: number
+          mansfield_rs_sector: number
           pct_change_1d: number
           pct_from_52w_high: number
           symbol: string
@@ -1123,14 +1127,23 @@ export type Database = {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
       }
-      materialize_wsp_indicators_from_prices: {
-        Args: {
-          p_as_of_date?: string
-          p_min_bars?: number
-          p_symbols?: string[]
-        }
-        Returns: Json
-      }
+      materialize_wsp_indicators_from_prices:
+        | {
+            Args: {
+              p_as_of_date?: string
+              p_min_bars?: number
+              p_symbols?: string[]
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_as_of_date?: string
+              p_min_bars?: number
+              p_symbols?: string[]
+            }
+            Returns: Json
+          }
       materialize_wsp_indicators_logged: {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
