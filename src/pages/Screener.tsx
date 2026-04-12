@@ -22,6 +22,7 @@ export default function Screener() {
   const selectedIndustryParam = searchParams.get('industry');
   const selectedSector = selectedSectorParam && selectedSectorParam.trim().length > 0 ? selectedSectorParam : null;
   const selectedIndustry = selectedIndustryParam && selectedIndustryParam.trim().length > 0 ? selectedIndustryParam : null;
+  const [universeTier, setUniverseTier] = useState<'core' | 'expanded'>('core');
   const PAGE_SIZE = 50;
   const queryClient = useQueryClient();
   const { data: commandSnapshot, isFetching, isLoading } = useMarketCommand({
@@ -30,6 +31,7 @@ export default function Screener() {
     pageSize: PAGE_SIZE,
     sector: selectedSector,
     industry: selectedIndustry,
+    universeTier,
   });
   const { data: patternCounts } = useQuery<WspPatternCounts>({
     queryKey: ['wsp-pattern-counts'],
