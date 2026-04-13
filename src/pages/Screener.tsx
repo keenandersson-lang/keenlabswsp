@@ -222,10 +222,12 @@ export default function Screener() {
               <th className="px-2 py-2">PRIS</th>
               <th className="px-2 py-2">ÄNDR.</th>
               <th className="px-2 py-2">MÖNSTER</th>
+              <th className="px-2 py-2">BREAKOUT</th>
               <th className="px-2 py-2 text-center">SCORE</th>
               <th className="px-2 py-2">VOL</th>
               <th className="px-2 py-2">SEKTOR → INDUSTRI</th>
               <th className="px-2 py-2">SIGNAL</th>
+              <th className="px-2 py-2">BLOCKERS</th>
             </tr>
           </thead>
           <tbody>
@@ -272,8 +274,27 @@ export default function Screener() {
   );
 }
 
+const BLOCKER_LABELS: Record<string, string> = {
+  volume_not_confirmed: 'Vol < 2x',
+  ma50_slope_not_rising: 'MA50↓',
+  below_ma50: '< MA50',
+  below_ma150: '< MA150',
+  mansfield_negative: 'RS < 0',
+  no_breakout: 'Ej breakout',
+  stale_breakout: 'Stale BO',
+};
+
+const BREAKOUT_LABELS: Record<string, { label: string; color: string }> = {
+  FRESH_BREAKOUT: { label: 'FRESH', color: 'text-signal-buy' },
+  AGING_BREAKOUT: { label: 'AGING', color: 'text-yellow-500' },
+  STALE_BREAKOUT: { label: 'STALE', color: 'text-muted-foreground' },
+  APPROACHING: { label: 'NÄRA', color: 'text-blue-400' },
+  NONE: { label: '—', color: 'text-muted-foreground' },
+};
+
 function ScreenerTableRow({ row, rank }: { row: ScreenerRow; rank: number }) {
   const positive = row.changePercent >= 0;
+  const bo = BREAKOUT_LABELS[row.breakout_status] ?? BREAKOUT_LABELS.NONE;
   return (
     <tr className="border-b border-border/30 hover:bg-muted/20 transition-colors">
       <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{rank}</td>
@@ -292,6 +313,9 @@ function ScreenerTableRow({ row, rank }: { row: ScreenerRow; rank: number }) {
         </span>
       </td>
       <td className="px-2 py-2"><PatternBadge pattern={row.pattern_state as WSPPattern} /></td>
+      <td className="px-2 py-2">
+        <span className={`font-mono text-[10px] font-semibold ${bo.color}`}>{bo.label}</span>
+      </td>
       <td className="px-2 py-2 text-center">
         <div className="flex justify-center">
           <WSPScoreRing score={row.wsp_score} maxScore={5} size={32} />
@@ -311,6 +335,22 @@ function ScreenerTableRow({ row, rank }: { row: ScreenerRow; rank: number }) {
         </Link>
       </td>
       <td className="px-2 py-2"><RecommendationBadge recommendation={row.recommendation as WSPRecommendation} /></td>
+      <td className="px-2 py-2">
+        {row.blockers.length > 0 ? (
+          <div className="flex flex-wrap gap-0.5">
+            {row.blockers.slice(0, 3).map((b) => (
+              <span key={b} className="inline-block rounded bg-destructive/10 px-1 py-0.5 text-[8px] font-mono text-destructive">
+                {BLOCKER_LABELS[b] ?? b}
+              </span>
+            ))}
+            {row.blockers.length > 3 && (
+              <span className="text-[8px] font-mono text-muted-foreground">+{row.blockers.length - 3}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-[8px] font-mono text-signal-buy">✓ OK</span>
+        )}
+      </td>
     </tr>
   );
 }

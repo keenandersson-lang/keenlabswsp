@@ -4,6 +4,7 @@
  */
 
 export type WSPPattern = 'climbing' | 'base_or_climbing' | 'base' | 'tired' | 'downhill';
+export type BreakoutStatus = 'NONE' | 'APPROACHING' | 'FRESH_BREAKOUT' | 'AGING_BREAKOUT' | 'STALE_BREAKOUT' | 'FAILED_BREAKOUT';
 export type WSPRecommendation = 'KÖP' | 'BEVAKA' | 'SÄLJ' | 'UNDVIK';
 export type ScreenerUiState = 'LIVE' | 'STALE' | 'FALLBACK' | 'ERROR';
 export type ScreenerDataProvenance = 'direct_db' | 'provider_route' | 'demo_fallback';

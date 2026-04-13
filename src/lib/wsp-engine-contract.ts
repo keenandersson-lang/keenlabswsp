@@ -85,30 +85,51 @@ export const STAGE_MODEL = {
 
 export type WSPStage = keyof typeof STAGE_MODEL;
 
+// ─── BREAKOUT STATUS (Decoupled from Pattern) ──────────────────────────
+/**
+ * Breakout status is INDEPENDENT of pattern_state.
+ * A BASE stock can have FRESH_BREAKOUT. A CLIMBING stock can have NONE.
+ *
+ * NONE:            No breakout detected
+ * APPROACHING:     Price within 5% below resistance level
+ * FRESH_BREAKOUT:  Price above resistance for 0-3 bars
+ * AGING_BREAKOUT:  Price above resistance for 4-7 bars
+ * STALE_BREAKOUT:  Price above resistance for 8+ bars (disqualified from top-tier)
+ * FAILED_BREAKOUT: Price fell back below resistance after breakout
+ *
+ * Valid combinations for KÖP:
+ *   - climbing + FRESH_BREAKOUT (classic WSP entry)
+ *   - base + FRESH_BREAKOUT (base breakout — high quality)
+ *   - climbing + AGING_BREAKOUT (still valid but aging)
+ *   - base + AGING_BREAKOUT (still valid but aging)
+ */
+export type BreakoutStatus = 'NONE' | 'APPROACHING' | 'FRESH_BREAKOUT' | 'AGING_BREAKOUT' | 'STALE_BREAKOUT' | 'FAILED_BREAKOUT';
+
 // ─── ENTRY GATE (KÖP Qualification) ────────────────────────────────────
 /**
  * A symbol qualifies for KÖP ONLY if ALL of these are true:
  *
- * 1. Stage = 'climbing'
+ * 1. Stage = 'climbing' OR 'base' (decoupled from breakout)
  * 2. Price > MA50
  * 3. Price > MA150
  * 4. MA50 slope = 'rising'
  * 5. Volume ratio >= 2.0x (vs 5-day average, excluding current day)
  * 6. Mansfield RS > 0 (outperforming benchmark)
+ * 7. Breakout status = FRESH_BREAKOUT or AGING_BREAKOUT
  *
  * Future gates (Phase E — not yet implemented in SQL):
- * 7. Breakout above resistance zone confirmed
- * 8. Breakout is fresh (within N bars)
+ * 8. Breakout above resistance zone confirmed
  * 9. Sector aligned (sector ETF in uptrend)
  * 10. Market favorable (SPY regime = bullish)
  */
 export const ENTRY_GATE_RULES = {
-  stage: 'climbing',
+  stage: ['climbing', 'base'] as const,
   priceAboveMA50: true,
   priceAboveMA150: true,
   ma50SlopeRising: true,
   volumeRatioMin: 2.0,
   mansfieldPositive: true,
+  breakoutStatusRequired: ['FRESH_BREAKOUT', 'AGING_BREAKOUT'] as const,
 } as const;
 
 // ─── WSP SCORE (0–5 integer scale) ─────────────────────────────────────
@@ -211,6 +232,8 @@ export const BLOCKER_DEFINITIONS = {
   below_ma50: 'price below MA50',
   below_ma150: 'price below MA150',
   mansfield_negative: 'Mansfield RS <= 0',
+  no_breakout: 'no breakout above resistance',
+  stale_breakout: 'breakout is stale (8+ bars)',
   pattern_not_climbing: 'stage is not climbing',
   low_score: 'WSP score below threshold',
 } as const;
