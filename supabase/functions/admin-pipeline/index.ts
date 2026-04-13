@@ -277,6 +277,20 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, data })
   }
 
+  // POST /health-check — refresh pipeline health checks
+  if (req.method === 'POST' && route === 'health-check') {
+    const { data, error } = await supabase.rpc('run_pipeline_health_checks')
+    if (error) return json(500, { ok: false, step: 'health_check', error: error.message })
+    
+    // Read back the refreshed checks
+    const { data: checks } = await supabase
+      .from('pipeline_health_checks')
+      .select('check_name, status, message, current_value, threshold')
+      .order('check_name')
+    
+    return json(200, { ok: true, run_id: data, checks })
+  }
+
   // GET /validate/<id> — validate a snapshot
   if (req.method === 'GET' && secondToLast === 'validate') {
     const snapshotId = Number(route)
