@@ -449,10 +449,37 @@ export default function Admin() {
 
       {/* D. PIPELINE HEALTH CHECKS */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-mono flex items-center gap-2">
             <Shield className="h-4 w-4" /> D. Pipeline Health Checks
           </CardTitle>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-[10px] h-6"
+            disabled={!syncSecret.trim()}
+            onClick={async () => {
+              try {
+                const url = getBaseUrl('admin-pipeline/health-check');
+                const res = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+                  body: '{}',
+                });
+                if (res.ok) {
+                  await queryClient.invalidateQueries({ queryKey: ['admin-health-checks'] });
+                  toast.success('Hälsokontroller uppdaterade');
+                } else {
+                  const text = await res.text();
+                  toast.error(`Fel: ${text.slice(0, 100)}`);
+                }
+              } catch (err) {
+                toast.error(`Fel: ${String(err).slice(0, 100)}`);
+              }
+            }}
+          >
+            <RefreshCw className="h-3 w-3 mr-1" /> Uppdatera
+          </Button>
         </CardHeader>
         <CardContent>
           {healthChecks.length === 0 ? (
