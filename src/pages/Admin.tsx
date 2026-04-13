@@ -181,6 +181,9 @@ export default function Admin() {
     }));
     setHardRefresh({ running: true, currentStep: 0, steps, summary: null });
 
+    let hadWarning = false;
+    const stepResults: Record<string, string> = {};
+
     for (let i = 0; i < HARD_REFRESH_STEPS.length; i++) {
       const step = HARD_REFRESH_STEPS[i];
       setHardRefresh(prev => ({
@@ -197,41 +200,72 @@ export default function Admin() {
           body: JSON.stringify(step.body ?? {}),
         });
         const text = await res.text();
-        const resultText = res.ok ? `✅ OK (${res.status})` : `❌ HTTP ${res.status}: ${text.slice(0, 200)}`;
 
-        setHardRefresh(prev => ({
-          ...prev,
-          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: res.ok ? 'done' : 'error', result: resultText } : s),
-        }));
-
-        if (!res.ok) {
-          setHardRefresh(prev => ({ ...prev, running: false, summary: `Pipeline stoppad vid steg ${i + 1}: ${step.label}` }));
+        if (res.ok) {
+          const resultText = `✅ OK (${res.status})`;
+          stepResults[step.id] = text;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'done', result: resultText } : s),
+          }));
+        } else if (!step.critical) {
+          // Non-critical step failed — mark as warning, continue
+          hadWarning = true;
+          const resultText = `⚠️ WARNING (${res.status}): ${text.slice(0, 200)}`;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'warning', result: resultText } : s),
+          }));
+          toast.warning(`${step.label}: rate-limited / partiell — fortsätter pipeline`);
+        } else {
+          // Critical step failed — abort
+          const resultText = `❌ HTTP ${res.status}: ${text.slice(0, 200)}`;
+          setHardRefresh(prev => ({
+            ...prev,
+            running: false,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: resultText } : s),
+            summary: `❌ Pipeline stoppad vid kritiskt steg ${i + 1}: ${step.label}`,
+          }));
           toast.error(`Hard Refresh misslyckades vid: ${step.label}`);
           return;
         }
 
-        // Brief pause between steps to allow async processing
+        // Brief pause between steps
         if (i < HARD_REFRESH_STEPS.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
       } catch (err) {
-        setHardRefresh(prev => ({
-          ...prev,
-          running: false,
-          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: String(err).slice(0, 200) } : s),
-          summary: `Pipeline kraschade vid steg ${i + 1}: ${step.label}`,
-        }));
-        toast.error(`Hard Refresh fel: ${step.label}`);
-        return;
+        if (!step.critical) {
+          hadWarning = true;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'warning', result: `⚠️ ${String(err).slice(0, 150)}` } : s),
+          }));
+          toast.warning(`${step.label}: nätverksfel — fortsätter pipeline`);
+          if (i < HARD_REFRESH_STEPS.length - 1) await new Promise(r => setTimeout(r, 2000));
+        } else {
+          setHardRefresh(prev => ({
+            ...prev,
+            running: false,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: String(err).slice(0, 200) } : s),
+            summary: `❌ Pipeline kraschade vid kritiskt steg ${i + 1}: ${step.label}`,
+          }));
+          toast.error(`Hard Refresh fel: ${step.label}`);
+          return;
+        }
       }
     }
 
     // All steps done — invalidate caches
     await queryClient.invalidateQueries();
+
+    // Build summary
+    const warningNote = hadWarning ? ' (enrichment partiell/rate-limited)' : '';
+    const summaryText = `✅ Hard Refresh klar${warningNote}! Alla kritiska steg genomförda. UI caches invaliderade.`;
     setHardRefresh(prev => ({
       ...prev,
       running: false,
-      summary: `✅ Hard Refresh klar! Alla ${HARD_REFRESH_STEPS.length} steg genomförda. UI caches invaliderade.`,
+      summary: summaryText,
     }));
     toast.success('Hard Refresh pipeline klar!');
   }, [syncSecret, queryClient]);
