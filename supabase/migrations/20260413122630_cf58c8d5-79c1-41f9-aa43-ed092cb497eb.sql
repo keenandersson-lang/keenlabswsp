@@ -1,0 +1,2 @@
+ALTER TABLE public.pipeline_health_checks DROP CONSTRAINT pipeline_health_checks_status_check;
+ALTER TABLE public.pipeline_health_checks ADD CONSTRAINT pipeline_health_checks_status_check CHECK (status = ANY (ARRAY['ok', 'warning', 'critical', 'info']));
