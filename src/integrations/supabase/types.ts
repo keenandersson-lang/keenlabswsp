@@ -1120,27 +1120,49 @@ export type Database = {
         }
         Returns: number
       }
-      get_equity_screener_rows: {
-        Args: {
-          p_industry?: string
-          p_page?: number
-          p_page_size?: number
-          p_pattern?: string
-          p_sector?: string
-          p_universe_tier?: string
-        }
-        Returns: {
-          blockers: string[]
-          breakout_status: string
-          industry: string
-          pattern_state: string
-          payload: Json
-          recommendation: string
-          sector: string
-          symbol: string
-          wsp_score: number
-        }[]
-      }
+      get_equity_screener_rows:
+        | {
+            Args: {
+              p_industry?: string
+              p_page?: number
+              p_page_size?: number
+              p_pattern?: string
+              p_sector?: string
+              p_universe_tier?: string
+            }
+            Returns: {
+              blockers: string[]
+              breakout_status: string
+              industry: string
+              pattern_state: string
+              payload: Json
+              recommendation: string
+              sector: string
+              symbol: string
+              wsp_score: number
+            }[]
+          }
+        | {
+            Args: {
+              p_industry?: string
+              p_page?: number
+              p_page_size?: number
+              p_pattern?: string
+              p_sector?: string
+              p_universe_tier?: string
+            }
+            Returns: {
+              blockers: string[]
+              breakout_status: string
+              industry: string
+              pattern_state: string
+              payload: Json
+              recommendation: string
+              sector: string
+              symbol: string
+              wsp_score: number
+            }[]
+          }
       get_equity_snapshot_coverage_report: { Args: never; Returns: Json }
       get_equity_snapshots: {
         Args: { p_limit?: number }
@@ -1265,6 +1287,7 @@ export type Database = {
           vol_ratio: number
         }[]
       }
+      get_universe_coverage_detailed: { Args: never; Returns: Json }
       get_universe_coverage_stats: { Args: never; Returns: Json }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
