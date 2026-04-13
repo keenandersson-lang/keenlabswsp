@@ -1,27 +1,30 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { ShieldCheck, Expand, Globe } from 'lucide-react';
+import { Globe, ShieldCheck, Expand, Database, BarChart3, Eye, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-interface TierStats {
-  total: number;
-  with_indicators?: number;
-  enriched_last_7d?: number;
-}
-
-interface CoverageData {
-  core: TierStats;
-  expanded: TierStats;
-  benchmark: TierStats;
+interface DetailedCoverage {
+  active_universe: number;
+  equity_universe: number;
+  canonically_mapped_sector: number;
+  canonically_mapped_industry: number;
+  price_history_ready: number;
+  indicator_ready: number;
+  wsp_evaluated: number;
+  public_eligible: number;
+  core_tier: number;
+  expanded_tier: number;
+  benchmark_tier: number;
+  unmapped_industry_count: number;
 }
 
 export function UniverseCoverage() {
-  const { data, isLoading } = useQuery<CoverageData>({
-    queryKey: ['universe-coverage-stats'],
+  const { data, isLoading } = useQuery<DetailedCoverage>({
+    queryKey: ['universe-coverage-detailed'],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_universe_coverage_stats');
+      const { data, error } = await (supabase as any).rpc('get_universe_coverage_detailed');
       if (error) throw error;
-      return data as CoverageData;
+      return data as DetailedCoverage;
     },
     staleTime: 120_000,
     refetchInterval: 120_000,
@@ -31,103 +34,73 @@ export function UniverseCoverage() {
     return (
       <div className="rounded-md border border-border bg-card px-3 py-2.5 animate-pulse">
         <div className="h-4 w-48 bg-muted rounded" />
-        <div className="mt-2 h-16 bg-muted rounded" />
+        <div className="mt-2 h-24 bg-muted rounded" />
       </div>
     );
   }
 
-  const coreIndicatorPct = data.core.total > 0
-    ? Math.round(((data.core.with_indicators ?? 0) / data.core.total) * 100)
-    : 0;
-  const expandedIndicatorPct = data.expanded.total > 0
-    ? Math.round(((data.expanded.with_indicators ?? 0) / data.expanded.total) * 100)
-    : 0;
+  const pct = (n: number, d: number) => d > 0 ? Math.round((n / d) * 100) : 0;
+
+  const stages = [
+    { label: 'Aktiv Universe', value: data.active_universe, icon: Globe, color: 'text-muted-foreground' },
+    { label: 'Equity (ej ETF/benchmark)', value: data.equity_universe, icon: Database, color: 'text-muted-foreground' },
+    { label: 'Kanonisk Sektor', value: data.canonically_mapped_sector, icon: ShieldCheck, color: 'text-primary', pctOf: data.equity_universe },
+    { label: 'Kanonisk Industri', value: data.canonically_mapped_industry, icon: ShieldCheck, color: 'text-primary', pctOf: data.equity_universe },
+    { label: 'Prishistorik', value: data.price_history_ready, icon: BarChart3, color: 'text-muted-foreground' },
+    { label: 'Indikatorer', value: data.indicator_ready, icon: BarChart3, color: 'text-muted-foreground' },
+    { label: 'WSP-utvärderad', value: data.wsp_evaluated, icon: BarChart3, color: 'text-muted-foreground' },
+    { label: 'Publik Eligible', value: data.public_eligible, icon: Eye, color: 'text-signal-buy', pctOf: data.equity_universe },
+  ];
 
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Globe className="h-3.5 w-3.5 text-primary" />
-          <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">UNIVERSE COVERAGE</h3>
+          <h3 className="text-[10px] font-bold font-mono tracking-wider text-foreground">UNIVERSE PIPELINE</h3>
         </div>
         <Link to="/screener" className="text-[10px] font-mono text-primary hover:underline">
-          Öppna screener →
+          Screener →
         </Link>
       </div>
 
-      <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {/* Core */}
-        <div className="rounded border border-primary/20 bg-primary/5 p-2.5">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            <span className="text-[10px] font-mono font-bold text-foreground">Core Universe</span>
-          </div>
-          <p className="mt-1.5 text-lg font-mono font-bold text-foreground leading-none">
-            {data.core.total.toLocaleString()}
-          </p>
-          <p className="mt-0.5 text-[9px] font-mono text-muted-foreground">
-            11 GICS-sektorer · Dagliga uppdateringar
-          </p>
-          <div className="mt-2">
-            <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
-              <span>Indikator-täckning</span>
-              <span className="text-foreground">{coreIndicatorPct}%</span>
-            </div>
-            <div className="mt-0.5 h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${coreIndicatorPct}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Expanded */}
-        <div className="rounded border border-border bg-background p-2.5">
-          <div className="flex items-center gap-1.5">
-            <Expand className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] font-mono font-bold text-foreground">Expanded Universe</span>
-          </div>
-          <p className="mt-1.5 text-lg font-mono font-bold text-foreground leading-none">
-            {data.expanded.total.toLocaleString()}
-          </p>
-          <p className="mt-0.5 text-[9px] font-mono text-muted-foreground">
-            Bredare US equity-scan · Växande täckning
-          </p>
-          <div className="mt-2">
-            <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
-              <span>Indikator-täckning</span>
-              <span className="text-foreground">{expandedIndicatorPct}%</span>
-            </div>
-            <div className="mt-0.5 h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-muted-foreground/40 transition-all"
-                style={{ width: `${expandedIndicatorPct}%` }}
-              />
-            </div>
-          </div>
-          {(data.expanded.enriched_last_7d ?? 0) > 0 && (
-            <p className="mt-1.5 text-[9px] font-mono text-signal-buy">
-              +{data.expanded.enriched_last_7d?.toLocaleString()} berikade senaste 7d
+      {/* Pipeline funnel */}
+      <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5">
+        {stages.map((s) => (
+          <div key={s.label} className="rounded border border-border bg-background p-2 text-center">
+            <s.icon className={`h-3 w-3 mx-auto ${s.color}`} />
+            <p className="mt-1 text-sm font-mono font-bold text-foreground leading-none">
+              {s.value.toLocaleString()}
             </p>
-          )}
-        </div>
+            <p className="mt-0.5 text-[8px] font-mono text-muted-foreground leading-tight">
+              {s.label}
+            </p>
+            {s.pctOf != null && s.pctOf > 0 && (
+              <p className="text-[8px] font-mono text-primary">
+                {pct(s.value, s.pctOf)}%
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
 
-        {/* Benchmark */}
-        <div className="rounded border border-border bg-background p-2.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-mono font-bold text-foreground">Benchmarks</span>
-          </div>
-          <p className="mt-1.5 text-lg font-mono font-bold text-foreground leading-none">
-            {data.benchmark.total}
-          </p>
-          <p className="mt-0.5 text-[9px] font-mono text-muted-foreground">
-            SPY · QQQ · Sektor-ETF:er
-          </p>
-          <div className="mt-2 text-[9px] font-mono text-muted-foreground">
-            <span className="text-foreground">{(data.core.total + data.expanded.total + data.benchmark.total).toLocaleString()}</span> totalt aktiva symboler
-          </div>
-        </div>
+      {/* Tier breakdown */}
+      <div className="mt-2 flex items-center gap-4 text-[9px] font-mono text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <ShieldCheck className="h-3 w-3 text-primary" />
+          Core: <span className="text-foreground font-semibold">{data.core_tier.toLocaleString()}</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <Expand className="h-3 w-3" />
+          Expanded: <span className="text-foreground font-semibold">{data.expanded_tier.toLocaleString()}</span>
+        </span>
+        <span>Benchmark: <span className="text-foreground font-semibold">{data.benchmark_tier}</span></span>
+        {data.unmapped_industry_count > 0 && (
+          <span className="flex items-center gap-1 text-signal-caution">
+            <AlertTriangle className="h-3 w-3" />
+            {data.unmapped_industry_count.toLocaleString()} ej klassificerade (dold från publik)
+          </span>
+        )}
       </div>
     </div>
   );

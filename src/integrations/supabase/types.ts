@@ -1265,6 +1265,7 @@ export type Database = {
           vol_ratio: number
         }[]
       }
+      get_universe_coverage_detailed: { Args: never; Returns: Json }
       get_universe_coverage_stats: { Args: never; Returns: Json }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
@@ -1309,6 +1310,14 @@ export type Database = {
             Args: { p_as_of_date: string; p_run_label: string }
             Returns: number
           }
+      resolve_canonical_industry: {
+        Args: {
+          p_canonical_industry: string
+          p_raw_industry: string
+          p_scan_industry: string
+        }
+        Returns: string
+      }
       run_broad_market_scan: {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
