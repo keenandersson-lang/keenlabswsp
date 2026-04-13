@@ -39,7 +39,7 @@ function parseRow(r: RawRow): ScreenerRow {
   return {
     symbol: r.symbol,
     sector: normalizeSectorName(r.sector),
-    industry: r.industry ?? 'Unknown',
+    industry: r.industry ?? '',
     pattern_state: r.pattern_state ?? 'base',
     recommendation: r.recommendation ?? 'BEVAKA',
     wsp_score: Math.max(0, Math.min(5, r.wsp_score ?? 0)),
