@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      canonical_gics_industries: {
+        Row: {
+          display_order: number
+          industry_code: number
+          industry_name: string
+          sector_code: number
+        }
+        Insert: {
+          display_order?: number
+          industry_code: number
+          industry_name: string
+          sector_code: number
+        }
+        Update: {
+          display_order?: number
+          industry_code?: number
+          industry_name?: string
+          sector_code?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_gics_industries_sector_code_fkey"
+            columns: ["sector_code"]
+            isOneToOne: false
+            referencedRelation: "canonical_gics_sectors"
+            referencedColumns: ["sector_code"]
+          },
+        ]
+      }
+      canonical_gics_sectors: {
+        Row: {
+          display_order: number
+          sector_code: number
+          sector_name: string
+        }
+        Insert: {
+          display_order?: number
+          sector_code: number
+          sector_name: string
+        }
+        Update: {
+          display_order?: number
+          sector_code?: number
+          sector_name?: string
+        }
+        Relationships: []
+      }
       credit_transactions: {
         Row: {
           amount: number
@@ -690,6 +737,57 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      taxonomy_alias_map: {
+        Row: {
+          canonical_industry_code: number | null
+          canonical_sector_code: number | null
+          confidence: string
+          created_at: string
+          id: number
+          label_type: string
+          mapping_method: string
+          notes: string | null
+          raw_label: string
+        }
+        Insert: {
+          canonical_industry_code?: number | null
+          canonical_sector_code?: number | null
+          confidence?: string
+          created_at?: string
+          id?: never
+          label_type?: string
+          mapping_method?: string
+          notes?: string | null
+          raw_label: string
+        }
+        Update: {
+          canonical_industry_code?: number | null
+          canonical_sector_code?: number | null
+          confidence?: string
+          created_at?: string
+          id?: never
+          label_type?: string
+          mapping_method?: string
+          notes?: string | null
+          raw_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "taxonomy_alias_map_canonical_industry_code_fkey"
+            columns: ["canonical_industry_code"]
+            isOneToOne: false
+            referencedRelation: "canonical_gics_industries"
+            referencedColumns: ["industry_code"]
+          },
+          {
+            foreignKeyName: "taxonomy_alias_map_canonical_sector_code_fkey"
+            columns: ["canonical_sector_code"]
+            isOneToOne: false
+            referencedRelation: "canonical_gics_sectors"
+            referencedColumns: ["sector_code"]
+          },
+        ]
       }
       user_credits: {
         Row: {

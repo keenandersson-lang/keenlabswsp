@@ -20,11 +20,11 @@ export const CANONICAL_GICS_SECTORS = [
   'Consumer Staples',
   'Energy',
   'Financials',
-  'Healthcare',
+  'Health Care',
   'Industrials',
+  'Information Technology',
   'Materials',
   'Real Estate',
-  'Technology',
   'Utilities',
 ] as const;
 
