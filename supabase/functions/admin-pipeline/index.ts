@@ -214,6 +214,55 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, scan_run_id: data })
   }
 
+  // POST /indicators — trigger indicator materialization
+  if (req.method === 'POST' && route === 'indicators') {
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>
+    const today = new Date()
+    const fromDate = (body.from_date as string) ?? today.toISOString().slice(0, 10)
+    const toDate = (body.to_date as string) ?? today.toISOString().slice(0, 10)
+
+    const { data: logRow } = await supabase.from('data_sync_log').insert({
+      sync_type: 'indicator_refresh',
+      status: 'running',
+      data_source: 'admin-pipeline',
+      started_at: new Date().toISOString(),
+      metadata: { source: 'admin-pipeline', from_date: fromDate, to_date: toDate },
+    }).select('id').single()
+
+    const backgroundIndicators = (async () => {
+      try {
+        await supabase.rpc('materialize_wsp_indicators_logged', {
+          p_from_date: fromDate,
+          p_to_date: toDate,
+        })
+        if (logRow?.id) {
+          await supabase.from('data_sync_log').update({
+            status: 'success',
+            completed_at: new Date().toISOString(),
+          }).eq('id', logRow.id)
+        }
+      } catch (err) {
+        console.error('[admin-pipeline/indicators] error:', err)
+        if (logRow?.id) {
+          await supabase.from('data_sync_log').update({
+            status: 'error',
+            completed_at: new Date().toISOString(),
+            error_message: String(err).slice(0, 500),
+          }).eq('id', logRow.id)
+        }
+      }
+    })()
+
+    const edgeRuntime = (globalThis as typeof globalThis & { EdgeRuntime?: EdgeRuntimeLike }).EdgeRuntime
+    if (edgeRuntime?.waitUntil) {
+      edgeRuntime.waitUntil(backgroundIndicators)
+    } else {
+      await backgroundIndicators
+    }
+
+    return json(202, { ok: true, queued: true, data: { log_id: logRow?.id, message: 'Indicator refresh dispatched' } })
+  }
+
   // GET /runs — list recent pipeline runs from data_sync_log
   if (req.method === 'GET' && route === 'runs') {
     const { data, error } = await supabase.rpc('get_equity_pipeline_console_runs', { p_limit: 50 })
