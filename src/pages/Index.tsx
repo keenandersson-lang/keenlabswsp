@@ -38,9 +38,20 @@ const Index = () => {
   const { data: sectorRanking = [] } = useSectorRanking();
   const { data: industryRanking = [] } = useIndustryRanking(true, 15);
   const { data: topSetups = [], isLoading: topSetupsLoading } = useTopSetups();
-  const { data: heatmapData } = useEquityScreener({ page: 0, pageSize: 300, universeTier: 'core' });
+  const { data: heatmapRawRows = [] } = useQuery({
+    queryKey: ['dashboard-heatmap-data'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_heatmap_data');
+      if (error) throw error;
+      return (data ?? []) as Array<{ symbol: string; canonical_sector: string; close: number; pct_change_1d: number; wsp_pattern: string }>;
+    },
+    staleTime: 5 * 60_000,
+  });
 
-  const heatmapRows = (heatmapData?.rows ?? []).filter((row) => isCanonicalGicsSector(row.sector));
+  // Also fetch screener rows for full heatmap context (sector + industry + recommendation + score)
+  const { data: heatmapScreenerData } = useEquityScreener({ page: 0, pageSize: 1000, universeTier: 'core' });
+
+  const heatmapRows = (heatmapScreenerData?.rows ?? []).filter((row) => isCanonicalGicsSector(row.sector));
   const sectorStatuses = sectorRanking.map((sector) => ({
     sector: sector.sector_name,
     isBullish: sector.wsp_regime === 'Bullish',
