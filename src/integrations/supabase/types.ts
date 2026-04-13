@@ -1332,6 +1332,14 @@ export type Database = {
             Args: { p_as_of_date: string; p_run_label: string }
             Returns: number
           }
+      resolve_canonical_industry: {
+        Args: {
+          p_canonical_industry: string
+          p_raw_industry: string
+          p_scan_industry: string
+        }
+        Returns: string
+      }
       run_broad_market_scan: {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
