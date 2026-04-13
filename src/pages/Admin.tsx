@@ -52,9 +52,9 @@ interface PipelineStep {
 }
 
 const HARD_REFRESH_STEPS: PipelineStep[] = [
-  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline', body: { action: 'daily-sync', requested_by: 'admin-hard-refresh' } },
+  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' } },
   { id: 'enrich', label: '2. Metadata Enrichment', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 } },
-  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline', body: { action: 'indicators', requested_by: 'admin-hard-refresh' } },
+  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' } },
   { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' } },
 ];
 
@@ -506,13 +506,13 @@ export default function Admin() {
           <div className="space-y-2">
             <h4 className="text-xs font-mono font-bold">Individuella pipeline-steg</h4>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => runPipelineAction('admin-pipeline', 'Daily Sync', setDailySyncLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline/daily-sync', 'Daily Sync', setDailySyncLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
                 <Zap className="h-3 w-3 mr-1" /> Kör Daily Sync
               </Button>
-              <Button onClick={() => runPipelineAction('scan-market', 'Market Scan', setScanLog)} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('scan-market', 'Market Scan', setScanLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
                 <RefreshCw className="h-3 w-3 mr-1" /> Kör Market Scan
               </Button>
-              <Button onClick={() => runPipelineAction('admin-pipeline', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline/backfill', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
                 <Database className="h-3 w-3 mr-1" /> Kör Yahoo Backfill
               </Button>
             </div>
