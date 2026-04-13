@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeSectorName } from '@/lib/market-normalization';
 
+export type BreakoutStatus = 'NONE' | 'APPROACHING' | 'FRESH_BREAKOUT' | 'AGING_BREAKOUT' | 'STALE_BREAKOUT' | 'FAILED_BREAKOUT';
+
 export interface ScreenerRow {
   symbol: string;
   sector: string;
@@ -13,6 +15,8 @@ export interface ScreenerRow {
   changePercent: number;
   volumeRatio: number | null;
   mansfieldRs: number | null;
+  blockers: string[];
+  breakout_status: BreakoutStatus;
 }
 
 export type ScreenerSignalFilter = 'breakout' | 'bullish' | 'bearish';
@@ -26,6 +30,8 @@ interface RawRow {
   wsp_score: number | null;
   total_count?: number | null;
   payload: Record<string, unknown> | null;
+  blockers: string[] | null;
+  breakout_status: string | null;
 }
 
 function parseRow(r: RawRow): ScreenerRow {
@@ -41,6 +47,8 @@ function parseRow(r: RawRow): ScreenerRow {
     changePercent: typeof p.pct_change_1d === 'number' ? p.pct_change_1d : 0,
     volumeRatio: typeof p.volume_ratio === 'number' ? p.volume_ratio : null,
     mansfieldRs: typeof p.mansfield_rs === 'number' ? p.mansfield_rs : null,
+    blockers: Array.isArray(r.blockers) ? r.blockers : [],
+    breakout_status: (r.breakout_status as BreakoutStatus) ?? 'NONE',
   };
 }
 
