@@ -391,7 +391,11 @@ export default function Admin() {
           )}
 
           {hardRefresh.summary && (
-            <div className={`rounded border px-3 py-2 text-xs font-mono ${hardRefresh.summary.startsWith('✅') ? 'border-signal-success/30 bg-signal-success/10 text-signal-success' : 'border-signal-danger/30 bg-signal-danger/10 text-signal-danger'}`}>
+            <div className={`rounded border px-3 py-2 text-xs font-mono ${
+              hardRefresh.summary.startsWith('✅') 
+                ? 'border-signal-success/30 bg-signal-success/10 text-signal-success' 
+                : 'border-signal-danger/30 bg-signal-danger/10 text-signal-danger'
+            }`}>
               {hardRefresh.summary}
             </div>
           )}
