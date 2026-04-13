@@ -377,10 +377,11 @@ export default function Admin() {
               {hardRefresh.steps.map((step) => (
                 <div key={step.id} className="flex items-center gap-2 text-xs font-mono">
                   {step.status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-signal-success flex-shrink-0" />}
+                  {step.status === 'warning' && <AlertTriangle className="h-3.5 w-3.5 text-signal-caution flex-shrink-0" />}
                   {step.status === 'running' && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin flex-shrink-0" />}
                   {step.status === 'error' && <XCircle className="h-3.5 w-3.5 text-signal-danger flex-shrink-0" />}
                   {step.status === 'pending' && <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
-                  <span className={step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-signal-danger' : 'text-foreground'}>
+                  <span className={step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-signal-danger' : step.status === 'warning' ? 'text-signal-caution' : 'text-foreground'}>
                     {step.label}
                   </span>
                   {step.result && <span className="text-[9px] text-muted-foreground truncate">{step.result}</span>}
