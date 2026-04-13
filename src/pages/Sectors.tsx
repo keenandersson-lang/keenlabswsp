@@ -59,7 +59,7 @@ function SectorRow({ sector, rank }: { sector: SectorRankingRow; rank: number })
         </div>
         <div className="text-center">
           <div className="text-[9px] font-mono uppercase text-muted-foreground">Mönster</div>
-          <div className="mt-0.5"><PatternBadge pattern={sector.top_pattern} size="xs" /></div>
+          <div className="mt-0.5"><PatternBadge pattern={sector.top_pattern as any} /></div>
         </div>
       </div>
     </div>
