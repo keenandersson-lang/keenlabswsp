@@ -5,9 +5,9 @@ import { useSymbolSearch } from '@/hooks/use-symbol-search';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: Layers },
-  { path: '/screener', label: 'Screener', icon: Scan },
-  { path: '/industries', label: 'Industrier', icon: Factory },
   { path: '/sectors', label: 'Sektorer', icon: BarChart3 },
+  { path: '/industries', label: 'Industrier', icon: Factory },
+  { path: '/screener', label: 'Screener', icon: Scan },
   { path: '/market-summary', label: 'Market Summary', icon: Table2 },
   { path: '/watchlist', label: 'Watchlist', icon: Star },
 ];
