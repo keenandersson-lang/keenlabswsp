@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2, Globe, BarChart3, Eye, Layers } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2, Globe, BarChart3, Eye, Layers, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,10 +10,12 @@ import { toast } from 'sonner';
 
 function StatusBadge({ value }: { value: string }) {
   const n = value.toLowerCase();
-  if (['published', 'canonical', 'completed', 'validated'].includes(n))
+  if (['published', 'canonical', 'completed', 'validated', 'ok'].includes(n))
     return <Badge className="bg-signal-success/15 text-signal-success border-signal-success/30">{value}</Badge>;
-  if (['failed'].includes(n))
+  if (['failed', 'critical'].includes(n))
     return <Badge className="bg-signal-danger/15 text-signal-danger border-signal-danger/30">{value}</Badge>;
+  if (['warning', 'warn'].includes(n))
+    return <Badge className="bg-signal-caution/15 text-signal-caution border-signal-caution/30">{value}</Badge>;
   return <Badge variant="secondary">{value}</Badge>;
 }
 
@@ -27,12 +29,12 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 }
 
 function PctBar({ label, value, total, color = 'bg-primary' }: { label: string; value: number; total: number; color?: string }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
   return (
     <div>
       <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
         <span>{label}</span>
-        <span className="text-foreground">{value.toLocaleString()} ({pct}%)</span>
+        <span className="text-foreground">{value.toLocaleString()} / {total.toLocaleString()} ({pct}%)</span>
       </div>
       <div className="mt-0.5 h-1.5 rounded-full bg-muted overflow-hidden">
         <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
@@ -40,6 +42,21 @@ function PctBar({ label, value, total, color = 'bg-primary' }: { label: string; 
     </div>
   );
 }
+
+// Hard refresh pipeline step definition
+interface PipelineStep {
+  id: string;
+  label: string;
+  action: string; // edge function path
+  body?: Record<string, unknown>;
+}
+
+const HARD_REFRESH_STEPS: PipelineStep[] = [
+  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline', body: { action: 'daily-sync', requested_by: 'admin-hard-refresh' } },
+  { id: 'enrich', label: '2. Metadata Enrichment', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 } },
+  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline', body: { action: 'indicators', requested_by: 'admin-hard-refresh' } },
+  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' } },
+];
 
 export default function Admin() {
   const queryClient = useQueryClient();
@@ -54,6 +71,14 @@ export default function Admin() {
     running: boolean; batchSize: number; logs: string[]; done: boolean;
   }>({ running: false, batchSize: 10, logs: [], done: false });
 
+  // Hard refresh state
+  const [hardRefresh, setHardRefresh] = useState<{
+    running: boolean;
+    currentStep: number;
+    steps: { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error'; result?: string }[];
+    summary: string | null;
+  }>({ running: false, currentStep: -1, steps: [], summary: null });
+
   // --- Data queries ---
   const { data: coverage } = useQuery<Record<string, number>>({
     queryKey: ['admin-coverage-detailed'],
@@ -65,22 +90,6 @@ export default function Admin() {
     refetchInterval: 15_000,
   });
 
-  const { data: unmappedIndustries = [] } = useQuery({
-    queryKey: ['admin-unmapped-industries'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('symbols')
-        .select('canonical_industry, canonical_sector')
-        .eq('is_active', true)
-        .or('canonical_industry.is.null,canonical_industry.eq.Other,canonical_industry.eq.Unknown,canonical_industry.eq.Unclassified,canonical_industry.eq.')
-        .limit(1);
-      // Just get count via coverage
-      if (error) throw error;
-      return data ?? [];
-    },
-    staleTime: 60_000,
-  });
-
   const { data: topUnmappedLabels = [] } = useQuery({
     queryKey: ['admin-top-unmapped-labels'],
     queryFn: async () => {
@@ -90,11 +99,14 @@ export default function Admin() {
         .eq('is_active', true)
         .not('industry', 'is', null);
       if (error) throw error;
-      // Group by raw industry label where canonical is missing/bad
       const counts: Record<string, { count: number; sector: string }> = {};
       for (const row of data ?? []) {
         const ci = row.canonical_industry;
-        if (ci && !['Other', 'Unknown', 'Unclassified', ''].includes(ci)) continue;
+        if (ci && !['Other', 'Unknown', 'Unclassified', ''].includes(ci)) {
+          // Check if it's actually a canonical GICS industry
+          // Skip for now - we show all non-empty as potentially valid
+          continue;
+        }
         const label = row.industry || '(empty)';
         if (!counts[label]) counts[label] = { count: 0, sector: row.canonical_sector ?? '?' };
         counts[label].count++;
@@ -105,16 +117,6 @@ export default function Admin() {
         .slice(0, 30);
     },
     staleTime: 60_000,
-  });
-
-  const { data: pipelineRuns = [] } = useQuery({
-    queryKey: ['admin-pipeline-runs'],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc('get_equity_pipeline_console_runs', { p_limit: 10 });
-      if (error) throw error;
-      return Array.isArray(data) ? data : [];
-    },
-    refetchInterval: 10_000,
   });
 
   const { data: latestScanRun } = useQuery({
@@ -146,6 +148,16 @@ export default function Admin() {
     refetchInterval: 30_000,
   });
 
+  const { data: pipelineRuns = [] } = useQuery({
+    queryKey: ['admin-pipeline-runs'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_equity_pipeline_console_runs', { p_limit: 10 });
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 10_000,
+  });
+
   const refresh = async () => {
     await queryClient.invalidateQueries();
     toast.success('Admin console refreshed');
@@ -155,6 +167,72 @@ export default function Admin() {
     const url = import.meta.env.VITE_SUPABASE_URL;
     return url ? `${String(url).replace(/\/$/, '')}/functions/v1/${fn}` : '';
   };
+
+  // ==========================================
+  // HARD REFRESH - Full Pipeline Chain
+  // ==========================================
+  const runHardRefresh = useCallback(async () => {
+    if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
+
+    const steps = HARD_REFRESH_STEPS.map(s => ({
+      id: s.id, label: s.label, status: 'pending' as const, result: undefined as string | undefined
+    }));
+    setHardRefresh({ running: true, currentStep: 0, steps, summary: null });
+
+    for (let i = 0; i < HARD_REFRESH_STEPS.length; i++) {
+      const step = HARD_REFRESH_STEPS[i];
+      setHardRefresh(prev => ({
+        ...prev,
+        currentStep: i,
+        steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'running' } : s),
+      }));
+
+      try {
+        const url = getBaseUrl(step.action);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+          body: JSON.stringify(step.body ?? {}),
+        });
+        const text = await res.text();
+        const resultText = res.ok ? `✅ OK (${res.status})` : `❌ HTTP ${res.status}: ${text.slice(0, 200)}`;
+
+        setHardRefresh(prev => ({
+          ...prev,
+          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: res.ok ? 'done' : 'error', result: resultText } : s),
+        }));
+
+        if (!res.ok) {
+          setHardRefresh(prev => ({ ...prev, running: false, summary: `Pipeline stoppad vid steg ${i + 1}: ${step.label}` }));
+          toast.error(`Hard Refresh misslyckades vid: ${step.label}`);
+          return;
+        }
+
+        // Brief pause between steps to allow async processing
+        if (i < HARD_REFRESH_STEPS.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } catch (err) {
+        setHardRefresh(prev => ({
+          ...prev,
+          running: false,
+          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: String(err).slice(0, 200) } : s),
+          summary: `Pipeline kraschade vid steg ${i + 1}: ${step.label}`,
+        }));
+        toast.error(`Hard Refresh fel: ${step.label}`);
+        return;
+      }
+    }
+
+    // All steps done — invalidate caches
+    await queryClient.invalidateQueries();
+    setHardRefresh(prev => ({
+      ...prev,
+      running: false,
+      summary: `✅ Hard Refresh klar! Alla ${HARD_REFRESH_STEPS.length} steg genomförda. UI caches invaliderade.`,
+    }));
+    toast.success('Hard Refresh pipeline klar!');
+  }, [syncSecret, queryClient]);
 
   const runBulkEnrich = useCallback(async () => {
     if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY först'); return; }
@@ -238,48 +316,106 @@ export default function Admin() {
         </div>
       </section>
 
-      {/* A. UNIVERSE PIPELINE COVERAGE */}
-      <Card>
+      {/* A. HARD REFRESH PIPELINE */}
+      <Card className="border-primary/30">
         <CardHeader>
           <CardTitle className="text-sm font-mono flex items-center gap-2">
-            <Globe className="h-4 w-4" /> A. Universe Pipeline Coverage
+            <Rocket className="h-4 w-4 text-primary" /> A. Hard Refresh — Full WSP Pipeline
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
-            <Stat label="Aktiv Universe" value={String(coverage?.active_universe ?? '—')} />
-            <Stat label="Equity (ej ETF)" value={String(equityUniverse)} />
-            <Stat label="Core Tier" value={String(coverage?.core_tier ?? '—')} color="text-primary" />
-            <Stat label="Expanded Tier" value={String(coverage?.expanded_tier ?? '—')} />
-          </div>
-          <div className="space-y-1.5">
-            <PctBar label="Kanonisk Sektor" value={coverage?.canonically_mapped_sector ?? 0} total={equityUniverse} color="bg-primary" />
-            <PctBar label="Kanonisk Industri" value={coverage?.canonically_mapped_industry ?? 0} total={equityUniverse} color="bg-primary" />
-            <PctBar label="Prishistorik" value={coverage?.price_history_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="Indikatorer" value={coverage?.indicator_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="WSP-utvärderad" value={coverage?.wsp_evaluated ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="Publik Eligible (kanonisk)" value={coverage?.public_eligible ?? 0} total={equityUniverse} color="bg-signal-buy" />
-          </div>
-          {(coverage?.unmapped_industry_count ?? 0) > 0 && (
-            <div className="flex items-center gap-2 text-xs font-mono text-signal-caution">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              {coverage!.unmapped_industry_count.toLocaleString()} symboler saknar kanonisk industri — dold från publik screener/dashboard
+          <p className="text-[10px] font-mono text-muted-foreground">
+            Kör hela kedjan: Price Sync → Metadata Enrichment → Indicator Refresh → Market Scan → UI Cache Invalidation
+          </p>
+          <Button
+            onClick={runHardRefresh}
+            disabled={hardRefresh.running || !syncSecret.trim()}
+            size="sm"
+            className="font-mono text-xs"
+          >
+            {hardRefresh.running ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Kör pipeline...</> : <><Rocket className="h-3 w-3 mr-1" />Kör Hard Refresh</>}
+          </Button>
+
+          {hardRefresh.steps.length > 0 && (
+            <div className="space-y-1">
+              {hardRefresh.steps.map((step) => (
+                <div key={step.id} className="flex items-center gap-2 text-xs font-mono">
+                  {step.status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-signal-success flex-shrink-0" />}
+                  {step.status === 'running' && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin flex-shrink-0" />}
+                  {step.status === 'error' && <XCircle className="h-3.5 w-3.5 text-signal-danger flex-shrink-0" />}
+                  {step.status === 'pending' && <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
+                  <span className={step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-signal-danger' : 'text-foreground'}>
+                    {step.label}
+                  </span>
+                  {step.result && <span className="text-[9px] text-muted-foreground truncate">{step.result}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {hardRefresh.summary && (
+            <div className={`rounded border px-3 py-2 text-xs font-mono ${hardRefresh.summary.startsWith('✅') ? 'border-signal-success/30 bg-signal-success/10 text-signal-success' : 'border-signal-danger/30 bg-signal-danger/10 text-signal-danger'}`}>
+              {hardRefresh.summary}
+            </div>
+          )}
+
+          {latestScanRun && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs font-mono mt-2">
+              <Stat label="Senaste Scan Run ID" value={`#${latestScanRun.id}`} />
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
+                <div className="mt-1"><StatusBadge value={latestScanRun.status} /></div>
+              </div>
+              <Stat label="Scan Date" value={latestScanRun.scan_date} />
+              <Stat label="Scanned" value={`${latestScanRun.symbols_scanned}/${latestScanRun.symbols_targeted}`} />
+              <Stat label="Failed" value={String(latestScanRun.symbols_failed)} color={latestScanRun.symbols_failed > 0 ? 'text-signal-danger' : ''} />
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* B. TAXONOMY AUDIT */}
+      {/* B. UNIVERSE PIPELINE COVERAGE */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-mono flex items-center gap-2">
-            <Layers className="h-4 w-4" /> B. Taxonomy Audit — Unmapped Industry Labels
+            <Globe className="h-4 w-4" /> B. Universe Pipeline Coverage
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+            <Stat label="Aktiv Universe" value={String(coverage?.active_universe ?? '—')} />
+            <Stat label="Equity (ej ETF/benchmark)" value={String(equityUniverse)} />
+            <Stat label="Core Tier" value={String(coverage?.core_tier ?? '—')} color="text-primary" />
+            <Stat label="Expanded Tier" value={String(coverage?.expanded_tier ?? '—')} />
+          </div>
+          <div className="space-y-1.5">
+            <PctBar label="Kanonisk GICS Sektor" value={coverage?.canonically_mapped_sector ?? 0} total={equityUniverse} color="bg-primary" />
+            <PctBar label="Kanonisk GICS Industri" value={coverage?.canonically_mapped_industry ?? 0} total={equityUniverse} color="bg-primary" />
+            <PctBar label="Prishistorik (equity)" value={coverage?.price_history_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
+            <PctBar label="Indikatorer (equity)" value={coverage?.indicator_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
+            <PctBar label="WSP-utvärderad (equity)" value={coverage?.wsp_evaluated ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
+            <PctBar label="Publik Eligible (kanonisk GICS)" value={coverage?.public_eligible ?? 0} total={equityUniverse} color="bg-signal-buy" />
+          </div>
+          {(coverage?.unmapped_industry_count ?? 0) > 0 && (
+            <div className="flex items-center gap-2 text-xs font-mono text-signal-caution">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {coverage!.unmapped_industry_count.toLocaleString()} equity-symboler saknar kanonisk GICS-industri — dolda från publik screener/dashboard
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* C. TAXONOMY AUDIT */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2">
+            <Layers className="h-4 w-4" /> C. Taxonomy Audit — Unmapped Industry Labels
           </CardTitle>
         </CardHeader>
         <CardContent>
           {topUnmappedLabels.length === 0 ? (
             <p className="text-xs font-mono text-signal-success flex items-center gap-1">
-              <CheckCircle2 className="h-4 w-4" /> Alla symboler har kanonisk industri.
+              <CheckCircle2 className="h-4 w-4" /> Alla equity-symboler har kanonisk GICS-industri.
             </p>
           ) : (
             <div className="max-h-64 overflow-y-auto">
@@ -310,31 +446,6 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      {/* C. LATEST SCAN RUN */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-mono flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" /> C. Latest Market Scan
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {latestScanRun ? (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs font-mono">
-              <Stat label="Run ID" value={`#${latestScanRun.id}`} />
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
-                <div className="mt-1"><StatusBadge value={latestScanRun.status} /></div>
-              </div>
-              <Stat label="Scan Date" value={latestScanRun.scan_date} />
-              <Stat label="Scanned" value={`${latestScanRun.symbols_scanned}/${latestScanRun.symbols_targeted}`} />
-              <Stat label="Failed" value={String(latestScanRun.symbols_failed)} color={latestScanRun.symbols_failed > 0 ? 'text-signal-danger' : ''} />
-            </div>
-          ) : (
-            <p className="text-xs font-mono text-muted-foreground">Ingen scan-körning hittad.</p>
-          )}
-        </CardContent>
-      </Card>
-
       {/* D. PIPELINE HEALTH CHECKS */}
       <Card>
         <CardHeader>
@@ -347,14 +458,14 @@ export default function Admin() {
             <p className="text-xs font-mono text-muted-foreground">Inga hälsokontroller ännu.</p>
           ) : (
             <div className="max-h-48 overflow-y-auto space-y-1">
-              {healthChecks.slice(0, 10).map((hc: any) => (
+              {healthChecks.slice(0, 15).map((hc: any) => (
                 <div key={hc.id} className="flex items-center gap-2 text-xs font-mono border-b border-border/30 py-1">
-                  {hc.status === 'pass' ? <CheckCircle2 className="h-3 w-3 text-signal-success" /> :
-                   hc.status === 'warn' ? <AlertTriangle className="h-3 w-3 text-signal-caution" /> :
-                   <XCircle className="h-3 w-3 text-signal-danger" />}
-                  <span className="text-muted-foreground w-40 truncate">{hc.check_name}</span>
+                  {hc.status === 'ok' ? <CheckCircle2 className="h-3 w-3 text-signal-success flex-shrink-0" /> :
+                   hc.status === 'warning' ? <AlertTriangle className="h-3 w-3 text-signal-caution flex-shrink-0" /> :
+                   hc.status === 'info' ? <Eye className="h-3 w-3 text-muted-foreground flex-shrink-0" /> :
+                   <XCircle className="h-3 w-3 text-signal-danger flex-shrink-0" />}
+                  <span className="text-muted-foreground w-44 truncate flex-shrink-0">{hc.check_name}</span>
                   <span className="text-foreground flex-1 truncate">{hc.message}</span>
-                  <span className="text-muted-foreground text-[9px]">{new Date(hc.checked_at).toLocaleString()}</span>
                 </div>
               ))}
             </div>
@@ -389,20 +500,19 @@ export default function Admin() {
       {/* F. OPS ACTIONS */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> F. Operations</CardTitle>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Zap className="h-4 w-4" /> F. Individual Operations</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Daily Sync */}
           <div className="space-y-2">
-            <h4 className="text-xs font-mono font-bold">Daily Price Sync (Polygon)</h4>
+            <h4 className="text-xs font-mono font-bold">Individuella pipeline-steg</h4>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => runPipelineAction('admin-pipeline/daily-sync', 'Daily Sync', setDailySyncLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline', 'Daily Sync', setDailySyncLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
                 <Zap className="h-3 w-3 mr-1" /> Kör Daily Sync
               </Button>
               <Button onClick={() => runPipelineAction('scan-market', 'Market Scan', setScanLog)} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
                 <RefreshCw className="h-3 w-3 mr-1" /> Kör Market Scan
               </Button>
-              <Button onClick={() => runPipelineAction('admin-pipeline/backfill', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
                 <Database className="h-3 w-3 mr-1" /> Kör Yahoo Backfill
               </Button>
             </div>
@@ -411,7 +521,6 @@ export default function Admin() {
             {backfillState.logs.length > 0 && <pre className="max-h-32 overflow-y-auto rounded border bg-background p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">{backfillState.logs.join('\n')}</pre>}
           </div>
 
-          {/* Bulk Enrich */}
           <div className="space-y-2">
             <h4 className="text-xs font-mono font-bold">Bulk Metadata Enrichment (Polygon)</h4>
             <div className="flex items-center gap-2">
@@ -449,8 +558,7 @@ export default function Admin() {
           <div className="flex items-center gap-2"><CheckCircle2 className="h-3 w-3 text-signal-success" /> scan-market — broad market scan efter daily-sync</div>
           <div className="flex items-center gap-2"><CheckCircle2 className="h-3 w-3 text-signal-success" /> pipeline-health — hälsokontroll var 2:a timme</div>
           <p className="mt-2 text-muted-foreground">
-            Pipeline: sync → enrich → indicators → scan → validate → publicera (automatisk om valid).
-            Publik snapshot uppdateras aldrig utan validerad scan.
+            Soft Refresh: laddar om senaste publicerade snapshot i UI (alla sidor). Hard Refresh: kör hela pipeline-kedjan end-to-end.
           </p>
         </CardContent>
       </Card>
