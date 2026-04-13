@@ -38,17 +38,51 @@ const Index = () => {
   const { data: sectorRanking = [] } = useSectorRanking();
   const { data: industryRanking = [] } = useIndustryRanking(true, 15);
   const { data: topSetups = [], isLoading: topSetupsLoading } = useTopSetups();
-  const { data: heatmapData } = useEquityScreener({ page: 0, pageSize: 300, universeTier: 'core' });
+  const { data: heatmapRawRows = [] } = useQuery({
+    queryKey: ['dashboard-heatmap-data'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_heatmap_data');
+      if (error) throw error;
+      return (data ?? []) as Array<{ symbol: string; canonical_sector: string; close: number; pct_change_1d: number; wsp_pattern: string }>;
+    },
+    staleTime: 5 * 60_000,
+  });
 
-  const heatmapRows = (heatmapData?.rows ?? []).filter((row) => isCanonicalGicsSector(row.sector));
+  // Also fetch screener rows for full heatmap context (sector + industry + recommendation + score)
+  const { data: heatmapScreenerData } = useEquityScreener({ page: 0, pageSize: 1000, universeTier: 'core' });
+
+  const heatmapRows = (heatmapScreenerData?.rows ?? []).filter((row) => isCanonicalGicsSector(row.sector));
   const sectorStatuses = sectorRanking.map((sector) => ({
     sector: sector.sector_name,
     isBullish: sector.wsp_regime === 'Bullish',
     changePercent: sector.avg_pct_today,
     sma50AboveSma200: sector.pct_above_ma50 > 60,
   }));
-  const spy = benchmarkRows.find((row) => row.symbol === 'SPY');
-  const qqq = benchmarkRows.find((row) => row.symbol === 'QQQ');
+  const spy = benchmarkRows.find((row) => row.symbol === 'SPY') as any;
+  const qqq = benchmarkRows.find((row) => row.symbol === 'QQQ') as any;
+
+  // WSP Framework v1 §6: Market Regime uses MA conditions, not daily % change
+  // Bullish: close > SMA50, SMA50 slope > 0 (rising)
+  // Bearish: close < SMA50, SMA50 slope < 0 (falling)
+  // Neutral: mixed conditions
+  const classifyBenchmarkRegime = (b: any): 'bullish' | 'neutral' | 'bearish' => {
+    if (!b) return 'neutral';
+    const aboveMa50 = b.above_ma50 === true;
+    const slopeRising = b.ma50_slope === 'rising';
+    if (aboveMa50 && slopeRising) return 'bullish';
+    if (!aboveMa50 && !slopeRising) return 'bearish';
+    return 'neutral';
+  };
+
+  const spyRegime = classifyBenchmarkRegime(spy);
+  const qqqRegime = classifyBenchmarkRegime(qqq);
+
+  // WSP Framework v1 §6.4: Composite regime via weighted vote (SPY 35%, QQQ 35%, IWM 20%, DIA 10%)
+  // We have SPY + QQQ; simplified: both bullish → bullish, both bearish → bearish, else neutral
+  const compositeRegime: 'bullish' | 'neutral' | 'bearish' =
+    spyRegime === 'bullish' && qqqRegime === 'bullish' ? 'bullish' :
+    spyRegime === 'bearish' && qqqRegime === 'bearish' ? 'bearish' : 'neutral';
+
   const market: MarketOverview = {
     sp500Change: Number(spy?.pct_change_1d ?? 0),
     nasdaqChange: Number(qqq?.pct_change_1d ?? 0),
@@ -58,7 +92,7 @@ const Index = () => {
     nasdaqSymbol: 'QQQ',
     benchmarkState: 'live',
     benchmarkLastUpdated: spy?.calc_date ?? new Date().toISOString(),
-    marketTrend: (spy?.pct_change_1d ?? 0) >= 0 && (qqq?.pct_change_1d ?? 0) >= 0 ? 'bullish' : (spy?.pct_change_1d ?? 0) < 0 && (qqq?.pct_change_1d ?? 0) < 0 ? 'bearish' : 'neutral',
+    marketTrend: compositeRegime,
     lastUpdated: spy?.calc_date ?? new Date().toISOString(),
     dataSource: 'live',
     pollingIntervalMs,
