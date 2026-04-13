@@ -46,7 +46,7 @@ export function computeEntryGate(
   const breakoutFresh = isBreakoutFresh(indicators.barsSinceBreakout, WSP_CONFIG.wsp.staleBreakoutBars);
   const volumeSufficient = indicators.volumeMultiple !== null && indicators.volumeMultiple >= WSP_CONFIG.wsp.volumeMultipleMin;
   const mansfieldValid = indicators.mansfieldValid;
-  const patternAllowsEntry = pattern === 'climbing';
+  const patternAllowsEntry = pattern === 'climbing' || pattern === 'base';
 
   const isValidWspEntry =
     patternAllowsEntry &&
@@ -80,7 +80,7 @@ export function mapRecommendation(
   gate: EntryGate,
 ): WSPRecommendation {
   if (!gate.priceAboveMA150) return 'SÄLJ';
-  if (pattern === 'climbing' && gate.isValidWspEntry) return 'KÖP';
+  if ((pattern === 'climbing' || pattern === 'base') && gate.isValidWspEntry) return 'KÖP';
   if (pattern === 'tired') return 'SÄLJ';
   if (pattern === 'downhill') return 'UNDVIK';
   if (!gate.priceAboveMA50 && !gate.ma50Rising) return 'UNDVIK';
