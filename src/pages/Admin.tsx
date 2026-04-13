@@ -171,6 +171,15 @@ export default function Admin() {
     refetchInterval: 10_000,
   });
 
+  const { data: hasSession = false } = useQuery({
+    queryKey: ['admin-session-present'],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getSession();
+      return Boolean(data.session?.access_token);
+    },
+    refetchInterval: 15_000,
+  });
+
   const refresh = async () => {
     await queryClient.invalidateQueries();
     toast.success('Admin console refreshed');
@@ -342,6 +351,8 @@ export default function Admin() {
       toast.error(`${label} misslyckades`);
     }
   }, [syncSecret]);
+
+  const canRunPipelineAction = Boolean(syncSecret.trim()) || hasSession;
 
   const equityUniverse = coverage?.equity_universe ?? 0;
 
@@ -590,13 +601,13 @@ export default function Admin() {
           <div className="space-y-2">
             <h4 className="text-xs font-mono font-bold">Individuella pipeline-steg</h4>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => runPipelineAction('admin-pipeline/daily-sync', 'Daily Sync', setDailySyncLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline/daily-sync', 'Daily Sync', setDailySyncLog)} disabled={!canRunPipelineAction} size="sm" className="font-mono text-xs">
                 <Zap className="h-3 w-3 mr-1" /> Kör Daily Sync
               </Button>
-              <Button onClick={() => runPipelineAction('scan-market', 'Market Scan', setScanLog)} disabled={!syncSecret.trim()} size="sm" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('scan-market', 'Market Scan', setScanLog)} disabled={!canRunPipelineAction} size="sm" className="font-mono text-xs">
                 <RefreshCw className="h-3 w-3 mr-1" /> Kör Market Scan
               </Button>
-              <Button onClick={() => runPipelineAction('admin-pipeline/backfill', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!syncSecret.trim()} size="sm" variant="outline" className="font-mono text-xs">
+              <Button onClick={() => runPipelineAction('admin-pipeline/backfill', 'Yahoo Backfill', (v) => setBackfillState(prev => ({ ...prev, logs: [v], done: true })))} disabled={!canRunPipelineAction} size="sm" variant="outline" className="font-mono text-xs">
                 <Database className="h-3 w-3 mr-1" /> Kör Yahoo Backfill
               </Button>
             </div>
