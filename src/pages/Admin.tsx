@@ -47,16 +47,17 @@ function PctBar({ label, value, total, color = 'bg-primary' }: { label: string; 
 interface PipelineStep {
   id: string;
   label: string;
-  action: string; // edge function path
+  action: string;
   body?: Record<string, unknown>;
+  critical: boolean; // if false, failure = warning, pipeline continues
 }
 
 const HARD_REFRESH_STEPS: PipelineStep[] = [
-  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'enrich', label: '2. Metadata Enrichment', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 } },
-  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {} },
+  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'enrich', label: '2. Metadata Enrichment (best-effort)', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 }, critical: false },
+  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {}, critical: true },
 ];
 
 export default function Admin() {
