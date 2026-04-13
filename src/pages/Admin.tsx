@@ -77,7 +77,7 @@ export default function Admin() {
   const [hardRefresh, setHardRefresh] = useState<{
     running: boolean;
     currentStep: number;
-    steps: { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error'; result?: string }[];
+    steps: { id: string; label: string; status: 'pending' | 'running' | 'done' | 'warning' | 'error'; result?: string }[];
     summary: string | null;
   }>({ running: false, currentStep: -1, steps: [], summary: null });
 
