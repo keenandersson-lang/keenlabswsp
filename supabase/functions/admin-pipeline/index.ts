@@ -291,8 +291,8 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, run_id: data, checks })
   }
 
-  // POST /run-equity-pipeline (alias: /publish) — build + validate + publish canonical equity snapshot
-  if (req.method === 'POST' && (route === 'run-equity-pipeline' || route === 'publish')) {
+  // POST /publish — build + validate + publish canonical equity snapshot
+  if (req.method === 'POST' && route === 'publish') {
     const { data, error } = await supabase.rpc('run_equity_pipeline', {
       p_effective_date: null,
       p_requested_by: 'admin-hard-refresh',
