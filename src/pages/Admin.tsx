@@ -56,6 +56,7 @@ const HARD_REFRESH_STEPS: PipelineStep[] = [
   { id: 'enrich', label: '2. Metadata Enrichment', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 } },
   { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' } },
   { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' } },
+  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {} },
 ];
 
 export default function Admin() {
