@@ -318,14 +318,19 @@ export default function Admin() {
   }, [syncSecret]);
 
   const runPipelineAction = useCallback(async (path: string, label: string, setLog: (v: string) => void) => {
-    if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY'); return; }
+    let authToken = syncSecret.trim();
+    if (!authToken) {
+      const { data } = await supabase.auth.getSession();
+      authToken = data.session?.access_token?.trim() ?? '';
+    }
+    if (!authToken) { toast.error('Ange SYNC_SECRET_KEY'); return; }
     const url = getBaseUrl(path);
     if (!url) { toast.error('URL saknas'); return; }
     toast.info(`Kör ${label}...`);
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${syncSecret.trim()}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
         body: JSON.stringify({ requested_by: 'admin' }),
       });
       const text = await res.text();
