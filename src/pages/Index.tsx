@@ -186,8 +186,24 @@ const Index = () => {
     );
   }
 
+  // Data staleness detection: warn if benchmark data is >2 trading days old
+  const benchmarkDate = spy?.calc_date ?? qqq?.calc_date;
+  const benchmarkStale = (() => {
+    if (!benchmarkDate) return true;
+    const bd = new Date(benchmarkDate);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - bd.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays > 3; // allow weekends
+  })();
+
   return (
     <div className="space-y-3 px-2 py-2 sm:px-4 sm:py-4 sm:space-y-4 max-w-7xl mx-auto pb-20 md:pb-4">
+      {benchmarkStale && (
+        <div className="rounded-md border border-signal-caution/30 bg-signal-caution/10 px-3 py-2 flex items-center gap-2 text-[10px] font-mono text-signal-caution">
+          <RefreshCw className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>Marknadsdata kan vara inaktuell (senast: {benchmarkDate ?? 'saknas'}). Kör Hard Refresh via Admin för att uppdatera hela pipelinen.</span>
+        </div>
+      )}
       {/* MODULE 1 — Step 1: Market Overview + Regime */}
       <MarketHeader
         market={market}
