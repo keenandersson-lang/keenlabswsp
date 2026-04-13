@@ -222,10 +222,12 @@ export type Database = {
           approved_for_live_scanner: boolean
           blocked_low_quality: boolean
           blockers: string[]
+          breakout_status: string
           confidence_level: string | null
           created_at: string
           id: number
           industry: string | null
+          is_base_origin: boolean
           is_tier1_default: boolean
           pattern: string | null
           payload: Json
@@ -247,10 +249,12 @@ export type Database = {
           approved_for_live_scanner?: boolean
           blocked_low_quality?: boolean
           blockers?: string[]
+          breakout_status?: string
           confidence_level?: string | null
           created_at?: string
           id?: number
           industry?: string | null
+          is_base_origin?: boolean
           is_tier1_default?: boolean
           pattern?: string | null
           payload?: Json
@@ -272,10 +276,12 @@ export type Database = {
           approved_for_live_scanner?: boolean
           blocked_low_quality?: boolean
           blockers?: string[]
+          breakout_status?: string
           confidence_level?: string | null
           created_at?: string
           id?: number
           industry?: string | null
+          is_base_origin?: boolean
           is_tier1_default?: boolean
           pattern?: string | null
           payload?: Json
@@ -787,8 +793,12 @@ export type Database = {
           approved_for_live_scanner: boolean | null
           blocked_low_quality: boolean | null
           blockers: string[] | null
+          breakout_status: string | null
           confidence_level: string | null
+          created_at: string | null
+          id: number | null
           industry: string | null
+          is_base_origin: boolean | null
           is_tier1_default: boolean | null
           pattern: string | null
           payload: Json | null
@@ -1022,6 +1032,8 @@ export type Database = {
           p_universe_tier?: string
         }
         Returns: {
+          blockers: string[]
+          breakout_status: string
           industry: string
           pattern_state: string
           payload: Json
