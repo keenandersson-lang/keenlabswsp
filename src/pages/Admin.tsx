@@ -57,7 +57,8 @@ const HARD_REFRESH_STEPS: PipelineStep[] = [
   { id: 'enrich', label: '2. Metadata Enrichment (best-effort)', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 }, critical: false },
   { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' }, critical: true },
   { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' }, critical: true },
-  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {}, critical: true },
+  { id: 'publish', label: '5. Publish Canonical Snapshot', action: 'admin-pipeline/run-equity-pipeline', body: {}, critical: true },
+  { id: 'health', label: '6. Health Check Refresh', action: 'admin-pipeline/health-check', body: {}, critical: true },
 ];
 
 export default function Admin() {
@@ -88,6 +89,16 @@ export default function Admin() {
       const { data, error } = await (supabase as any).rpc('get_universe_coverage_detailed');
       if (error) throw error;
       return data as Record<string, number>;
+    },
+    refetchInterval: 15_000,
+  });
+
+  const { data: publicSnapshotSource } = useQuery<{ snapshot_id: number | null; source_layer: string } | null>({
+    queryKey: ['admin-public-snapshot-source'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc('get_public_beta_snapshot_status');
+      if (error) throw error;
+      return Array.isArray(data) && data.length > 0 ? data[0] : null;
     },
     refetchInterval: 15_000,
   });
@@ -361,7 +372,7 @@ export default function Admin() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-[10px] font-mono text-muted-foreground">
-            Kör hela kedjan: Price Sync → Metadata Enrichment → Indicator Refresh → Market Scan → UI Cache Invalidation
+            Kör hela kedjan: Price Sync → Metadata Enrichment → Indicator Refresh → Market Scan → Publish Snapshot → Health Check
           </p>
           <Button
             onClick={runHardRefresh}
@@ -423,6 +434,13 @@ export default function Admin() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="rounded border border-border p-2 text-[10px] font-mono">
+            <span className="text-muted-foreground">Publik datakälla:</span>{' '}
+            <span className="text-foreground">{publicSnapshotSource?.source_layer ?? 'okänd'}</span>
+            {' · '}
+            <span className="text-muted-foreground">snapshot_id:</span>{' '}
+            <span className="text-foreground">{publicSnapshotSource?.snapshot_id ?? '—'}</span>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
             <Stat label="Aktiv Universe" value={String(coverage?.active_universe ?? '—')} />
             <Stat label="Equity (ej ETF/benchmark)" value={String(equityUniverse)} />
@@ -430,19 +448,12 @@ export default function Admin() {
             <Stat label="Expanded Tier" value={String(coverage?.expanded_tier ?? '—')} />
           </div>
           <div className="space-y-1.5">
-            <PctBar label="Kanonisk GICS Sektor" value={coverage?.canonically_mapped_sector ?? 0} total={equityUniverse} color="bg-primary" />
-            <PctBar label="Kanonisk GICS Industri" value={coverage?.canonically_mapped_industry ?? 0} total={equityUniverse} color="bg-primary" />
-            <PctBar label="Prishistorik (equity)" value={coverage?.price_history_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="Indikatorer (equity)" value={coverage?.indicator_ready ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="WSP-utvärderad (equity)" value={coverage?.wsp_evaluated ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
-            <PctBar label="Publik Eligible (kanonisk GICS)" value={coverage?.public_eligible ?? 0} total={equityUniverse} color="bg-signal-buy" />
+            <PctBar label="Raw scanned population" value={coverage?.raw_scanned_population ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
+            <PctBar label="Canonical mapped population" value={coverage?.canonical_mapped_population ?? 0} total={equityUniverse} color="bg-primary" />
+            <PctBar label="WSP evaluated population" value={coverage?.wsp_evaluated_population ?? 0} total={equityUniverse} color="bg-muted-foreground/50" />
+            <PctBar label="Public eligible population" value={coverage?.public_eligible_population ?? 0} total={equityUniverse} color="bg-signal-buy" />
+            <PctBar label="Public screener population" value={coverage?.public_screener_population ?? 0} total={equityUniverse} color="bg-signal-buy" />
           </div>
-          {(coverage?.unmapped_industry_count ?? 0) > 0 && (
-            <div className="flex items-center gap-2 text-xs font-mono text-signal-caution">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              {coverage!.unmapped_industry_count.toLocaleString()} equity-symboler saknar kanonisk GICS-industri — dolda från publik screener/dashboard
-            </div>
-          )}
         </CardContent>
       </Card>
 
