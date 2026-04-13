@@ -76,7 +76,7 @@ export function useEquityScreener({
     queryFn: async () => {
       const patternArg = pattern === 'Alla stadier' ? null : pattern;
       const rpcArgs: Record<string, unknown> = {
-        p_page: page,
+        p_page: page + 1, // RPC uses 1-based pages
         p_page_size: pageSize,
         p_universe_tier: universeTier,
         p_sector: sector,
