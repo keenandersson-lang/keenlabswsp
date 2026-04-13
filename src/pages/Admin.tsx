@@ -47,16 +47,17 @@ function PctBar({ label, value, total, color = 'bg-primary' }: { label: string; 
 interface PipelineStep {
   id: string;
   label: string;
-  action: string; // edge function path
+  action: string;
   body?: Record<string, unknown>;
+  critical: boolean; // if false, failure = warning, pipeline continues
 }
 
 const HARD_REFRESH_STEPS: PipelineStep[] = [
-  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'enrich', label: '2. Metadata Enrichment', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 } },
-  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' } },
-  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {} },
+  { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'enrich', label: '2. Metadata Enrichment (best-effort)', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 }, critical: false },
+  { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'health', label: '5. Health Check Refresh', action: 'admin-pipeline/health-check', body: {}, critical: true },
 ];
 
 export default function Admin() {
@@ -76,7 +77,7 @@ export default function Admin() {
   const [hardRefresh, setHardRefresh] = useState<{
     running: boolean;
     currentStep: number;
-    steps: { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error'; result?: string }[];
+    steps: { id: string; label: string; status: 'pending' | 'running' | 'done' | 'warning' | 'error'; result?: string }[];
     summary: string | null;
   }>({ running: false, currentStep: -1, steps: [], summary: null });
 
@@ -180,6 +181,9 @@ export default function Admin() {
     }));
     setHardRefresh({ running: true, currentStep: 0, steps, summary: null });
 
+    let hadWarning = false;
+    const stepResults: Record<string, string> = {};
+
     for (let i = 0; i < HARD_REFRESH_STEPS.length; i++) {
       const step = HARD_REFRESH_STEPS[i];
       setHardRefresh(prev => ({
@@ -196,41 +200,72 @@ export default function Admin() {
           body: JSON.stringify(step.body ?? {}),
         });
         const text = await res.text();
-        const resultText = res.ok ? `✅ OK (${res.status})` : `❌ HTTP ${res.status}: ${text.slice(0, 200)}`;
 
-        setHardRefresh(prev => ({
-          ...prev,
-          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: res.ok ? 'done' : 'error', result: resultText } : s),
-        }));
-
-        if (!res.ok) {
-          setHardRefresh(prev => ({ ...prev, running: false, summary: `Pipeline stoppad vid steg ${i + 1}: ${step.label}` }));
+        if (res.ok) {
+          const resultText = `✅ OK (${res.status})`;
+          stepResults[step.id] = text;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'done', result: resultText } : s),
+          }));
+        } else if (!step.critical) {
+          // Non-critical step failed — mark as warning, continue
+          hadWarning = true;
+          const resultText = `⚠️ WARNING (${res.status}): ${text.slice(0, 200)}`;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'warning', result: resultText } : s),
+          }));
+          toast.warning(`${step.label}: rate-limited / partiell — fortsätter pipeline`);
+        } else {
+          // Critical step failed — abort
+          const resultText = `❌ HTTP ${res.status}: ${text.slice(0, 200)}`;
+          setHardRefresh(prev => ({
+            ...prev,
+            running: false,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: resultText } : s),
+            summary: `❌ Pipeline stoppad vid kritiskt steg ${i + 1}: ${step.label}`,
+          }));
           toast.error(`Hard Refresh misslyckades vid: ${step.label}`);
           return;
         }
 
-        // Brief pause between steps to allow async processing
+        // Brief pause between steps
         if (i < HARD_REFRESH_STEPS.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
       } catch (err) {
-        setHardRefresh(prev => ({
-          ...prev,
-          running: false,
-          steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: String(err).slice(0, 200) } : s),
-          summary: `Pipeline kraschade vid steg ${i + 1}: ${step.label}`,
-        }));
-        toast.error(`Hard Refresh fel: ${step.label}`);
-        return;
+        if (!step.critical) {
+          hadWarning = true;
+          setHardRefresh(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'warning', result: `⚠️ ${String(err).slice(0, 150)}` } : s),
+          }));
+          toast.warning(`${step.label}: nätverksfel — fortsätter pipeline`);
+          if (i < HARD_REFRESH_STEPS.length - 1) await new Promise(r => setTimeout(r, 2000));
+        } else {
+          setHardRefresh(prev => ({
+            ...prev,
+            running: false,
+            steps: prev.steps.map((s, idx) => idx === i ? { ...s, status: 'error', result: String(err).slice(0, 200) } : s),
+            summary: `❌ Pipeline kraschade vid kritiskt steg ${i + 1}: ${step.label}`,
+          }));
+          toast.error(`Hard Refresh fel: ${step.label}`);
+          return;
+        }
       }
     }
 
     // All steps done — invalidate caches
     await queryClient.invalidateQueries();
+
+    // Build summary
+    const warningNote = hadWarning ? ' (enrichment partiell/rate-limited)' : '';
+    const summaryText = `✅ Hard Refresh klar${warningNote}! Alla kritiska steg genomförda. UI caches invaliderade.`;
     setHardRefresh(prev => ({
       ...prev,
       running: false,
-      summary: `✅ Hard Refresh klar! Alla ${HARD_REFRESH_STEPS.length} steg genomförda. UI caches invaliderade.`,
+      summary: summaryText,
     }));
     toast.success('Hard Refresh pipeline klar!');
   }, [syncSecret, queryClient]);
@@ -342,10 +377,11 @@ export default function Admin() {
               {hardRefresh.steps.map((step) => (
                 <div key={step.id} className="flex items-center gap-2 text-xs font-mono">
                   {step.status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-signal-success flex-shrink-0" />}
+                  {step.status === 'warning' && <AlertTriangle className="h-3.5 w-3.5 text-signal-caution flex-shrink-0" />}
                   {step.status === 'running' && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin flex-shrink-0" />}
                   {step.status === 'error' && <XCircle className="h-3.5 w-3.5 text-signal-danger flex-shrink-0" />}
                   {step.status === 'pending' && <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
-                  <span className={step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-signal-danger' : 'text-foreground'}>
+                  <span className={step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-signal-danger' : step.status === 'warning' ? 'text-signal-caution' : 'text-foreground'}>
                     {step.label}
                   </span>
                   {step.result && <span className="text-[9px] text-muted-foreground truncate">{step.result}</span>}
@@ -355,7 +391,11 @@ export default function Admin() {
           )}
 
           {hardRefresh.summary && (
-            <div className={`rounded border px-3 py-2 text-xs font-mono ${hardRefresh.summary.startsWith('✅') ? 'border-signal-success/30 bg-signal-success/10 text-signal-success' : 'border-signal-danger/30 bg-signal-danger/10 text-signal-danger'}`}>
+            <div className={`rounded border px-3 py-2 text-xs font-mono ${
+              hardRefresh.summary.startsWith('✅') 
+                ? 'border-signal-success/30 bg-signal-success/10 text-signal-success' 
+                : 'border-signal-danger/30 bg-signal-danger/10 text-signal-danger'
+            }`}>
               {hardRefresh.summary}
             </div>
           )}
