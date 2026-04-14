@@ -90,8 +90,9 @@ Deno.serve(async (req: Request) => {
     if (!isAuthorized && authHeader.startsWith('Bearer ')) {
       const authClient = createClient(
         Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-      , { global: { headers: { Authorization: authHeader } } })
+        Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        { global: { headers: { Authorization: authHeader } } }
+      )
       const { data } = await authClient.auth.getUser()
       if (data?.user) isAuthorized = true
     }
