@@ -293,14 +293,34 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, run_id: data, checks })
   }
 
-  // POST /publish — build + validate + publish canonical equity snapshot
+  // POST /publish — refresh universe snapshot + validate
   if (req.method === 'POST' && route === 'publish') {
-    const { data, error } = await supabase.rpc('run_equity_pipeline', {
-      p_effective_date: null,
-      p_requested_by: 'admin-hard-refresh',
+    const today = new Date().toISOString().slice(0, 10)
+    
+    // Step 1: Refresh the scanner universe snapshot
+    const { data: runId, error: snapErr } = await supabase.rpc('refresh_scanner_universe_snapshot', {
+      p_as_of_date: today,
+      p_run_label: 'admin-hard-refresh',
     })
-    if (error) return json(500, { ok: false, step: 'publish_snapshot', error: error.message })
-    return json(200, { ok: true, result: data })
+    if (snapErr) return json(500, { ok: false, step: 'refresh_snapshot', error: snapErr.message })
+
+    // Step 2: Get the latest snapshot to validate
+    const { data: snapshots, error: listErr } = await supabase.rpc('get_equity_snapshots', { p_limit: 1 })
+    if (listErr) return json(500, { ok: false, step: 'list_snapshots', error: listErr.message })
+    
+    const latestSnapshot = Array.isArray(snapshots) && snapshots.length > 0 ? snapshots[0] : null
+    let validation = null
+    if (latestSnapshot?.snapshot_id) {
+      const { data: valData } = await supabase.rpc('validate_equity_snapshot', { p_snapshot_id: latestSnapshot.snapshot_id })
+      validation = valData
+    }
+
+    return json(200, { 
+      ok: true, 
+      universe_run_id: runId,
+      snapshot: latestSnapshot,
+      validation,
+    })
   }
 
   // GET /validate/<id> — validate a snapshot
