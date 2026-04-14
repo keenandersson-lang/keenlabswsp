@@ -12,6 +12,7 @@ const supabase = createClient(
 )
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
+const TEMP_DEBUG_SYNC_KEY = 'wsp_sync_test_2026_april_13'
 
 const MAX_EXECUTION_MS = 55_000
 const BETWEEN_SYMBOL_MS = 250
