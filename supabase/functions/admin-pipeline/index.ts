@@ -293,37 +293,30 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, run_id: data, checks })
   }
 
-  // POST /publish — refresh universe snapshot, validate, and return result
+  // POST /publish — run canonical equity publish flow and return result
   if (req.method === 'POST' && route === 'publish') {
     const today = new Date().toISOString().slice(0, 10)
 
-    // Step 1: Refresh scanner universe snapshot
-    const { data: runId, error: snapErr } = await supabase.rpc('refresh_scanner_universe_snapshot', {
-      p_as_of_date: today,
-      p_run_label: 'admin_publish_' + today,
+    const { data: publishResult, error: publishErr } = await supabase.rpc('run_equity_pipeline', {
+      p_run_type: 'partial_rebuild',
+      p_trigger_source: 'admin_button',
+      p_requested_by: 'admin-pipeline',
+      p_metadata: {
+        source: 'admin-pipeline',
+        endpoint: 'POST /admin/pipeline/publish',
+        initiated_at: new Date().toISOString(),
+      },
     })
-    if (snapErr) return json(500, { ok: false, step: 'refresh_snapshot', error: snapErr.message })
+    if (publishErr) return json(500, { ok: false, step: 'run_equity_pipeline', error: publishErr.message })
 
-    // Step 2: Get latest snapshot
-    const { data: snapshots, error: snapListErr } = await supabase.rpc('get_equity_snapshots', { p_limit: 1 })
-    if (snapListErr) return json(500, { ok: false, step: 'get_snapshots', error: snapListErr.message })
-    const latestSnapshot = Array.isArray(snapshots) && snapshots.length > 0 ? snapshots[0] : null
-
-    // Step 3: Validate if we have a snapshot
-    let validation = null
-    if (latestSnapshot?.snapshot_id) {
-      const { data: valResult } = await supabase.rpc('validate_equity_snapshot', { p_snapshot_id: latestSnapshot.snapshot_id })
-      validation = valResult
-    }
+    const resultRow = Array.isArray(publishResult) && publishResult.length > 0 ? publishResult[0] : publishResult
 
     return json(200, {
       ok: true,
-      run_id: runId,
-      snapshot_id: latestSnapshot?.snapshot_id ?? null,
-      status: latestSnapshot?.status ?? null,
-      symbols: latestSnapshot?.symbols_completed ?? null,
-      sectors: latestSnapshot?.sectors_completed ?? null,
-      validation,
+      run_id: resultRow?.run_id ?? null,
+      snapshot_id: resultRow?.snapshot_id ?? null,
+      status: resultRow?.status ?? null,
+      validation: resultRow?.validation ?? null,
     })
   }
 
