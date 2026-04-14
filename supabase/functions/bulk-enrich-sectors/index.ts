@@ -85,7 +85,17 @@ Deno.serve(async (req: Request) => {
     const providedToken = authHeader.replace('Bearer ', '')
     const syncKey = Deno.env.get('SYNC_SECRET_KEY') ?? ''
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const isAuthorized = providedToken === syncKey || providedToken === serviceKey || providedToken === TEMP_DEBUG_SYNC_KEY
+    let isAuthorized = providedToken === syncKey || providedToken === serviceKey || providedToken === TEMP_DEBUG_SYNC_KEY
+
+    if (!isAuthorized && authHeader.startsWith('Bearer ')) {
+      const authClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      , { global: { headers: { Authorization: authHeader } } })
+      const { data } = await authClient.auth.getUser()
+      if (data?.user) isAuthorized = true
+    }
+
     if (!isAuthorized) {
       return jsonRes({ error: 'Unauthorized' }, 401)
     }
