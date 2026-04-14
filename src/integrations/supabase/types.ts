@@ -1301,15 +1301,10 @@ export type Database = {
           read_ct: number
         }[]
       }
-      refresh_scanner_universe_snapshot:
-        | {
-            Args: { p_as_of_date: string; p_run_label: string }
-            Returns: number
-          }
-        | {
-            Args: { p_as_of_date: string; p_run_label: string }
-            Returns: number
-          }
+      refresh_scanner_universe_snapshot: {
+        Args: { p_as_of_date: string; p_run_label: string }
+        Returns: number
+      }
       resolve_canonical_industry: {
         Args: {
           p_canonical_industry: string
