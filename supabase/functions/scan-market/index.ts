@@ -16,8 +16,12 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const authHeader = req.headers.get('Authorization');
-  if (authHeader !== `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`) {
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const validTokens = [
+    `Bearer ${Deno.env.get('SYNC_SECRET_KEY')}`,
+    `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+  ];
+  if (!validTokens.some(t => t !== 'Bearer undefined' && authHeader === t)) {
     return jsonResponse(401, { error: 'Unauthorized' });
   }
 
