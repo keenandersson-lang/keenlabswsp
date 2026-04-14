@@ -8,3 +8,9 @@ verify_jwt = false
 
 [functions.scan-market]
 verify_jwt = false
+
+[functions.bulk-enrich-sectors]
+verify_jwt = false
+
+[functions.admin-pipeline]
+verify_jwt = false
