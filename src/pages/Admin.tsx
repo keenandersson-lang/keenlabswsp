@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2, Globe, BarChart3, Eye, Layers, Rocket } from 'lucide-react';
+import BootstrapPanel from '@/components/BootstrapPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -442,7 +443,11 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      {/* B. UNIVERSE PIPELINE COVERAGE */}
+
+      {/* A2. FULL US EQUITY BOOTSTRAP */}
+      <BootstrapPanel syncSecret={syncSecret} />
+
+
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-mono flex items-center gap-2">
