@@ -293,33 +293,31 @@ Deno.serve(async (req: Request) => {
     return json(200, { ok: true, run_id: data, checks })
   }
 
-  // POST /publish — refresh universe snapshot + validate
+  // POST /publish — execute canonical publish pipeline
   if (req.method === 'POST' && route === 'publish') {
-    const today = new Date().toISOString().slice(0, 10)
-    
-    // Step 1: Refresh the scanner universe snapshot
-    const { data: runId, error: snapErr } = await supabase.rpc('refresh_scanner_universe_snapshot', {
-      p_as_of_date: today,
-      p_run_label: 'admin-hard-refresh',
+    const { data, error } = await supabase.rpc('run_equity_pipeline', {
+      p_run_type: 'daily_sync',
+      p_trigger_source: 'admin_button',
+      p_requested_by: 'admin-hard-refresh',
+      p_metadata: {
+        source: 'admin-pipeline',
+        endpoint: 'POST /admin/pipeline/publish',
+      },
     })
-    if (snapErr) return json(500, { ok: false, step: 'refresh_snapshot', error: snapErr.message })
 
-    // Step 2: Get the latest snapshot to validate
-    const { data: snapshots, error: listErr } = await supabase.rpc('get_equity_snapshots', { p_limit: 1 })
-    if (listErr) return json(500, { ok: false, step: 'list_snapshots', error: listErr.message })
-    
-    const latestSnapshot = Array.isArray(snapshots) && snapshots.length > 0 ? snapshots[0] : null
-    let validation = null
-    if (latestSnapshot?.snapshot_id) {
-      const { data: valData } = await supabase.rpc('validate_equity_snapshot', { p_snapshot_id: latestSnapshot.snapshot_id })
-      validation = valData
+    if (error) return json(500, { ok: false, step: 'run_equity_pipeline', error: error.message })
+
+    const pipelineResult = Array.isArray(data) ? data[0] : data
+    if (!pipelineResult) {
+      return json(500, { ok: false, step: 'run_equity_pipeline', error: 'Pipeline returned no result' })
     }
 
-    return json(200, { 
-      ok: true, 
-      universe_run_id: runId,
-      snapshot: latestSnapshot,
-      validation,
+    return json(200, {
+      ok: true,
+      run_id: pipelineResult.run_id ?? null,
+      snapshot_id: pipelineResult.snapshot_id ?? null,
+      status: pipelineResult.status ?? null,
+      validation: pipelineResult.validation ?? null,
     })
   }
 
