@@ -56,7 +56,7 @@ const HARD_REFRESH_STEPS: PipelineStep[] = [
   { id: 'sync', label: '1. Price Sync (Polygon)', action: 'admin-pipeline/daily-sync', body: { requested_by: 'admin-hard-refresh' }, critical: true },
   { id: 'enrich', label: '2. Metadata Enrichment (best-effort)', action: 'bulk-enrich-sectors', body: { maxSymbols: 50 }, critical: false },
   { id: 'indicators', label: '3. Indicator Refresh', action: 'admin-pipeline/indicators', body: { requested_by: 'admin-hard-refresh' }, critical: true },
-  { id: 'scan', label: '4. Market Scan', action: 'scan-market', body: { requested_by: 'admin-hard-refresh' }, critical: true },
+  { id: 'scan', label: '4. Market Scan', action: 'admin-pipeline/scan', body: { requested_by: 'admin-hard-refresh' }, critical: true },
   { id: 'publish', label: '5. Publish Canonical Snapshot', action: 'admin-pipeline/publish', body: {}, critical: true },
   { id: 'health', label: '6. Health Check Refresh', action: 'admin-pipeline/health-check', body: {}, critical: true },
 ];
