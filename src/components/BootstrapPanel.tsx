@@ -114,10 +114,17 @@ export default function BootstrapPanel({ syncSecret }: Props) {
   };
 
   const callFn = async (path: string, body: Record<string, unknown> = {}) => {
+    let authToken = syncSecret.trim();
+    if (!authToken) {
+      const { data } = await supabase.auth.getSession();
+      authToken = data.session?.access_token?.trim() ?? '';
+    }
+    if (!authToken) throw new Error('Ange SYNC_SECRET_KEY');
+
     const url = getBaseUrl(path);
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${syncSecret.trim()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify(body),
     });
     const text = await res.text();
@@ -268,7 +275,6 @@ export default function BootstrapPanel({ syncSecret }: Props) {
   };
 
   const runBootstrap = useCallback(async (startIdx = 0) => {
-    if (!syncSecret.trim()) { toast.error('Ange SYNC_SECRET_KEY'); return; }
     pauseRef.current = false;
     stopRef.current = false;
     setStatus('running');
@@ -327,7 +333,7 @@ export default function BootstrapPanel({ syncSecret }: Props) {
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             onClick={handleStart}
-            disabled={status === 'running' || status === 'paused' || !syncSecret.trim()}
+            disabled={status === 'running' || status === 'paused'}
             size="sm"
             className="font-mono text-xs"
           >
