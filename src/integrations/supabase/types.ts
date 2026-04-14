@@ -1196,6 +1196,13 @@ export type Database = {
           wsp_setups: number
         }[]
       }
+      get_public_beta_snapshot_status: {
+        Args: never
+        Returns: {
+          snapshot_id: number
+          source_layer: string
+        }[]
+      }
       get_scanner_funnel_counts: { Args: never; Returns: Json }
       get_sector_performance: {
         Args: never
