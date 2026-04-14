@@ -443,7 +443,11 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      {/* B. UNIVERSE PIPELINE COVERAGE */}
+
+      {/* A2. FULL US EQUITY BOOTSTRAP */}
+      <BootstrapPanel syncSecret={syncSecret} />
+
+
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-mono flex items-center gap-2">
