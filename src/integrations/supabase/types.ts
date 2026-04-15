@@ -1094,7 +1094,7 @@ export type Database = {
           current_step: string
           error_summary: string
           finished_at: string
-          id: string
+          id: number
           requested_by: string
           run_type: string
           started_at: string
