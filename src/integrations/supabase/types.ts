@@ -136,6 +136,119 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_materialized: {
+        Row: {
+          as_of: string
+          blockers: Json | null
+          breakout_freshness: string | null
+          close: number | null
+          daily_pct: number | null
+          industry: string | null
+          pattern_state: string | null
+          sector: string | null
+          snapshot_id: number
+          symbol: string
+          validity: boolean | null
+          volume_ratio: number | null
+          warnings: Json | null
+          wsp_score: number | null
+        }
+        Insert: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          sector?: string | null
+          snapshot_id: number
+          symbol: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Update: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          sector?: string | null
+          snapshot_id?: number
+          symbol?: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Relationships: []
+      }
+      data_snapshots: {
+        Row: {
+          asset_class: string
+          completed_at: string | null
+          effective_date: string
+          industries_completed: number
+          industries_expected: number
+          is_canonical: boolean
+          notes: string | null
+          run_id: number
+          sectors_completed: number
+          sectors_expected: number
+          snapshot_id: number
+          started_at: string
+          status: Database["public"]["Enums"]["snapshot_status"]
+          symbols_completed: number
+          symbols_expected: number
+        }
+        Insert: {
+          asset_class?: string
+          completed_at?: string | null
+          effective_date?: string
+          industries_completed?: number
+          industries_expected?: number
+          is_canonical?: boolean
+          notes?: string | null
+          run_id: number
+          sectors_completed?: number
+          sectors_expected?: number
+          snapshot_id?: number
+          started_at?: string
+          status?: Database["public"]["Enums"]["snapshot_status"]
+          symbols_completed?: number
+          symbols_expected?: number
+        }
+        Update: {
+          asset_class?: string
+          completed_at?: string | null
+          effective_date?: string
+          industries_completed?: number
+          industries_expected?: number
+          is_canonical?: boolean
+          notes?: string | null
+          run_id?: number
+          sectors_completed?: number
+          sectors_expected?: number
+          snapshot_id?: number
+          started_at?: string
+          status?: Database["public"]["Enums"]["snapshot_status"]
+          symbols_completed?: number
+          symbols_expected?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_snapshots_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       data_sync_log: {
         Row: {
           completed_at: string | null
@@ -259,6 +372,42 @@ export type Database = {
           id?: string
           token?: string
           used_at?: string | null
+        }
+        Relationships: []
+      }
+      indicator_snapshots: {
+        Row: {
+          above_ma50: boolean | null
+          calc_date: string
+          close: number | null
+          ma50_slope: string | null
+          mansfield_rs: number | null
+          pct_change_1d: number | null
+          snapshot_id: number
+          symbol: string
+          volume_ratio: number | null
+        }
+        Insert: {
+          above_ma50?: boolean | null
+          calc_date: string
+          close?: number | null
+          ma50_slope?: string | null
+          mansfield_rs?: number | null
+          pct_change_1d?: number | null
+          snapshot_id: number
+          symbol: string
+          volume_ratio?: number | null
+        }
+        Update: {
+          above_ma50?: boolean | null
+          calc_date?: string
+          close?: number | null
+          ma50_slope?: string | null
+          mansfield_rs?: number | null
+          pct_change_1d?: number | null
+          snapshot_id?: number
+          symbol?: string
+          volume_ratio?: number | null
         }
         Relationships: []
       }
@@ -443,6 +592,27 @@ export type Database = {
           },
         ]
       }
+      pattern_states: {
+        Row: {
+          breakout_freshness: string | null
+          pattern_state: string | null
+          snapshot_id: number
+          symbol: string
+        }
+        Insert: {
+          breakout_freshness?: string | null
+          pattern_state?: string | null
+          snapshot_id: number
+          symbol: string
+        }
+        Update: {
+          breakout_freshness?: string | null
+          pattern_state?: string | null
+          snapshot_id?: number
+          symbol?: string
+        }
+        Relationships: []
+      }
       pipeline_health_checks: {
         Row: {
           check_name: string
@@ -473,6 +643,92 @@ export type Database = {
           run_id?: string
           status?: string
           threshold?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_run_steps: {
+        Row: {
+          error_text: string | null
+          failed_count: number
+          finished_at: string | null
+          id: number
+          metadata_json: Json
+          processed_count: number
+          run_id: number
+          started_at: string | null
+          status: Database["public"]["Enums"]["pipeline_step_status"]
+          step_name: string
+        }
+        Insert: {
+          error_text?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: number
+          metadata_json?: Json
+          processed_count?: number
+          run_id: number
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["pipeline_step_status"]
+          step_name: string
+        }
+        Update: {
+          error_text?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: number
+          metadata_json?: Json
+          processed_count?: number
+          run_id?: number
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["pipeline_step_status"]
+          step_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_run_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_runs: {
+        Row: {
+          asset_class: string
+          error_summary: string | null
+          finished_at: string | null
+          id: number
+          metadata_json: Json
+          requested_by: string | null
+          run_type: Database["public"]["Enums"]["pipeline_run_type"]
+          started_at: string
+          status: Database["public"]["Enums"]["pipeline_run_status"]
+          trigger_source: Database["public"]["Enums"]["pipeline_trigger_source"]
+        }
+        Insert: {
+          asset_class?: string
+          error_summary?: string | null
+          finished_at?: string | null
+          id?: number
+          metadata_json?: Json
+          requested_by?: string | null
+          run_type: Database["public"]["Enums"]["pipeline_run_type"]
+          started_at?: string
+          status?: Database["public"]["Enums"]["pipeline_run_status"]
+          trigger_source: Database["public"]["Enums"]["pipeline_trigger_source"]
+        }
+        Update: {
+          asset_class?: string
+          error_summary?: string | null
+          finished_at?: string | null
+          id?: number
+          metadata_json?: Json
+          requested_by?: string | null
+          run_type?: Database["public"]["Enums"]["pipeline_run_type"]
+          started_at?: string
+          status?: Database["public"]["Enums"]["pipeline_run_status"]
+          trigger_source?: Database["public"]["Enums"]["pipeline_trigger_source"]
         }
         Relationships: []
       }
@@ -629,6 +885,117 @@ export type Database = {
             referencedColumns: ["symbol"]
           },
         ]
+      }
+      screener_rows_materialized: {
+        Row: {
+          as_of: string
+          blockers: Json | null
+          breakout_freshness: string | null
+          close: number | null
+          daily_pct: number | null
+          industry: string | null
+          pattern_state: string | null
+          payload: Json | null
+          recommendation: string | null
+          sector: string | null
+          snapshot_id: number
+          symbol: string
+          validity: boolean | null
+          volume_ratio: number | null
+          warnings: Json | null
+          wsp_score: number | null
+        }
+        Insert: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          payload?: Json | null
+          recommendation?: string | null
+          sector?: string | null
+          snapshot_id: number
+          symbol: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Update: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          payload?: Json | null
+          recommendation?: string | null
+          sector?: string | null
+          snapshot_id?: number
+          symbol?: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Relationships: []
+      }
+      stock_detail_materialized: {
+        Row: {
+          as_of: string
+          blockers: Json | null
+          breakout_freshness: string | null
+          close: number | null
+          daily_pct: number | null
+          industry: string | null
+          pattern_state: string | null
+          payload: Json | null
+          sector: string | null
+          snapshot_id: number
+          symbol: string
+          validity: boolean | null
+          volume_ratio: number | null
+          warnings: Json | null
+          wsp_score: number | null
+        }
+        Insert: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          payload?: Json | null
+          sector?: string | null
+          snapshot_id: number
+          symbol: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Update: {
+          as_of?: string
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          close?: number | null
+          daily_pct?: number | null
+          industry?: string | null
+          pattern_state?: string | null
+          payload?: Json | null
+          sector?: string | null
+          snapshot_id?: number
+          symbol?: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Relationships: []
       }
       suppressed_emails: {
         Row: {
@@ -813,6 +1180,39 @@ export type Database = {
           lifetime_used?: number
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      wsp_evaluations: {
+        Row: {
+          blockers: Json | null
+          breakout_freshness: string | null
+          snapshot_id: number
+          symbol: string
+          validity: boolean | null
+          volume_ratio: number | null
+          warnings: Json | null
+          wsp_score: number | null
+        }
+        Insert: {
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          snapshot_id: number
+          symbol: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
+        }
+        Update: {
+          blockers?: Json | null
+          breakout_freshness?: string | null
+          snapshot_id?: number
+          symbol?: string
+          validity?: boolean | null
+          volume_ratio?: number | null
+          warnings?: Json | null
+          wsp_score?: number | null
         }
         Relationships: []
       }
@@ -1094,7 +1494,7 @@ export type Database = {
           current_step: string
           error_summary: string
           finished_at: string
-          id: string
+          id: number
           requested_by: string
           run_type: string
           started_at: string
@@ -1182,6 +1582,10 @@ export type Database = {
           valid_entry_count: number
           watch_count: number
         }[]
+      }
+      get_latest_canonical_snapshot_id: {
+        Args: { p_asset_class?: string }
+        Returns: number
       }
       get_market_summary: {
         Args: never
@@ -1300,6 +1704,10 @@ export type Database = {
         Returns: number
       }
       promote_expanded_to_core: { Args: never; Returns: Json }
+      publish_equity_snapshot: {
+        Args: { p_run_id: number; p_snapshot_id: number }
+        Returns: undefined
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
@@ -1324,6 +1732,20 @@ export type Database = {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
       }
+      run_equity_pipeline: {
+        Args: {
+          p_metadata?: Json
+          p_requested_by?: string
+          p_run_type: Database["public"]["Enums"]["pipeline_run_type"]
+          p_trigger_source?: Database["public"]["Enums"]["pipeline_trigger_source"]
+        }
+        Returns: {
+          run_id: number
+          snapshot_id: number
+          status: string
+          validation: Json
+        }[]
+      }
       run_pipeline_health_checks: { Args: never; Returns: string }
       scanner_operator_snapshot: { Args: never; Returns: Json }
       validate_equity_snapshot: {
@@ -1332,7 +1754,25 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      pipeline_run_status:
+        | "queued"
+        | "running"
+        | "failed"
+        | "completed"
+        | "published"
+      pipeline_run_type: "backfill" | "daily_sync" | "partial_rebuild"
+      pipeline_step_status:
+        | "queued"
+        | "running"
+        | "failed"
+        | "completed"
+        | "skipped"
+      pipeline_trigger_source:
+        | "admin_button"
+        | "cron"
+        | "github_action"
+        | "manual_api"
+      snapshot_status: "building" | "validated" | "failed" | "canonical"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1459,6 +1899,29 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      pipeline_run_status: [
+        "queued",
+        "running",
+        "failed",
+        "completed",
+        "published",
+      ],
+      pipeline_run_type: ["backfill", "daily_sync", "partial_rebuild"],
+      pipeline_step_status: [
+        "queued",
+        "running",
+        "failed",
+        "completed",
+        "skipped",
+      ],
+      pipeline_trigger_source: [
+        "admin_button",
+        "cron",
+        "github_action",
+        "manual_api",
+      ],
+      snapshot_status: ["building", "validated", "failed", "canonical"],
+    },
   },
 } as const
