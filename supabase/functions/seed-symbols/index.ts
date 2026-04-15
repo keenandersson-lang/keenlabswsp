@@ -119,20 +119,24 @@ Deno.serve(async (req: Request) => {
   }
 
   const authHeader = req.headers.get('Authorization') ?? ''
-  const providedToken = authHeader.replace('Bearer ', '')
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
   const syncKey = Deno.env.get('SYNC_SECRET_KEY') ?? ''
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
 
-  let isAuthorized = providedToken === syncKey || providedToken === serviceKey || providedToken === TEMP_DEBUG_SYNC_KEY
+  let isAuthorized = token === syncKey || token === serviceKey || token === TEMP_DEBUG_SYNC_KEY
 
-  if (!isAuthorized && authHeader.startsWith('Bearer ')) {
+  if (!isAuthorized && token) {
     const authClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      anonKey || serviceKey,
       { global: { headers: { Authorization: authHeader } } }
     )
-    const { data } = await authClient.auth.getUser()
-    if (data?.user) isAuthorized = true
+
+    const { data, error } = await authClient.auth.getClaims(token)
+    if (!error && data?.claims?.sub) {
+      isAuthorized = true
+    }
   }
 
   if (!isAuthorized) {
