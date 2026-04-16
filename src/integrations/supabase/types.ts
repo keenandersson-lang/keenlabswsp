@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      bootstrap_jobs: {
+        Row: {
+          control_signal: string | null
+          current_step: string | null
+          current_step_idx: number
+          error_message: string | null
+          finished_at: string | null
+          id: number
+          metadata: Json
+          requested_by: string | null
+          started_at: string
+          status: string
+          steps: Json
+          total_steps: number
+          updated_at: string
+        }
+        Insert: {
+          control_signal?: string | null
+          current_step?: string | null
+          current_step_idx?: number
+          error_message?: string | null
+          finished_at?: string | null
+          id?: number
+          metadata?: Json
+          requested_by?: string | null
+          started_at?: string
+          status?: string
+          steps?: Json
+          total_steps?: number
+          updated_at?: string
+        }
+        Update: {
+          control_signal?: string | null
+          current_step?: string | null
+          current_step_idx?: number
+          error_message?: string | null
+          finished_at?: string | null
+          id?: number
+          metadata?: Json
+          requested_by?: string | null
+          started_at?: string
+          status?: string
+          steps?: Json
+          total_steps?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       canonical_gics_industries: {
         Row: {
           display_order: number
@@ -1582,6 +1630,30 @@ export type Database = {
           valid_entry_count: number
           watch_count: number
         }[]
+      }
+      get_latest_bootstrap_job: {
+        Args: never
+        Returns: {
+          control_signal: string | null
+          current_step: string | null
+          current_step_idx: number
+          error_message: string | null
+          finished_at: string | null
+          id: number
+          metadata: Json
+          requested_by: string | null
+          started_at: string
+          status: string
+          steps: Json
+          total_steps: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bootstrap_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       get_latest_canonical_snapshot_id: {
         Args: { p_asset_class?: string }
