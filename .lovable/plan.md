@@ -1,110 +1,53 @@
 
 
-# WSP Framework v1 Compliance — Full Alignment Plan
+## Diagnos: Varför universe coverage inte ökar
 
-## Problems Identified
+### Aktuell situation
+- **10 653 aktiva symboler** totalt i `symbols`
+- **Endast 2 136** har `eligible_for_backfill = true`
+- **8 048 symboler** har `eligible_for_backfill = NULL` (aldrig klassificerade)
+- **469** är explicit `false`
+- **13 616 symboler** har redan priser i `daily_prices` (inkl. inaktiva/historiska)
 
-### 1. Sector Daily % (avg_pct_today) is wildly wrong
-The `get_market_summary` RPC uses `AVG(pct_change_1d)` without outlier protection. Healthcare has a single symbol at +3265% which skews the average to +15.07%. Industrials similarly shows +26.24%.
+### Rotorsaken
+**`get_symbols_needing_backfill()` filtrerar på `eligible_for_backfill = true`**, så den ser bara ~2136 symboler som "kandidater". De flesta av dessa har redan priser → backfill-loopen gör ingenting nytt.
 
-**Fix**: Modify `get_market_summary` to use **median** (`PERCENTILE_CONT(0.5)`) or a **trimmed mean** (exclude values outside ±50%) for `avg_pct_today`. Median is simplest and most robust.
+Bevis: De senaste 10 körningarna av `wsp_auto_backfill_loop` returnerar `status = 'skipped'` med 0 processed (inga symboler matchar kriterierna trots att 8000+ saknar data).
 
-### 2. Pattern + Breakout are coupled incorrectly
-Currently `patternAllowsEntry = pattern === 'climbing'` (line 49, wsp-engine.ts). A BASE stock approaching breakout gets zero breakout recognition. The scan payload has no `breakout_status` field.
+**Sekundär flaskhals**: Bootstrap-jobb #1 har stått fast på "2. Historical Backfill" sedan 22:57 (>22 timmar) — orkestratorn dispatchade 5 batches och väntar på att backfill-loopen ska bli klar, men loopen "skippar" hela tiden eftersom inga eligible-symboler saknar data.
 
-**Fix — Database migration**:
-- Add `breakout_status` column to `market_scan_results` (text, default 'NONE')
-- Values: `NONE`, `APPROACHING`, `FRESH_BREAKOUT`, `AGING_BREAKOUT`, `STALE_BREAKOUT`, `FAILED_BREAKOUT`
-- Add `is_base_origin` boolean to payload
-- Update `run_broad_market_scan` SQL to compute breakout_status from resistance_level, breakout age, and close price
-- Decouple pattern_state from breakout_status in entry logic: a BASE + FRESH_BREAKOUT can qualify for KÖP if all other gates pass
+### Pipeline för att fixa coverage
 
-**Fix — Frontend**:
-- Update `wsp-engine-contract.ts` to reflect the decoupled model
-- Update `ScreenerRow` interface to include `breakout_status` and expose it
-- Allow `computeEntryGate` to accept BASE with fresh breakout
+```text
+[symbols] 10653 active
+   ├── 2136 eligible=true   ← ENDAST dessa körs av backfill
+   ├── 8048 eligible=NULL   ← BLOCKERAS (måste klassificeras först)
+   └──  469 eligible=false  ← korrekt exkluderade
 
-### 3. Industry-to-sector mapping is polluted
-261 symbols have `sector = 'Stocks'` with raw SIC industries like "Crude Petroleum Natural Gas". The `display_industry()` function maps "Stocks Proxy Basket" to "ETF" but these non-ETF symbols under "Stocks" sector are just unclassified equities.
+Lösning: kör enrich-symbols över NULL-batchen → sätt eligible_for_backfill
+         → backfill-loopen plockar upp dem automatiskt
+```
 
-**Fix — Database**:
-- Run a data cleanup: for symbols where `sector = 'Stocks'` and they have a real SIC-based industry, reclassify them via `canonical_sector` using their SIC code
-- Filter out `sector IN ('Stocks', 'ETF', 'Unknown')` from `get_market_summary` (already partially done but 'Stocks' leaks through)
-- Ensure `get_equity_screener_rows` excludes `sector = 'Stocks'` from GICS-priority sort
-- Add 'Stocks' to the exclusion list in `get_market_summary` WHERE clause
+### Plan (3 steg)
 
-### 4. Blocked reasons not shown in screener
-The `blockers` array exists in `market_scan_results` but the screener RPC (`get_equity_screener_rows`) doesn't return it, and the `Screener.tsx` page doesn't display it.
+**1. Lås upp universumet via metadata-enrichment**
+- Skapa migration som expanderar `enrich_symbols_batch()`-loopen så NULL-symboler klassificeras (sätter `is_common_stock`, `canonical_sector`, `eligible_for_backfill`).
+- Lägg till pg_cron-jobb `wsp_auto_enrich_loop` som var 5:e min kör enrichment över NULL-symboler tills 0 kvar (precis som backfill-loopen).
 
-**Fix**:
-- Add `blockers` to the SELECT in `get_equity_screener_rows` RPC
-- Add `blockers` to `ScreenerRow` interface
-- Display blocked reasons as small tags/chips in each screener row (expandable on click)
+**2. Reparera fastnat bootstrap-jobb**
+- Markera nuvarande job #1 som `failed` med felmeddelande "stuck on backfill — see auto-loop".
+- Justera `bootstrap-orchestrator` så "Historical Backfill"-steget inte väntar oändligt: poll max 30 min, sen gå vidare till nästa steg om coverage > 95% av eligible-universumet (inte 100% av alla symboler).
+- Lägg till "0. Universe Enrichment"-steg före backfill i `full`-mode så NULL-symboler klassificeras innan backfill startar.
 
-### 5. Universe & eligibility counts are ambiguous
-Dashboard shows "totalStocks" as heatmap row count without distinguishing tiers.
+**3. Visualisera blockad coverage i admin**
+- Uppdatera `BootstrapPanel.tsx` så det visar 3 separata staplar:
+  - `Klassificerade: 2605/10653` (eligible-beslut taget)
+  - `Med priser: X/2136 eligible`
+  - `Med indikatorer: Y/2136 eligible`
+- Då blir det omedelbart synligt att flaskhalsen är klassificering, inte backfill.
 
-**Fix**:
-- Add a dedicated query or extend `UniverseCoverage` to show:
-  - Total active symbols (from `symbols` table)
-  - Symbols with GICS sector data
-  - Symbols with full indicator coverage (from `wsp_indicators`)
-  - Core screener universe (universe_tier = 'core')
-  - Currently screenable rows (from latest scan run)
-
-### 6. Sector page mixes ETF performance with WSP metrics
-Sector cards show `avg_pct_today` (which should be equity breadth) alongside regime — no distinction between ETF proxy performance and equity aggregate.
-
-**Fix**:
-- Add sector ETF daily % (from `wsp_indicators` for XLK, XLF, etc.) as a separate field
-- Label clearly: "ETF: XLK +1.2%" vs "Snitt aktier: +0.8%"
-
----
-
-## Implementation Order
-
-### Step 1: Fix sector daily % aggregation (database migration)
-Update `get_market_summary` RPC to use median instead of mean for `avg_pct_today`, and add outlier clamp.
-
-### Step 2: Clean industry/sector mapping (data + migration)
-- Exclude 'Stocks' sector from `get_market_summary`
-- Reclassify misassigned symbols via canonical_sector update
-- Ensure `display_industry()` covers remaining unmapped SIC codes
-
-### Step 3: Add breakout_status to scan results (database migration)
-- Add column to `market_scan_results`
-- Update `run_broad_market_scan` to compute breakout_status
-- Decouple pattern from breakout in entry gate logic
-
-### Step 4: Expose blockers in screener (database + frontend)
-- Add `blockers` to screener RPC output
-- Update `ScreenerRow` and `Screener.tsx` to display blocked reasons
-
-### Step 5: Clarify universe counts (frontend)
-- Extend `UniverseCoverage` with breakdown tiers
-- Label sector cards with ETF vs equity metrics separately
-
-### Step 6: Update engine contract (frontend)
-- Update `wsp-engine-contract.ts` with decoupled breakout model
-- Update `wsp-engine.ts` `computeEntryGate` to accept BASE + FRESH_BREAKOUT
-
----
-
-## Files Changed
-
-**Database migrations** (4-5 new migration files):
-- Fix `get_market_summary` — median aggregation + exclude 'Stocks'
-- Fix `get_equity_screener_rows` — add blockers to output
-- Add `breakout_status` column to `market_scan_results`
-- Update `run_broad_market_scan` — compute breakout_status
-- Data cleanup for misclassified 'Stocks' sector symbols
-
-**Frontend files**:
-- `src/lib/wsp-engine-contract.ts` — add breakout_status types, decouple model
-- `src/lib/wsp-engine.ts` — update `computeEntryGate` for BASE + breakout
-- `src/lib/wsp-types.ts` — add BreakoutStatus type
-- `src/hooks/use-equity-screener.ts` — add blockers to ScreenerRow
-- `src/pages/Screener.tsx` — display blockers per row
-- `src/pages/Index.tsx` — sector ETF vs equity distinction
-- `src/components/UniverseCoverage.tsx` — tier breakdown
+### Tekniska detaljer
+- Migration: ny `cron.schedule('wsp_auto_enrich_loop', '*/5 * * * *', ...)` som anropar `bulk-enrich-sectors` edge function via `net.http_post` med batch=100.
+- Edge function `bootstrap-orchestrator/index.ts`: lägg till `enrich_universe`-steg och timeout-skydd på backfill-poll.
+- `BootstrapPanel.tsx`: läs `symbols GROUP BY eligible_for_backfill` för coverage-staplar.
 
