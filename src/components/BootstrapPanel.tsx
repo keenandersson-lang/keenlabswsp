@@ -39,8 +39,8 @@ interface BootstrapJob {
 
 const FALLBACK_STEPS: JobStep[] = [
   { id: 'seed', label: '1. Seed Symbols', status: 'pending' },
-  { id: 'backfill', label: '2. Historical Backfill', status: 'pending' },
-  { id: 'enrich', label: '3. Metadata Enrichment', status: 'pending' },
+  { id: 'enrich', label: '2. Universe Enrichment', status: 'pending' },
+  { id: 'backfill', label: '3. Historical Backfill', status: 'pending' },
   { id: 'indicators', label: '4. Indicator Refresh', status: 'pending' },
   { id: 'scan', label: '5. Market Scan', status: 'pending' },
   { id: 'publish', label: '6. Publish Snapshot', status: 'pending' },
