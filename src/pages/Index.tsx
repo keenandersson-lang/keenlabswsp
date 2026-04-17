@@ -45,7 +45,8 @@ const Index = () => {
       if (error) throw error;
       return (data ?? []) as Array<{ symbol: string; canonical_sector: string; close: number; pct_change_1d: number; wsp_pattern: string }>;
     },
-    staleTime: 5 * 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   // Also fetch screener rows for full heatmap context (sector + industry + recommendation + score)

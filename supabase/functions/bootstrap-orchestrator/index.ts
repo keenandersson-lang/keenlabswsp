@@ -184,7 +184,7 @@ async function runBackfill(jobId: number, idx: number) {
 
 async function runEnrich(jobId: number, idx: number) {
   await setStep(jobId, idx, { status: 'running', detail: 'Enriching universe metadata…', started_at: new Date().toISOString() })
-  let total = 0, offset = 0
+  let total = 0
   const BATCH = 25
   const MAX_LOOPS = 600
   const deadline = Date.now() + 30 * 60_000 // 30-min wall clock guard
@@ -197,7 +197,7 @@ async function runEnrich(jobId: number, idx: number) {
     if (ctrl === 'stop') { await setStep(jobId, idx, { status: 'warning', detail: `Stopped after ${total}` }); return }
     if (ctrl === 'pause') { await new Promise(r => setTimeout(r, 5000)); i--; continue }
 
-    const res = await callFn('bulk-enrich-sectors', { offset, maxSymbols: BATCH })
+    const res = await callFn('bulk-enrich-sectors', { maxSymbols: BATCH })
     if (!res.ok) {
       if (total === 0) throw new Error(res.data?.error ?? `enrich HTTP ${res.status}`)
       await setStep(jobId, idx, { status: 'warning', detail: `Partial: ${total} enriched` })
@@ -209,7 +209,6 @@ async function runEnrich(jobId: number, idx: number) {
       await setStep(jobId, idx, { status: 'warning', detail: `Rate limited at ${total} — auto-loop continues` }); return
     }
     if (res.data?.done || !res.data?.hasMore) break
-    offset = res.data?.nextOffset ?? offset + BATCH
   }
   await setStep(jobId, idx, { status: 'done', detail: `${total} symbols enriched`, finished_at: new Date().toISOString() })
 }

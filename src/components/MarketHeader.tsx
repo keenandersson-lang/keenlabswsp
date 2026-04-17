@@ -45,7 +45,8 @@ export function MarketHeader({
       if (error) throw error;
       return (data ?? []) as SectorPerf[];
     },
-    staleTime: 5 * 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const rankedSectors = sectorPerf.length > 0

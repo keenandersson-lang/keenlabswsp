@@ -18,7 +18,7 @@ const MAX_EXECUTION_MS = 55_000
 const BETWEEN_SYMBOL_MS = 250
 const INITIAL_BACKOFF_MS = 13_500
 const MAX_CONSECUTIVE_429 = 3
-const DB_BATCH_SIZE = 50
+const DB_BATCH_SIZE = 15
 
 const EXCHANGE_MAP: Record<string, string> = {
   XNYS: 'NYSE', XNAS: 'NASDAQ', XASE: 'AMEX', ARCX: 'ARCA',
@@ -105,22 +105,25 @@ Deno.serve(async (req: Request) => {
     const offset = Number(body.offset ?? 0)
     const maxSymbols = Number(body.maxSymbols ?? 15)
 
-    // Fetch symbols missing canonical_sector
+    const candidateFilter = 'eligible_for_backfill.is.null,canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks'
+
+    // Fetch a small, stable first page from the current unresolved pool.
+    // Offset pagination over a mutating filtered set causes symbols to be skipped permanently.
     const { data: symbols, error: fetchErr } = await supabase
       .from('symbols')
-      .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at, canonical_sector, canonical_industry')
+      .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at, canonical_sector, canonical_industry, eligible_for_backfill')
       .eq('is_active', true)
-      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks')
+      .or(candidateFilter)
       .order('symbol')
-      .range(offset, offset + DB_BATCH_SIZE - 1)
+      .range(0, DB_BATCH_SIZE - 1)
 
     if (fetchErr) return jsonRes({ ok: false, error: fetchErr.message }, 500)
 
     if (!symbols || symbols.length === 0) {
       return jsonRes({
         ok: true, done: true,
-        message: 'No more symbols with missing sectors.',
-        offset, enriched: 0, remaining: 0,
+        message: 'No more symbols need classification or sector enrichment.',
+        offset: 0, enriched: 0, remaining: 0, nextOffset: 0, hasMore: false,
       })
     }
 
@@ -129,7 +132,7 @@ Deno.serve(async (req: Request) => {
       .from('symbols')
       .select('symbol', { count: 'exact', head: true })
       .eq('is_active', true)
-      .or('canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks')
+      .or(candidateFilter)
 
     // Log sync start
     const { data: logRow } = await supabase
@@ -138,7 +141,7 @@ Deno.serve(async (req: Request) => {
         sync_type: 'bulk_enrich_sectors',
         status: 'running',
         data_source: 'polygon_ticker_details',
-        metadata: { offset, db_batch: DB_BATCH_SIZE, max_symbols: maxSymbols, candidates: symbols.length, total_remaining: totalRemaining },
+          metadata: { requested_offset: offset, db_batch: DB_BATCH_SIZE, max_symbols: maxSymbols, candidates: symbols.length, total_remaining: totalRemaining },
         started_at: new Date().toISOString(),
       })
       .select('id')
@@ -269,8 +272,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const processed = enriched + failed + skipped
-    const nextOffset = offset + processed
-    const hasMore = (timedOut || symbols.length === DB_BATCH_SIZE) && !rateLimitAbort
+    const remainingAfter = Math.max(0, (totalRemaining ?? 0) - processed)
+    const nextOffset = 0
+    const hasMore = remainingAfter > 0 && !rateLimitAbort
 
     // Determine final status
     let finalStatus: string
@@ -294,11 +298,11 @@ Deno.serve(async (req: Request) => {
         completed_at: new Date().toISOString(),
         error_message: errors.slice(0, 10).join('\n') || null,
         metadata: {
-          offset, next_offset: nextOffset, enriched, skipped, failed,
+            requested_offset: offset, next_offset: nextOffset, enriched, skipped, failed,
           promoted, rate_limited: rateLimited, timed_out: timedOut,
           rate_limit_abort: rateLimitAbort,
           consecutive_429_at_exit: consecutive429,
-          total_remaining: (totalRemaining ?? 0) - enriched,
+            total_remaining: remainingAfter,
           promotions: promotions.slice(0, 20),
           elapsed_ms: Date.now() - startedAt,
         },
@@ -308,7 +312,7 @@ Deno.serve(async (req: Request) => {
     return jsonRes({
       ok: true, enriched, skipped, failed, promoted, processed,
       rateLimited, rateLimitAbort, timedOut, offset, nextOffset, hasMore,
-      totalRemaining: (totalRemaining ?? 0) - enriched,
+      totalRemaining: remainingAfter,
       enrichedSymbols: enrichedSymbols.slice(0, 30),
       promotions: promotions.slice(0, 20),
       errors: errors.slice(0, 10),

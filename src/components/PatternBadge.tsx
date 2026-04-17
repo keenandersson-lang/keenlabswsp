@@ -14,7 +14,7 @@ interface PatternBadgeProps {
   size?: 'sm' | 'md';
 }
 
-export function PatternBadge({ pattern, size = 'sm' }: PatternBadgeProps) {
+export const PatternBadge = ({ pattern, size = 'sm' }: PatternBadgeProps) => {
   const config = patternConfig[pattern];
   return (
     <Tooltip>
@@ -30,7 +30,7 @@ export function PatternBadge({ pattern, size = 'sm' }: PatternBadgeProps) {
       </TooltipContent>
     </Tooltip>
   );
-}
+};
 
 export function getPatternInfo(pattern: WSPPattern) {
   return patternConfig[pattern];

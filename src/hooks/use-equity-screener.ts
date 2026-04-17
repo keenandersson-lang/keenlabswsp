@@ -114,6 +114,7 @@ export function useEquityScreener({
         totalCount,
       };
     },
-    staleTime: 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 }

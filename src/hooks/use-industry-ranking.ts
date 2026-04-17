@@ -32,6 +32,7 @@ export function useIndustryRanking(leadingOnly = true, limit: number | null = 15
         sector: normalizeSectorName(row.sector),
       }));
     },
-    staleTime: 5 * 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 }

@@ -26,8 +26,8 @@ export function UniverseCoverage() {
       if (error) throw error;
       return data as DetailedCoverage;
     },
-    staleTime: 120_000,
-    refetchInterval: 120_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   if (isLoading || !data) {
