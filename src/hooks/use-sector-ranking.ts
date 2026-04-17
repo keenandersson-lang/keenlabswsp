@@ -26,6 +26,7 @@ export function useSectorRanking() {
         sector_name: normalizeSectorName(row.sector_name),
       }));
     },
-    staleTime: 5 * 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 }

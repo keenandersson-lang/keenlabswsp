@@ -37,6 +37,11 @@ interface BootstrapJob {
   finished_at: string | null;
 }
 
+function chooseDisplayJob(jobs: BootstrapJob[]): BootstrapJob | null {
+  if (!jobs.length) return null;
+  return jobs.find((entry) => ['running', 'paused', 'queued'].includes(entry.status)) ?? jobs[0] ?? null;
+}
+
 const FALLBACK_STEPS: JobStep[] = [
   { id: 'seed', label: '1. Seed Symbols', status: 'pending' },
   { id: 'enrich', label: '2. Universe Enrichment', status: 'pending' },
@@ -96,10 +101,9 @@ export default function BootstrapPanel({ syncSecret }: Props) {
         .from('bootstrap_jobs')
         .select('*')
         .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
       if (error) return null;
-      return data as BootstrapJob | null;
+      return chooseDisplayJob((data ?? []) as BootstrapJob[]);
     },
     refetchInterval: (q) => {
       const j = q.state.data as BootstrapJob | null;
@@ -117,7 +121,7 @@ export default function BootstrapPanel({ syncSecret }: Props) {
       if (error) throw error;
       return data as Record<string, number>;
     },
-    refetchInterval: status === 'running' ? 8_000 : 30_000,
+    refetchInterval: status === 'running' ? 8_000 : 15_000,
   });
 
   const { data: bootstrapStats, refetch: refetchStats } = useQuery({
@@ -150,7 +154,7 @@ export default function BootstrapPanel({ syncSecret }: Props) {
         withIndustry: withIndustry ?? 0,
       };
     },
-    refetchInterval: status === 'running' ? 10_000 : 30_000,
+    refetchInterval: status === 'running' ? 10_000 : 15_000,
   });
 
   const callOrchestrator = async (method: string, body?: any) => {

@@ -24,7 +24,7 @@ function normalizeRecommendation(recommendation: string): string {
   return 'OKÄND';
 }
 
-export function RecommendationBadge({ recommendation }: RecommendationBadgeProps) {
+export const RecommendationBadge = ({ recommendation }: RecommendationBadgeProps) => {
   const normalized = normalizeRecommendation(recommendation);
   const config = recConfig[normalized as WSPRecommendation] ?? fallbackConfig;
   return (
@@ -34,4 +34,4 @@ export function RecommendationBadge({ recommendation }: RecommendationBadgeProps
       {normalized}
     </span>
   );
-}
+};
