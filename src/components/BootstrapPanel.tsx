@@ -126,17 +126,26 @@ export default function BootstrapPanel({ syncSecret }: Props) {
       const [
         { count: totalActive },
         { count: totalEquity },
+        { count: classified },
+        { count: eligible },
+        { count: notClassified },
         { count: withSector },
         { count: withIndustry },
       ] = await Promise.all([
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('is_etf', false),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('eligible_for_backfill', 'is', null),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).eq('eligible_for_backfill', true),
+        supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).is('eligible_for_backfill', null),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('canonical_sector', 'is', null).neq('canonical_sector', 'Unknown'),
         supabase.from('symbols').select('*', { count: 'exact', head: true }).eq('is_active', true).not('canonical_industry', 'is', null).neq('canonical_industry', 'Unknown').neq('canonical_industry', 'Other'),
       ]);
       return {
         totalActive: totalActive ?? 0,
         totalEquity: totalEquity ?? 0,
+        classified: classified ?? 0,
+        eligible: eligible ?? 0,
+        notClassified: notClassified ?? 0,
         withSector: withSector ?? 0,
         withIndustry: withIndustry ?? 0,
       };
@@ -234,16 +243,30 @@ export default function BootstrapPanel({ syncSecret }: Props) {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
           <StatBlock label="Active Universe" value={bootstrapStats?.totalActive ?? '—'} />
-          <StatBlock label="Equities (excl ETF)" value={equityUniverse} />
-          <StatBlock label="With Price History" value={coverage?.raw_scanned_population ?? '—'} sub={equityUniverse > 0 ? `${Math.round(((coverage?.raw_scanned_population ?? 0) / equityUniverse) * 100)}%` : ''} />
-          <StatBlock label="Missing History" value={equityUniverse - (coverage?.raw_scanned_population ?? 0)} />
-          <StatBlock label="With Indicators" value={coverage?.wsp_evaluated_population ?? '—'} sub={equityUniverse > 0 ? `${Math.round(((coverage?.wsp_evaluated_population ?? 0) / equityUniverse) * 100)}%` : ''} />
+          <StatBlock
+            label="Klassificerade"
+            value={`${bootstrapStats?.classified ?? '—'} / ${bootstrapStats?.totalActive ?? '—'}`}
+            sub={bootstrapStats?.totalActive ? `${Math.round(((bootstrapStats?.classified ?? 0) / bootstrapStats.totalActive) * 100)}% (NULL: ${bootstrapStats?.notClassified ?? 0})` : ''}
+          />
+          <StatBlock
+            label="Eligible Backfill"
+            value={bootstrapStats?.eligible ?? '—'}
+            sub={bootstrapStats?.classified ? `${Math.round(((bootstrapStats?.eligible ?? 0) / bootstrapStats.classified) * 100)}% av klassificerade` : ''}
+          />
+          <StatBlock
+            label="Med priser"
+            value={coverage?.raw_scanned_population ?? '—'}
+            sub={bootstrapStats?.eligible ? `${Math.round(((coverage?.raw_scanned_population ?? 0) / bootstrapStats.eligible) * 100)}% av eligible` : ''}
+          />
+          <StatBlock
+            label="Med indikatorer"
+            value={coverage?.wsp_evaluated_population ?? '—'}
+            sub={bootstrapStats?.eligible ? `${Math.round(((coverage?.wsp_evaluated_population ?? 0) / bootstrapStats.eligible) * 100)}% av eligible` : ''}
+          />
           <StatBlock label="Canonical Sector" value={bootstrapStats?.withSector ?? '—'} />
           <StatBlock label="Canonical Industry" value={bootstrapStats?.withIndustry ?? '—'} />
-          <StatBlock label="Scanned" value={coverage?.canonical_mapped_population ?? '—'} />
-          <StatBlock label="Public Eligible" value={coverage?.public_eligible_population ?? '—'} />
           <StatBlock label="Current Step" value={job?.current_step ?? '—'} />
         </div>
 
