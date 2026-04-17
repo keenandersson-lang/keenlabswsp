@@ -28,8 +28,8 @@ interface Step {
 
 const FULL_STEPS: Omit<Step, 'status'>[] = [
   { id: 'seed', label: '1. Seed Symbols' },
-  { id: 'backfill', label: '2. Historical Backfill' },
-  { id: 'enrich', label: '3. Metadata Enrichment' },
+  { id: 'enrich', label: '2. Universe Enrichment' },
+  { id: 'backfill', label: '3. Historical Backfill' },
   { id: 'indicators', label: '4. Indicator Refresh' },
   { id: 'scan', label: '5. Market Scan' },
   { id: 'publish', label: '6. Publish Snapshot' },
@@ -156,12 +156,16 @@ async function runBackfill(jobId: number, idx: number) {
   await setStep(jobId, idx, { status: 'running', detail: 'Backfilling missing price history…', started_at: new Date().toISOString() })
   let batches = 0
   const MAX_BATCHES = 30
+  const deadline = Date.now() + 30 * 60_000 // 30-min wall clock guard
   for (let i = 0; i < MAX_BATCHES; i++) {
+    if (Date.now() > deadline) {
+      await setStep(jobId, idx, { status: 'warning', detail: `Time-boxed after ${batches} batches — auto-loop continues via cron`, finished_at: new Date().toISOString() })
+      return
+    }
     const ctrl = await checkControl(jobId)
     if (ctrl === 'stop') { await setStep(jobId, idx, { status: 'warning', detail: `Stopped after ${batches} batches` }); return }
     if (ctrl === 'pause') { await new Promise(r => setTimeout(r, 5000)); i--; continue }
 
-    // Are there still symbols needing backfill?
     const { data: needing } = await supabase.rpc('get_symbols_needing_backfill', { p_limit: 1, p_offset: 0 })
     if (!needing || needing.length === 0) break
 
@@ -175,14 +179,20 @@ async function runBackfill(jobId: number, idx: number) {
     await setStep(jobId, idx, { status: 'running', detail: `Dispatched ${batches} batches (auto-loop continues via cron)` })
     await new Promise(r => setTimeout(r, 8000))
   }
-  await setStep(jobId, idx, { status: 'done', detail: `${batches} backfill batches dispatched`, finished_at: new Date().toISOString() })
+  await setStep(jobId, idx, { status: 'done', detail: `${batches} backfill batches dispatched — auto-loop continues every 5 min`, finished_at: new Date().toISOString() })
 }
 
 async function runEnrich(jobId: number, idx: number) {
-  await setStep(jobId, idx, { status: 'running', detail: 'Enriching metadata…', started_at: new Date().toISOString() })
+  await setStep(jobId, idx, { status: 'running', detail: 'Enriching universe metadata…', started_at: new Date().toISOString() })
   let total = 0, offset = 0
-  const BATCH = 15
-  for (let i = 0; i < 200; i++) {
+  const BATCH = 25
+  const MAX_LOOPS = 600
+  const deadline = Date.now() + 30 * 60_000 // 30-min wall clock guard
+  for (let i = 0; i < MAX_LOOPS; i++) {
+    if (Date.now() > deadline) {
+      await setStep(jobId, idx, { status: 'warning', detail: `Time-boxed after ${total} enriched — auto-loop continues via cron`, finished_at: new Date().toISOString() })
+      return
+    }
     const ctrl = await checkControl(jobId)
     if (ctrl === 'stop') { await setStep(jobId, idx, { status: 'warning', detail: `Stopped after ${total}` }); return }
     if (ctrl === 'pause') { await new Promise(r => setTimeout(r, 5000)); i--; continue }
@@ -196,7 +206,7 @@ async function runEnrich(jobId: number, idx: number) {
     total += res.data?.enriched ?? 0
     await setStep(jobId, idx, { status: 'running', detail: `Enriched ${total} | remaining ${res.data?.totalRemaining ?? '?'}` })
     if (res.data?.rateLimitAbort) {
-      await setStep(jobId, idx, { status: 'warning', detail: `Rate limited at ${total}` }); return
+      await setStep(jobId, idx, { status: 'warning', detail: `Rate limited at ${total} — auto-loop continues` }); return
     }
     if (res.data?.done || !res.data?.hasMore) break
     offset = res.data?.nextOffset ?? offset + BATCH
@@ -264,8 +274,8 @@ const RUNNER_MAP: Record<string, (jobId: number, idx: number) => Promise<void>> 
 const STEP_LABELS: Record<string, string> = {
   'seed': '1. Seed Symbols',
   'daily-sync': '1. Daily Sync',
-  'backfill': '2. Historical Backfill',
-  'enrich': '3. Metadata Enrichment',
+  'enrich': '2. Universe Enrichment',
+  'backfill': '3. Historical Backfill',
   'indicators': '4. Indicator Refresh',
   'scan': '5. Market Scan',
   'publish': '6. Publish Snapshot',
