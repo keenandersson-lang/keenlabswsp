@@ -1488,6 +1488,7 @@ export type Database = {
         Args: { p_batch_size?: number; p_min_bars?: number }
         Returns: undefined
       }
+      bootstrap_jobs_watchdog: { Args: never; Returns: number }
       bulk_enrich_sectors_from_data: { Args: never; Returns: number }
       consume_credit: {
         Args: { p_amount?: number; p_description?: string; p_user_id: string }
