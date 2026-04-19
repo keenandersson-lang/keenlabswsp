@@ -106,12 +106,10 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({})) as Record<string, any>
     const offset = Number(body.offset ?? 0)
-    const maxSymbols = Number(body.maxSymbols ?? 15)
+    const maxSymbols = Number(body.maxSymbols ?? DB_BATCH_SIZE)
 
     const candidateFilter = 'eligible_for_backfill.is.null,canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks'
 
-    // Fetch a small, stable first page from the current unresolved pool.
-    // Offset pagination over a mutating filtered set causes symbols to be skipped permanently.
     const { data: symbols, error: fetchErr } = await supabase
       .from('symbols')
       .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at, canonical_sector, canonical_industry, eligible_for_backfill')
