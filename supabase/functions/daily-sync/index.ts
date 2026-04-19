@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { computeSectorIndustryClassification } from '../_shared/classification.ts'
+import { fetchBarMultiSource } from '../_shared/multi-source-enrich.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
