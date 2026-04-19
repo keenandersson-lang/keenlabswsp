@@ -141,8 +141,8 @@ Deno.serve(async (req: Request) => {
       .insert({
         sync_type: 'bulk_enrich_sectors',
         status: 'running',
-        data_source: 'polygon_ticker_details',
-          metadata: { requested_offset: offset, db_batch: DB_BATCH_SIZE, max_symbols: maxSymbols, candidates: symbols.length, total_remaining: totalRemaining },
+        data_source: 'multi_source_polygon_finnhub_yahoo_alpaca',
+        metadata: { requested_offset: offset, db_batch: DB_BATCH_SIZE, max_symbols: maxSymbols, candidates: symbols.length, total_remaining: totalRemaining },
         started_at: new Date().toISOString(),
       })
       .select('id')
@@ -152,72 +152,56 @@ Deno.serve(async (req: Request) => {
     let skipped = 0
     let failed = 0
     let promoted = 0
-    let rateLimited = 0
-    let consecutive429 = 0
+    let polyRateLimits = 0
     let timedOut = false
-    let rateLimitAbort = false
+    let skipPolygonForRest = false
     const errors: string[] = []
     const promotions: string[] = []
     const enrichedSymbols: string[] = []
+    // source attribution counters
+    const bySource: Record<string, number> = { polygon: 0, finnhub: 0, yahoo: 0, alpaca: 0, none: 0 }
 
     for (const sym of symbols) {
       if (Date.now() - startedAt >= MAX_EXECUTION_MS) { timedOut = true; break }
       if (enriched + failed >= maxSymbols) { timedOut = true; break }
 
-      // If we hit too many consecutive 429s, stop early with a clear message
-      if (consecutive429 >= MAX_CONSECUTIVE_429) {
-        rateLimitAbort = true
-        errors.push(`Stopped: ${MAX_CONSECUTIVE_429} consecutive rate-limit errors — Polygon API quota likely exhausted for this window`)
-        break
-      }
-
       try {
-        const url = `https://api.polygon.io/v3/reference/tickers/${sym.symbol}?apiKey=${POLYGON_KEY}`
-        let res = await fetch(url)
+        const outcome = await enrichSymbolMultiSource(sym.symbol, { skipPolygon: skipPolygonForRest })
 
-        if (res.status === 429) {
-          rateLimited++
-          consecutive429++
-          const backoffMs = INITIAL_BACKOFF_MS * consecutive429 // escalating backoff
-          console.log(`[bulk-enrich] 429 for ${sym.symbol}, backoff ${backoffMs}ms (consecutive: ${consecutive429})`)
-          await sleep(backoffMs)
-          if (Date.now() - startedAt >= MAX_EXECUTION_MS) { timedOut = true; break }
-          res = await fetch(url)
-          if (res.status === 429) {
-            rateLimited++
-            consecutive429++
-            failed++
-            errors.push(`${sym.symbol}: rate-limited after backoff`)
-            continue
+        if (outcome.hardRateLimited) {
+          polyRateLimits++
+          if (polyRateLimits >= POLY_SKIP_AFTER_RL) {
+            skipPolygonForRest = true
+            console.log(`[bulk-enrich] Skipping Polygon for rest of batch — ${polyRateLimits} hard rate limits`)
           }
         }
 
-        // Successful non-429 response resets the consecutive counter
-        consecutive429 = 0
+        const details = outcome.details
+        if (!details) {
+          bySource.none++
+          failed++
+          errors.push(`${sym.symbol}: no source returned data (tried ${outcome.attempted.join(',')})`)
+          continue
+        }
 
-        if (res.status === 404) { skipped++; continue }
-        if (!res.ok) { failed++; errors.push(`${sym.symbol}: HTTP ${res.status}`); continue }
+        bySource[details.source] = (bySource[details.source] ?? 0) + 1
 
-        const data = await res.json().catch(() => null)
-        if (!data?.results) { failed++; errors.push(`${sym.symbol}: no results`); continue }
-
-        const details = data.results
         const rawType = normalizeText(details.type)
         const instrumentType = rawType ? (TYPE_MAP[rawType] ?? rawType) : null
-        const isEtf = instrumentType === 'ETF'
-        const isAdr = instrumentType === 'ADR'
-        const isCommonStock = instrumentType === 'CS'
+        const isEtf = details.isEtf || instrumentType === 'ETF'
+        const isAdr = details.isAdr || instrumentType === 'ADR'
+        const isCommonStock = details.isCommonStock || instrumentType === 'CS'
 
-        const rawExchange = normalizeText(details.primary_exchange ?? details.exchange)
+        const rawExchange = normalizeText(details.exchange)
         const normalizedExchange = rawExchange ? (EXCHANGE_MAP[rawExchange] ?? rawExchange) : null
-        const sicCode = normalizeText(details.sic_code)
-        const sicDesc = normalizeText(details.sic_description)
+        const sicCode = normalizeText(details.sicCode)
+        const sicDesc = normalizeText(details.sicDescription)
         const companyName = normalizeText(details.name)
 
         const classification = computeSectorIndustryClassification({
           symbol: sym.symbol,
-          rawSector: normalizeText(details.market ?? details.sector) || sym.sector,
-          rawIndustry: normalizeText(details.industry) || normalizeText(sicDesc) || sym.industry,
+          rawSector: normalizeText(details.sector) || sym.sector,
+          rawIndustry: normalizeText(details.industry) || sicDesc || sym.industry,
           sector: sym.sector,
           industry: sym.industry,
           sicCode,
@@ -259,7 +243,7 @@ Deno.serve(async (req: Request) => {
         if (updateErr) { failed++; errors.push(`${sym.symbol}: ${updateErr.message}`); continue }
 
         enriched++
-        enrichedSymbols.push(sym.symbol)
+        enrichedSymbols.push(`${sym.symbol}(${details.source})`)
         if (promotion.support_level === 'full_wsp_equity' && sym.support_level !== 'full_wsp_equity') {
           promoted++
           promotions.push(sym.symbol)
