@@ -258,14 +258,11 @@ Deno.serve(async (req: Request) => {
 
     const processed = enriched + failed + skipped
     const remainingAfter = Math.max(0, (totalRemaining ?? 0) - processed)
-    const nextOffset = 0
-    const hasMore = remainingAfter > 0 && !rateLimitAbort
+    const hasMore = remainingAfter > 0
 
-    // Determine final status
+    // Determine final status — multi-source means we rarely have to abort entirely
     let finalStatus: string
-    if (rateLimitAbort) {
-      finalStatus = 'rate_limited'
-    } else if (failed === 0 && !timedOut) {
+    if (failed === 0 && !timedOut) {
       finalStatus = 'success'
     } else if (enriched > 0) {
       finalStatus = 'partial'
@@ -283,11 +280,12 @@ Deno.serve(async (req: Request) => {
         completed_at: new Date().toISOString(),
         error_message: errors.slice(0, 10).join('\n') || null,
         metadata: {
-            requested_offset: offset, next_offset: nextOffset, enriched, skipped, failed,
-          promoted, rate_limited: rateLimited, timed_out: timedOut,
-          rate_limit_abort: rateLimitAbort,
-          consecutive_429_at_exit: consecutive429,
-            total_remaining: remainingAfter,
+          requested_offset: offset, next_offset: 0, enriched, skipped, failed,
+          promoted, timed_out: timedOut,
+          poly_rate_limits: polyRateLimits,
+          poly_skipped_for_rest: skipPolygonForRest,
+          source_attribution: bySource,
+          total_remaining: remainingAfter,
           promotions: promotions.slice(0, 20),
           elapsed_ms: Date.now() - startedAt,
         },
@@ -296,8 +294,10 @@ Deno.serve(async (req: Request) => {
 
     return jsonRes({
       ok: true, enriched, skipped, failed, promoted, processed,
-      rateLimited, rateLimitAbort, timedOut, offset, nextOffset, hasMore,
+      polyRateLimits, polySkippedForRest: skipPolygonForRest, timedOut,
+      offset, nextOffset: 0, hasMore,
       totalRemaining: remainingAfter,
+      sourceAttribution: bySource,
       enrichedSymbols: enrichedSymbols.slice(0, 30),
       promotions: promotions.slice(0, 20),
       errors: errors.slice(0, 10),
