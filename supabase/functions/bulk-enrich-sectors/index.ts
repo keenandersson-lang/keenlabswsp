@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { computeSectorIndustryClassification } from '../_shared/classification.ts'
+import { enrichSymbolMultiSource } from '../_shared/multi-source-enrich.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,14 +12,16 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
-const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY')!
 const TEMP_DEBUG_SYNC_KEY = 'wsp_sync_test_2026_april_13'
 
+// Multi-source mode: much higher throughput because we fall back instantly when
+// Polygon returns 429 instead of waiting 13s. Bumped from 15 → 100 per invocation.
 const MAX_EXECUTION_MS = 55_000
-const BETWEEN_SYMBOL_MS = 250
-const INITIAL_BACKOFF_MS = 13_500
-const MAX_CONSECUTIVE_429 = 3
-const DB_BATCH_SIZE = 15
+const BETWEEN_SYMBOL_MS = 80
+const DB_BATCH_SIZE = 100
+// If both Polygon AND Finnhub get rate-limited this many times in a row, skip Polygon
+// for the rest of the batch and rely on Finnhub/Yahoo/Alpaca only.
+const POLY_SKIP_AFTER_RL = 5
 
 const EXCHANGE_MAP: Record<string, string> = {
   XNYS: 'NYSE', XNAS: 'NASDAQ', XASE: 'AMEX', ARCX: 'ARCA',
