@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { computeSectorIndustryClassification } from '../_shared/classification.ts'
+import { fetchBarMultiSource } from '../_shared/multi-source-enrich.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -283,10 +284,15 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[daily-sync] Matched ${matchedSymbols.size} eligible symbols from grouped. Missing: ${missingFromGrouped.length}`)
 
-      // 4. Fallback: fetch missing benchmark symbols individually (critical for regime)
+      // 4. Fallback: try Alpaca → Yahoo for missing symbols (benchmarks first, then up to a cap)
+      const FALLBACK_CAP = 500  // limit to keep within edge-function time budget
       const benchmarksMissing = BENCHMARK_SYMBOLS.filter(s => missingFromGrouped.includes(s))
-      for (const symbol of benchmarksMissing) {
-        const { bar, error } = await fetchSingleBar(symbol, asOfDate)
+      const otherMissing = missingFromGrouped.filter(s => !BENCHMARK_SYMBOLS.includes(s as typeof BENCHMARK_SYMBOLS[number]))
+      const fallbackTargets = [...benchmarksMissing, ...otherMissing.slice(0, FALLBACK_CAP - benchmarksMissing.length)]
+      const fallbackBySource: Record<string, number> = { alpaca_iex: 0, yahoo: 0, none: 0 }
+
+      for (const symbol of fallbackTargets) {
+        const bar = await fetchBarMultiSource(symbol, asOfDate)
         if (bar) {
           upsertRows.push({
             symbol,
@@ -296,15 +302,19 @@ Deno.serve(async (req: Request) => {
             low: bar.l,
             close: bar.c,
             volume: Math.round(bar.v),
-            data_source: 'polygon_single',
+            data_source: bar.source,
           })
           matchedSymbols.add(symbol)
-          missingFromGrouped.splice(missingFromGrouped.indexOf(symbol), 1)
+          fallbackBySource[bar.source] = (fallbackBySource[bar.source] ?? 0) + 1
+          const idx = missingFromGrouped.indexOf(symbol)
+          if (idx >= 0) missingFromGrouped.splice(idx, 1)
         } else {
-          console.warn(`[daily-sync] Benchmark ${symbol} fallback failed: ${error}`)
+          fallbackBySource.none++
         }
-        await sleep(250)
+        await sleep(80)
       }
+      console.log(`[daily-sync] Fallback recovered via Alpaca/Yahoo: ${JSON.stringify(fallbackBySource)}`)
+
 
       // 5. Bulk upsert in batches of 500
       let rowsWritten = 0
