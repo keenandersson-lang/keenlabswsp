@@ -11,6 +11,7 @@ interface SourceAttribution {
   fallback_recovery_24h: Record<'polygon' | 'yahoo' | 'alpaca', number>;
   window_1h: Record<SourceKey | 'failed', number>;
   last_success_at: Record<SourceKey, string | null>;
+  metals_coverage?: { total: number; updated_24h: number; threshold: number };
   generated_at: string;
 }
 
