@@ -21,6 +21,7 @@ export type Database = {
           current_step_idx: number
           error_message: string | null
           finished_at: string | null
+          heartbeat_at: string | null
           id: number
           metadata: Json
           requested_by: string | null
@@ -36,6 +37,7 @@ export type Database = {
           current_step_idx?: number
           error_message?: string | null
           finished_at?: string | null
+          heartbeat_at?: string | null
           id?: number
           metadata?: Json
           requested_by?: string | null
@@ -51,6 +53,7 @@ export type Database = {
           current_step_idx?: number
           error_message?: string | null
           finished_at?: string | null
+          heartbeat_at?: string | null
           id?: number
           metadata?: Json
           requested_by?: string | null
@@ -420,6 +423,33 @@ export type Database = {
           id?: string
           token?: string
           used_at?: string | null
+        }
+        Relationships: []
+      }
+      enrichment_attempts: {
+        Row: {
+          attempts: number
+          created_at: string
+          last_attempt_at: string
+          last_error: string | null
+          last_source_tried: string | null
+          symbol: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          last_attempt_at?: string
+          last_error?: string | null
+          last_source_tried?: string | null
+          symbol: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          last_attempt_at?: string
+          last_error?: string | null
+          last_source_tried?: string | null
+          symbol?: string
         }
         Relationships: []
       }
@@ -1640,6 +1670,7 @@ export type Database = {
           current_step_idx: number
           error_message: string | null
           finished_at: string | null
+          heartbeat_at: string | null
           id: number
           metadata: Json
           requested_by: string | null
@@ -1705,6 +1736,7 @@ export type Database = {
           wsp_setups: number
         }[]
       }
+      get_source_attribution_24h: { Args: never; Returns: Json }
       get_symbol_detail: {
         Args: { p_symbol: string }
         Returns: {

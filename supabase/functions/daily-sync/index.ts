@@ -217,16 +217,18 @@ Deno.serve(async (req: Request) => {
     try {
       if (!POLYGON_API_KEY) throw new Error('POLYGON_API_KEY is not configured')
 
-      // 1. Get ALL eligible symbols from DB (paginate past 1000-row default)
+      // 1. Get ALL eligible symbols from DB (paginate past 1000-row default).
+      // Includes metals_limited so GLD/SLV/COPX/etc. update daily alongside equities/benchmarks.
       const eligibleSet = new Set<string>()
+      const ELIGIBLE_SUPPORT_LEVELS = ['metals_limited', 'sector_benchmark_proxy', 'full_wsp_equity', 'limited_equity']
       let page = 0
       const PAGE_SIZE = 1000
       while (true) {
         const { data: symbolRows, error: symbolError } = await supabase
           .from('symbols')
-          .select('symbol')
+          .select('symbol, support_level')
           .eq('is_active', true)
-          .eq('eligible_for_backfill', true)
+          .or(`eligible_for_backfill.eq.true,support_level.in.(${ELIGIBLE_SUPPORT_LEVELS.join(',')})`)
           .order('symbol')
           .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
         if (symbolError) throw new Error(`Symbol fetch error: ${symbolError.message}`)
@@ -285,11 +287,11 @@ Deno.serve(async (req: Request) => {
       console.log(`[daily-sync] Matched ${matchedSymbols.size} eligible symbols from grouped. Missing: ${missingFromGrouped.length}`)
 
       // 4. Fallback: try Alpaca → Yahoo for missing symbols (benchmarks first, then up to a cap)
-      const FALLBACK_CAP = 500  // limit to keep within edge-function time budget
+      const FALLBACK_CAP = 2000  // raised from 500 to recover more missing symbols/day via Alpaca+Yahoo
       const benchmarksMissing = BENCHMARK_SYMBOLS.filter(s => missingFromGrouped.includes(s))
       const otherMissing = missingFromGrouped.filter(s => !BENCHMARK_SYMBOLS.includes(s as typeof BENCHMARK_SYMBOLS[number]))
       const fallbackTargets = [...benchmarksMissing, ...otherMissing.slice(0, FALLBACK_CAP - benchmarksMissing.length)]
-      const fallbackBySource: Record<string, number> = { alpaca_iex: 0, yahoo: 0, none: 0 }
+      const fallbackBySource: Record<string, number> = { alpaca_iex: 0, alpaca: 0, yahoo: 0, none: 0 }
 
       for (const symbol of fallbackTargets) {
         const bar = await fetchBarMultiSource(symbol, asOfDate)
@@ -508,6 +510,13 @@ Deno.serve(async (req: Request) => {
           auto_enriched: enriched,
           auto_enrich_failed: enrichFailed,
           auto_enriched_symbols: enrichedSymbols.slice(0, 20),
+          fallback_recovered_per_source: fallbackBySource,
+          source_attribution: {
+            polygon: matchedSymbols.size - (fallbackBySource.alpaca_iex + fallbackBySource.alpaca + fallbackBySource.yahoo),
+            alpaca: fallbackBySource.alpaca_iex + fallbackBySource.alpaca,
+            yahoo: fallbackBySource.yahoo,
+            none: fallbackBySource.none,
+          },
           elapsed_ms: Date.now() - startedAt,
         },
       })
