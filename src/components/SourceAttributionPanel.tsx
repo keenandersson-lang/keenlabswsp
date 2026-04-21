@@ -119,8 +119,28 @@ export default function SourceAttributionPanel() {
           </div>
         </div>
 
+        {metals.total > 0 && (
+          <div className={`rounded border p-2 text-xs font-mono ${metalsLow ? 'border-signal-caution/40 bg-signal-caution/5' : 'border-border'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Metals coverage 24h</span>
+              <span className={`font-semibold ${metalsLow ? 'text-signal-caution' : 'text-signal-success'}`}>
+                {metals.updated_24h}/{metals.total} (tröskel {metals.threshold})
+              </span>
+            </div>
+            <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div className={`h-full ${metalsLow ? 'bg-signal-caution' : 'bg-signal-success'} transition-all`}
+                   style={{ width: `${Math.min(100, (metals.updated_24h / Math.max(1, metals.total)) * 100)}%` }} />
+            </div>
+            {metalsLow && (
+              <div className="text-[9px] text-signal-caution mt-1">
+                Metals_limited-täckning under tröskel — kontrollera Polygon/Yahoo/Alpaca för GLD/SLV/COPX m.fl.
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="text-[9px] font-mono text-muted-foreground">
-          Larm utlöses om felfrekvens &gt;20% senaste timmen. Datakälla: data_sync_log → metadata.source_attribution.
+          Larm utlöses om felfrekvens &gt;20% senaste timmen, eller om metals_limited-täckningen sjunker. Datakälla: data_sync_log → metadata.source_attribution.
         </p>
       </CardContent>
     </Card>

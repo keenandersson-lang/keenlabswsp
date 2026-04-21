@@ -4,6 +4,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2, Globe, BarChart3, Eye, Layers, Rocket } from 'lucide-react';
 import BootstrapPanel from '@/components/BootstrapPanel';
 import SourceAttributionPanel from '@/components/SourceAttributionPanel';
+import EnrichmentHistoryModal from '@/components/EnrichmentHistoryModal';
+import BootstrapStatusWidget from '@/components/BootstrapStatusWidget';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -649,6 +651,22 @@ export default function Admin() {
 
       {/* H. SOURCE ATTRIBUTION */}
       <SourceAttributionPanel />
+
+      {/* I. BOOTSTRAP STATUS WIDGET */}
+      <BootstrapStatusWidget />
+
+      {/* J. ENRICHMENT HISTORY (modal trigger) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-mono flex items-center gap-2"><Database className="h-4 w-4" /> J. Enrichment Diagnostics</CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs font-mono space-y-2">
+          <p className="text-muted-foreground">
+            Sök en specifik symbol för att se dess enrichment_attempts-historik (försök, källa, fel) och nuvarande klassificering.
+          </p>
+          <EnrichmentHistoryModal />
+        </CardContent>
+      </Card>
 
       {/* G. AUTOMATION STATUS */}
       <Card>
