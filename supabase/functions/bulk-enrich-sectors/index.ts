@@ -108,14 +108,20 @@ Deno.serve(async (req: Request) => {
     const offset = Number(body.offset ?? 0)
     const maxSymbols = Number(body.maxSymbols ?? DB_BATCH_SIZE)
 
-    const candidateFilter = 'eligible_for_backfill.is.null,canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks'
+    // Tighter filter: only symbols that genuinely lack a sector classification.
+    // Excludes the eligible_for_backfill IS NULL case (now handled by promotion sweep)
+    // and respects tail-skip via enriched_at check below.
+    const candidateFilter = 'canonical_sector.is.null,canonical_sector.eq.Unknown,canonical_sector.eq.,canonical_sector.eq.Stocks'
+    const tailSkipCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
     const { data: symbols, error: fetchErr } = await supabase
       .from('symbols')
       .select('symbol, name, exchange, primary_exchange, sector, industry, sic_code, sic_description, classification_status, classification_confidence_level, asset_class, instrument_type, is_active, is_common_stock, is_etf, is_adr, support_level, enriched_at, canonical_sector, canonical_industry, eligible_for_backfill')
       .eq('is_active', true)
       .or(candidateFilter)
-      .order('symbol')
+      .neq('classification_status', 'unresolvable')
+      .or(`enriched_at.is.null,enriched_at.lt.${tailSkipCutoff}`)
+      .order('enriched_at', { ascending: true, nullsFirst: true })
       .range(0, DB_BATCH_SIZE - 1)
 
     if (fetchErr) return jsonRes({ ok: false, error: fetchErr.message }, 500)
@@ -134,6 +140,7 @@ Deno.serve(async (req: Request) => {
       .select('symbol', { count: 'exact', head: true })
       .eq('is_active', true)
       .or(candidateFilter)
+      .neq('classification_status', 'unresolvable')
 
     // Log sync start
     const { data: logRow } = await supabase
@@ -181,6 +188,32 @@ Deno.serve(async (req: Request) => {
           bySource.none++
           failed++
           errors.push(`${sym.symbol}: no source returned data (tried ${outcome.attempted.join(',')})`)
+
+          // Track attempt count and mark unresolvable after 3 fails
+          const { data: existingAttempt } = await supabase
+            .from('enrichment_attempts')
+            .select('attempts')
+            .eq('symbol', sym.symbol)
+            .maybeSingle()
+          const newAttempts = (existingAttempt?.attempts ?? 0) + 1
+          await supabase.from('enrichment_attempts').upsert({
+            symbol: sym.symbol,
+            attempts: newAttempts,
+            last_attempt_at: new Date().toISOString(),
+            last_error: `no source: ${outcome.attempted.join(',')}`.slice(0, 200),
+            last_source_tried: outcome.attempted.join(','),
+          }, { onConflict: 'symbol' })
+
+          // Touch enriched_at so we don't hammer this row again immediately;
+          // after 3 attempts mark permanently unresolvable.
+          const failPatch: Record<string, any> = {
+            enriched_at: new Date().toISOString(),
+            classification_status: newAttempts >= 3 ? 'unresolvable' : 'unresolvable_temp',
+          }
+          if (newAttempts >= 3) {
+            failPatch.eligible_for_backfill = false
+          }
+          await supabase.from('symbols').update(failPatch).eq('symbol', sym.symbol)
           continue
         }
 

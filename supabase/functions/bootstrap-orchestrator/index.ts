@@ -80,7 +80,21 @@ async function callFn(path: string, body: Record<string, unknown> = {}): Promise
 }
 
 async function updateJob(jobId: number, patch: Record<string, unknown>) {
-  await supabase.from('bootstrap_jobs').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', jobId)
+  const now = new Date().toISOString()
+  await supabase.from('bootstrap_jobs').update({ ...patch, updated_at: now, heartbeat_at: now }).eq('id', jobId)
+}
+
+// Tight heartbeat loop — runs every 30s while a job is active so the watchdog
+// can detect stalls even between step transitions.
+function startHeartbeat(jobId: number): { stop: () => void } {
+  const interval = setInterval(async () => {
+    try {
+      await supabase.from('bootstrap_jobs').update({ heartbeat_at: new Date().toISOString() }).eq('id', jobId)
+    } catch (err) {
+      console.error('[heartbeat] failed:', err)
+    }
+  }, 30_000)
+  return { stop: () => clearInterval(interval) }
 }
 
 async function getJob(jobId: number) {
@@ -283,28 +297,33 @@ const STEP_LABELS: Record<string, string> = {
 
 async function runOrchestration(jobId: number, stepIds: string[]) {
   await updateJob(jobId, { status: 'running' })
-  for (let i = 0; i < stepIds.length; i++) {
-    const ctrl = await checkControl(jobId)
-    if (ctrl === 'stop') { await updateJob(jobId, { status: 'stopped', finished_at: new Date().toISOString() }); return }
-    while ((await checkControl(jobId)) === 'pause') await new Promise(r => setTimeout(r, 3000))
+  const heartbeat = startHeartbeat(jobId)
+  try {
+    for (let i = 0; i < stepIds.length; i++) {
+      const ctrl = await checkControl(jobId)
+      if (ctrl === 'stop') { await updateJob(jobId, { status: 'stopped', finished_at: new Date().toISOString() }); return }
+      while ((await checkControl(jobId)) === 'pause') await new Promise(r => setTimeout(r, 3000))
 
-    const stepId = stepIds[i]
-    const runner = RUNNER_MAP[stepId]
-    if (!runner) {
-      await setStep(jobId, i, { status: 'error', detail: `Unknown step: ${stepId}` })
-      await updateJob(jobId, { status: 'failed', error_message: `Unknown step: ${stepId}`, finished_at: new Date().toISOString() })
-      return
+      const stepId = stepIds[i]
+      const runner = RUNNER_MAP[stepId]
+      if (!runner) {
+        await setStep(jobId, i, { status: 'error', detail: `Unknown step: ${stepId}` })
+        await updateJob(jobId, { status: 'failed', error_message: `Unknown step: ${stepId}`, finished_at: new Date().toISOString() })
+        return
+      }
+      try {
+        await runner(jobId, i)
+      } catch (err) {
+        const msg = String((err as Error)?.message ?? err).slice(0, 500)
+        await setStep(jobId, i, { status: 'error', detail: msg, finished_at: new Date().toISOString() })
+        await updateJob(jobId, { status: 'failed', error_message: msg, finished_at: new Date().toISOString() })
+        return
+      }
     }
-    try {
-      await runner(jobId, i)
-    } catch (err) {
-      const msg = String((err as Error)?.message ?? err).slice(0, 500)
-      await setStep(jobId, i, { status: 'error', detail: msg, finished_at: new Date().toISOString() })
-      await updateJob(jobId, { status: 'failed', error_message: msg, finished_at: new Date().toISOString() })
-      return
-    }
+    await updateJob(jobId, { status: 'completed', finished_at: new Date().toISOString(), current_step: 'Done' })
+  } finally {
+    heartbeat.stop()
   }
-  await updateJob(jobId, { status: 'completed', finished_at: new Date().toISOString(), current_step: 'Done' })
 }
 
 Deno.serve(async (req: Request) => {

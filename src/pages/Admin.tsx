@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, Database, Shield, Zap, Loader2, Globe, BarChart3, Eye, Layers, Rocket } from 'lucide-react';
 import BootstrapPanel from '@/components/BootstrapPanel';
+import SourceAttributionPanel from '@/components/SourceAttributionPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -645,6 +646,9 @@ export default function Admin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* H. SOURCE ATTRIBUTION */}
+      <SourceAttributionPanel />
 
       {/* G. AUTOMATION STATUS */}
       <Card>
