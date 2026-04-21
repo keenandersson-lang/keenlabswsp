@@ -11,6 +11,7 @@ interface SourceAttribution {
   fallback_recovery_24h: Record<'polygon' | 'yahoo' | 'alpaca', number>;
   window_1h: Record<SourceKey | 'failed', number>;
   last_success_at: Record<SourceKey, string | null>;
+  metals_coverage?: { total: number; updated_24h: number; threshold: number };
   generated_at: string;
 }
 
@@ -47,26 +48,33 @@ export default function SourceAttributionPanel() {
   const w1h = data?.window_1h ?? { polygon: 0, finnhub: 0, yahoo: 0, alpaca: 0, failed: 0 };
   const fallback = data?.fallback_recovery_24h ?? { polygon: 0, yahoo: 0, alpaca: 0 };
   const lastSuccess = data?.last_success_at ?? { polygon: null, finnhub: null, yahoo: null, alpaca: null };
+  const metals = data?.metals_coverage ?? { total: 0, updated_24h: 0, threshold: 8 };
 
   const total24h = w24.polygon + w24.finnhub + w24.yahoo + w24.alpaca;
   const max24h = Math.max(1, w24.polygon, w24.finnhub, w24.yahoo, w24.alpaca);
   const total1h = w1h.polygon + w1h.finnhub + w1h.yahoo + w1h.alpaca;
   const failureRate1h = total1h + w1h.failed > 0 ? w1h.failed / (total1h + w1h.failed) : 0;
   const alarmHigh = failureRate1h > 0.2;
+  const metalsLow = metals.total > 0 && metals.updated_24h < metals.threshold;
 
   const sources: SourceKey[] = ['polygon', 'finnhub', 'yahoo', 'alpaca'];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-mono flex items-center gap-2">
+        <CardTitle className="text-sm font-mono flex items-center gap-2 flex-wrap">
           <Activity className="h-4 w-4" /> H. Source Attribution (24h)
           {alarmHigh && (
             <Badge className="bg-signal-danger/15 text-signal-danger border-signal-danger/30 text-[9px]">
               <AlertTriangle className="h-3 w-3 mr-1" /> {(failureRate1h * 100).toFixed(0)}% fel senaste 1h
             </Badge>
           )}
-          {!alarmHigh && total1h > 0 && (
+          {metalsLow && (
+            <Badge className="bg-signal-caution/15 text-signal-caution border-signal-caution/30 text-[9px]">
+              <AlertTriangle className="h-3 w-3 mr-1" /> Metals lågt: {metals.updated_24h}/{metals.total} 24h
+            </Badge>
+          )}
+          {!alarmHigh && !metalsLow && total1h > 0 && (
             <Badge className="bg-signal-success/15 text-signal-success border-signal-success/30 text-[9px]">
               <CheckCircle2 className="h-3 w-3 mr-1" /> friskt
             </Badge>
@@ -111,8 +119,28 @@ export default function SourceAttributionPanel() {
           </div>
         </div>
 
+        {metals.total > 0 && (
+          <div className={`rounded border p-2 text-xs font-mono ${metalsLow ? 'border-signal-caution/40 bg-signal-caution/5' : 'border-border'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Metals coverage 24h</span>
+              <span className={`font-semibold ${metalsLow ? 'text-signal-caution' : 'text-signal-success'}`}>
+                {metals.updated_24h}/{metals.total} (tröskel {metals.threshold})
+              </span>
+            </div>
+            <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div className={`h-full ${metalsLow ? 'bg-signal-caution' : 'bg-signal-success'} transition-all`}
+                   style={{ width: `${Math.min(100, (metals.updated_24h / Math.max(1, metals.total)) * 100)}%` }} />
+            </div>
+            {metalsLow && (
+              <div className="text-[9px] text-signal-caution mt-1">
+                Metals_limited-täckning under tröskel — kontrollera Polygon/Yahoo/Alpaca för GLD/SLV/COPX m.fl.
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="text-[9px] font-mono text-muted-foreground">
-          Larm utlöses om felfrekvens &gt;20% senaste timmen. Datakälla: data_sync_log → metadata.source_attribution.
+          Larm utlöses om felfrekvens &gt;20% senaste timmen, eller om metals_limited-täckningen sjunker. Datakälla: data_sync_log → metadata.source_attribution.
         </p>
       </CardContent>
     </Card>
