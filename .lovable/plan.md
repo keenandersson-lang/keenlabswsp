@@ -1,53 +1,53 @@
 
 
-## Diagnos: Varför universe coverage inte ökar
+## Plan: lås upp universe-pipelinen + admin-observability
 
-### Aktuell situation
-- **10 653 aktiva symboler** totalt i `symbols`
-- **Endast 2 136** har `eligible_for_backfill = true`
-- **8 048 symboler** har `eligible_for_backfill = NULL` (aldrig klassificerade)
-- **469** är explicit `false`
-- **13 616 symboler** har redan priser i `daily_prices` (inkl. inaktiva/historiska)
+### Rotorsak (verifierad nu)
+- **10 034 av 10 653 symboler har redan `canonical_sector`** men `eligible_for_backfill = NULL`. Kandidat­filtret matchar dem ändå (via `eligible_for_backfill.is.null`), så loopen plockar samma rader varje varv.
+- Av varje batch på 100 lyckas bara **5** (warrants/preferreds som AAPB/AAPD/etc har ingen källa). Resterande 95 markeras inte som "försökt" → hämtas igen om 2 min för evigt.
+- Ingen `enriched_at`-touch vid fail → ingen "tail-skip".
+- GLD/SLV/COPX m.fl. har `canonical_sector` men `support_level=NULL` → faller utanför daily-sync universe.
 
-### Rotorsaken
-**`get_symbols_needing_backfill()` filtrerar på `eligible_for_backfill = true`**, så den ser bara ~2136 symboler som "kandidater". De flesta av dessa har redan priser → backfill-loopen gör ingenting nytt.
+### Fixar (datalager + edge functions)
 
-Bevis: De senaste 10 körningarna av `wsp_auto_backfill_loop` returnerar `status = 'skipped'` med 0 processed (inga symboler matchar kriterierna trots att 8000+ saknar data).
+**1. Backfill-promotion-sweep (engångs-SQL via insert tool)**
+- För alla rader med `canonical_sector NOT NULL/Unknown` och `eligible_for_backfill IS NULL`: kör om `classifyPromotion`-logiken i SQL → sätt `support_level`, `eligible_for_backfill`, `eligible_for_full_wsp`. Detta kommer omedelbart flytta ~7 800 symboler in i pipelinen utan en enda extern API-call.
+- Sätt explicit `support_level='metals_limited'`, `eligible_for_backfill=true` på {GLD, SLV, COPX, GDX, PPLT, NEM, FCX} och liknande metals-tickers.
 
-**Sekundär flaskhals**: Bootstrap-jobb #1 har stått fast på "2. Historical Backfill" sedan 22:57 (>22 timmar) — orkestratorn dispatchade 5 batches och väntar på att backfill-loopen ska bli klar, men loopen "skippar" hela tiden eftersom inga eligible-symboler saknar data.
+**2. `bulk-enrich-sectors`: stoppa retry-loopen**
+- Snäva kandidatfiltret till **endast `canonical_sector IS NULL OR canonical_sector IN ('Unknown','','Stocks')`** (ta bort `eligible_for_backfill IS NULL`-klausulen — den räknas separat av promotion-sweepen).
+- Vid `failed`: sätt `enriched_at = now()` och `classification_status='unresolvable_temp'` så att samma rader inte hämtas igen direkt.
+- Lägg till en `.lt('enriched_at', now() - 24h)` ELLER `enriched_at IS NULL`-klausul för att respektera tail-skip.
+- Efter **3 misslyckade försök** (spåras via `metadata.attempts` i en lättviktig `enrichment_attempts`-tabell): markera `classification_status='unresolvable'`, `eligible_for_backfill=false` permanent.
 
-### Pipeline för att fixa coverage
+**3. `daily-sync`: höj fallback-cap + metals**
+- `FALLBACK_CAP: 500 → 2000`.
+- Inkludera alla `support_level IN ('metals_limited','sector_benchmark_proxy','full_wsp_equity','limited_equity')` i universe-querien (idag exkluderas metals tyst).
+- Lägg till explicit metrik i `data_sync_log.metadata.fallback_recovered_per_source`.
 
-```text
-[symbols] 10653 active
-   ├── 2136 eligible=true   ← ENDAST dessa körs av backfill
-   ├── 8048 eligible=NULL   ← BLOCKERAS (måste klassificeras först)
-   └──  469 eligible=false  ← korrekt exkluderade
+**4. Watchdog + heartbeat (verifiering)**
+- `bootstrap_jobs_watchdog` är redan skapad. Verifiera att `bootstrap-orchestrator` skriver `updated_at = now()` i en tight loop (var 30:e sek), inte bara vid stegbyte. Lägg till `heartbeat_at` om det saknas.
 
-Lösning: kör enrich-symbols över NULL-batchen → sätt eligible_for_backfill
-         → backfill-loopen plockar upp dem automatiskt
-```
+**5. Source Attribution-vy i admin**
+- Ny RPC `get_source_attribution_24h()` läser `data_sync_log` för senaste 24h, summerar `metadata.source_attribution.{polygon,finnhub,yahoo,alpaca,none}` per dygn, returnerar success/total per källa.
+- Ny komponent `SourceAttributionPanel.tsx` på `/admin`:
+  - Stapeldiagram: symboler/källa senaste 24h.
+  - Larm-pill (röd) om `failed/(success+failed) > 0.20` för en källa under senaste timmen.
+  - Per-källa: senaste lyckade timestamp, total försök, success rate.
 
-### Plan (3 steg)
-
-**1. Lås upp universumet via metadata-enrichment**
-- Skapa migration som expanderar `enrich_symbols_batch()`-loopen så NULL-symboler klassificeras (sätter `is_common_stock`, `canonical_sector`, `eligible_for_backfill`).
-- Lägg till pg_cron-jobb `wsp_auto_enrich_loop` som var 5:e min kör enrichment över NULL-symboler tills 0 kvar (precis som backfill-loopen).
-
-**2. Reparera fastnat bootstrap-jobb**
-- Markera nuvarande job #1 som `failed` med felmeddelande "stuck on backfill — see auto-loop".
-- Justera `bootstrap-orchestrator` så "Historical Backfill"-steget inte väntar oändligt: poll max 30 min, sen gå vidare till nästa steg om coverage > 95% av eligible-universumet (inte 100% av alla symboler).
-- Lägg till "0. Universe Enrichment"-steg före backfill i `full`-mode så NULL-symboler klassificeras innan backfill startar.
-
-**3. Visualisera blockad coverage i admin**
-- Uppdatera `BootstrapPanel.tsx` så det visar 3 separata staplar:
-  - `Klassificerade: 2605/10653` (eligible-beslut taget)
-  - `Med priser: X/2136 eligible`
-  - `Med indikatorer: Y/2136 eligible`
-- Då blir det omedelbart synligt att flaskhalsen är klassificering, inte backfill.
+**6. Verifiering**
+- Efter promotion-sweepen: `eligible_for_backfill=true` ska hoppa från 2 198 → ~9 800 omedelbart.
+- Trigga ett `daily-sync`-anrop, kontrollera att `metadata.fallback_recovered_per_source` visar Alpaca + Yahoo träffar.
+- Vänta 10 min, kontrollera att `bulk-enrich-sectors` nu landar på en ny uppsättning symboler (inte AAPB/AAPD igen) och att `unresolvable`-räknaren stiger.
 
 ### Tekniska detaljer
-- Migration: ny `cron.schedule('wsp_auto_enrich_loop', '*/5 * * * *', ...)` som anropar `bulk-enrich-sectors` edge function via `net.http_post` med batch=100.
-- Edge function `bootstrap-orchestrator/index.ts`: lägg till `enrich_universe`-steg och timeout-skydd på backfill-poll.
-- `BootstrapPanel.tsx`: läs `symbols GROUP BY eligible_for_backfill` för coverage-staplar.
+- Filer: `supabase/functions/bulk-enrich-sectors/index.ts`, `supabase/functions/daily-sync/index.ts`, `supabase/functions/bootstrap-orchestrator/index.ts`, `src/components/SourceAttributionPanel.tsx` (ny), `src/pages/Admin.tsx` (mountar panelen).
+- Migrations: ny tabell `enrichment_attempts(symbol pk, attempts int, last_attempt_at, last_error)`; ny RPC `get_source_attribution_24h()`; engångs-UPDATE som promotion-sweepar 7 800 rader.
+- Ingen UI-redesign, ingen WSP-logikändring.
+
+### Förväntat utfall
+- Inom **5 min**: `eligible_for_backfill=true` går från 2 198 → ~9 800.
+- Inom **30 min**: `bulk-enrich-sectors` har slutat loopa AAPB/AAPD och betar av nya kandidater; `unresolvable`-räknaren stiger snabbt.
+- Inom **24 h**: Source Attribution-panelen visar fördelning Polygon/Finnhub/Yahoo/Alpaca + larmar om någon källa går ner.
+- Daily-sync återhämtar nu upp till 2 000 saknade symboler/dag via Alpaca+Yahoo, inkl. metals (GLD/SLV/COPX dagligen).
 
