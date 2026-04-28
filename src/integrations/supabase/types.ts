@@ -600,6 +600,13 @@ export type Database = {
             referencedRelation: "symbols"
             referencedColumns: ["symbol"]
           },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "wsp_eligible_universe"
+            referencedColumns: ["symbol"]
+          },
         ]
       }
       market_scan_runs: {
@@ -962,6 +969,13 @@ export type Database = {
             referencedRelation: "symbols"
             referencedColumns: ["symbol"]
           },
+          {
+            foreignKeyName: "scanner_universe_snapshot_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "wsp_eligible_universe"
+            referencedColumns: ["symbol"]
+          },
         ]
       }
       screener_rows_materialized: {
@@ -1107,6 +1121,7 @@ export type Database = {
           classification_confidence_level: string | null
           classification_status: string | null
           created_at: string | null
+          description: string | null
           eligible_for_backfill: boolean | null
           eligible_for_full_wsp: boolean | null
           enriched_at: string | null
@@ -1117,6 +1132,7 @@ export type Database = {
           is_adr: boolean | null
           is_common_stock: boolean | null
           is_etf: boolean | null
+          market_cap: number | null
           name: string | null
           primary_exchange: string | null
           sector: string | null
@@ -1134,6 +1150,7 @@ export type Database = {
           classification_confidence_level?: string | null
           classification_status?: string | null
           created_at?: string | null
+          description?: string | null
           eligible_for_backfill?: boolean | null
           eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
@@ -1144,6 +1161,7 @@ export type Database = {
           is_adr?: boolean | null
           is_common_stock?: boolean | null
           is_etf?: boolean | null
+          market_cap?: number | null
           name?: string | null
           primary_exchange?: string | null
           sector?: string | null
@@ -1161,6 +1179,7 @@ export type Database = {
           classification_confidence_level?: string | null
           classification_status?: string | null
           created_at?: string | null
+          description?: string | null
           eligible_for_backfill?: boolean | null
           eligible_for_full_wsp?: boolean | null
           enriched_at?: string | null
@@ -1171,6 +1190,7 @@ export type Database = {
           is_adr?: boolean | null
           is_common_stock?: boolean | null
           is_etf?: boolean | null
+          market_cap?: number | null
           name?: string | null
           primary_exchange?: string | null
           sector?: string | null
@@ -1419,6 +1439,13 @@ export type Database = {
             referencedRelation: "symbols"
             referencedColumns: ["symbol"]
           },
+          {
+            foreignKeyName: "market_scan_results_symbol_fkey"
+            columns: ["symbol"]
+            isOneToOne: false
+            referencedRelation: "wsp_eligible_universe"
+            referencedColumns: ["symbol"]
+          },
         ]
       }
       market_scan_runs_safe: {
@@ -1500,6 +1527,45 @@ export type Database = {
           alignment_status?: never
           canonical_industry?: string | null
           canonical_sector?: string | null
+          symbol?: string | null
+        }
+        Relationships: []
+      }
+      wsp_eligible_universe: {
+        Row: {
+          canonical_industry: string | null
+          canonical_sector: string | null
+          classification_confidence_level: string | null
+          eligible_for_full_wsp: boolean | null
+          enriched_at: string | null
+          is_common_stock: boolean | null
+          market_cap: number | null
+          name: string | null
+          support_level: string | null
+          symbol: string | null
+        }
+        Insert: {
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          eligible_for_full_wsp?: boolean | null
+          enriched_at?: string | null
+          is_common_stock?: boolean | null
+          market_cap?: number | null
+          name?: string | null
+          support_level?: string | null
+          symbol?: string | null
+        }
+        Update: {
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          classification_confidence_level?: string | null
+          eligible_for_full_wsp?: boolean | null
+          enriched_at?: string | null
+          is_common_stock?: boolean | null
+          market_cap?: number | null
+          name?: string | null
+          support_level?: string | null
           symbol?: string | null
         }
         Relationships: []
