@@ -85,7 +85,6 @@ async function fromFinnhub(symbol: string, signal?: AbortSignal): Promise<Normal
       marketCap: typeof d.marketCapitalization === 'number' ? Math.round(d.marketCapitalization * 1_000_000) : null,
       description: null,
     }
-    }
   } catch (e) {
     if (String(e).includes('finnhub_429')) throw e
     return null
@@ -122,6 +121,8 @@ async function fromYahoo(symbol: string, signal?: AbortSignal): Promise<Normaliz
       isEtf,
       isAdr,
       isCommonStock,
+      marketCap: typeof profile.marketCap === 'number' ? Math.round(profile.marketCap) : null,
+      description: txt(profile.longBusinessSummary),
     }
   } catch {
     return null
@@ -152,6 +153,8 @@ async function fromAlpaca(symbol: string, signal?: AbortSignal): Promise<Normali
       isEtf: false,
       isAdr: false,
       isCommonStock: d.class === 'us_equity' && d.tradable === true,
+      marketCap: null,
+      description: null,
     }
   } catch {
     return null
