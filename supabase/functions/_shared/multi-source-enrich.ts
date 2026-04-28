@@ -74,14 +74,17 @@ async function fromFinnhub(symbol: string, signal?: AbortSignal): Promise<Normal
       source: 'finnhub',
       name: txt(d.name),
       exchange: txt(d.exchange),
-      type: 'CS',  // Finnhub stock/profile2 only returns common stocks
-      sector: industry, // Finnhub merges sector/industry
+      type: 'CS',
+      sector: industry,
       industry,
       sicCode: null,
       sicDescription: industry,
       isEtf: false,
       isAdr: false,
       isCommonStock: true,
+      marketCap: typeof d.marketCapitalization === 'number' ? Math.round(d.marketCapitalization * 1_000_000) : null,
+      description: null,
+    }
     }
   } catch (e) {
     if (String(e).includes('finnhub_429')) throw e
