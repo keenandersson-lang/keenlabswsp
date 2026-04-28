@@ -13,6 +13,8 @@ export interface NormalizedTickerDetails {
   isEtf: boolean
   isAdr: boolean
   isCommonStock: boolean
+  marketCap: number | null
+  description: string | null
 }
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY') ?? ''
