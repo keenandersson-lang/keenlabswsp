@@ -247,14 +247,14 @@ Deno.serve(async (req: Request) => {
           isCommonStock: isCommonStock || sym.is_common_stock,
         })
 
+        // Doctrine: write ONLY canonical GICS values or NULL — never 'Unknown'.
+        // The DB trigger enforce_canonical_gics_taxonomy will reject anything else.
         const update: Record<string, any> = {
           enriched_at: new Date().toISOString(),
-          canonical_sector: classification.canonicalSector ?? 'Unknown',
-          canonical_industry: classification.canonicalIndustry ?? 'Unknown',
+          canonical_sector: classification.canonicalSector,  // null OK, 'Unknown' would fail trigger
+          canonical_industry: classification.canonicalIndustry,
           classification_confidence_level: classification.confidenceLevel,
           classification_status: classification.classificationStatus,
-          sector: classification.canonicalSector ?? sym.sector ?? 'Unknown',
-          industry: classification.canonicalIndustry ?? sym.industry,
           is_common_stock: isCommonStock || sym.is_common_stock || false,
           is_etf: isEtf || sym.is_etf || false,
           is_adr: isAdr || sym.is_adr || false,
@@ -266,6 +266,8 @@ Deno.serve(async (req: Request) => {
         if (sicCode) update.sic_code = sicCode
         if (sicDesc) update.sic_description = sicDesc
         if (companyName && !sym.name) update.name = companyName
+        if (details.marketCap) update.market_cap = details.marketCap
+        if (details.description) update.description = details.description
 
         const promotion = classifyPromotion({ ...sym, ...update })
         update.support_level = promotion.support_level

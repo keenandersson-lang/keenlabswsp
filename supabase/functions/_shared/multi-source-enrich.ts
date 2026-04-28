@@ -13,6 +13,8 @@ export interface NormalizedTickerDetails {
   isEtf: boolean
   isAdr: boolean
   isCommonStock: boolean
+  marketCap: number | null
+  description: string | null
 }
 
 const POLYGON_KEY = Deno.env.get('POLYGON_API_KEY') ?? ''
@@ -49,6 +51,8 @@ async function fromPolygon(symbol: string, signal?: AbortSignal): Promise<Normal
       isEtf: type === 'ETF' || type === 'ETN' || type === 'ETV',
       isAdr: type === 'ADRC' || type === 'ADRR' || type === 'ADRW',
       isCommonStock: type === 'CS',
+      marketCap: typeof d.market_cap === 'number' ? Math.round(d.market_cap) : null,
+      description: txt(d.description),
     }
   } catch (e) {
     if (String(e).includes('polygon_429')) throw e
@@ -70,14 +74,16 @@ async function fromFinnhub(symbol: string, signal?: AbortSignal): Promise<Normal
       source: 'finnhub',
       name: txt(d.name),
       exchange: txt(d.exchange),
-      type: 'CS',  // Finnhub stock/profile2 only returns common stocks
-      sector: industry, // Finnhub merges sector/industry
+      type: 'CS',
+      sector: industry,
       industry,
       sicCode: null,
       sicDescription: industry,
       isEtf: false,
       isAdr: false,
       isCommonStock: true,
+      marketCap: typeof d.marketCapitalization === 'number' ? Math.round(d.marketCapitalization * 1_000_000) : null,
+      description: null,
     }
   } catch (e) {
     if (String(e).includes('finnhub_429')) throw e
@@ -115,6 +121,8 @@ async function fromYahoo(symbol: string, signal?: AbortSignal): Promise<Normaliz
       isEtf,
       isAdr,
       isCommonStock,
+      marketCap: typeof profile.marketCap === 'number' ? Math.round(profile.marketCap) : null,
+      description: txt(profile.longBusinessSummary),
     }
   } catch {
     return null
@@ -145,6 +153,8 @@ async function fromAlpaca(symbol: string, signal?: AbortSignal): Promise<Normali
       isEtf: false,
       isAdr: false,
       isCommonStock: d.class === 'us_equity' && d.tradable === true,
+      marketCap: null,
+      description: null,
     }
   } catch {
     return null
