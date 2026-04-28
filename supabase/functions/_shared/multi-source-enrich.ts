@@ -51,6 +51,8 @@ async function fromPolygon(symbol: string, signal?: AbortSignal): Promise<Normal
       isEtf: type === 'ETF' || type === 'ETN' || type === 'ETV',
       isAdr: type === 'ADRC' || type === 'ADRR' || type === 'ADRW',
       isCommonStock: type === 'CS',
+      marketCap: typeof d.market_cap === 'number' ? Math.round(d.market_cap) : null,
+      description: txt(d.description),
     }
   } catch (e) {
     if (String(e).includes('polygon_429')) throw e
