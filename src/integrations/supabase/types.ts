@@ -1622,6 +1622,7 @@ export type Database = {
           volume: number
         }[]
       }
+      get_doctrine_compliance: { Args: never; Returns: Json }
       get_equity_canonical_price_bar_range: { Args: never; Returns: Json }
       get_equity_dashboard_rows: {
         Args: never
