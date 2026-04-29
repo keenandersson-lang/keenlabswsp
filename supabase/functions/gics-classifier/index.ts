@@ -5,7 +5,8 @@
 //         Failures captured into `doctrine_failures` for admin review/re-queue.
 // Status tracked in `module_runs`
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { multiSourceEnrich } from '../_shared/multi-source-enrich.ts'
+import { enrichSymbolMultiSource } from '../_shared/multi-source-enrich.ts'
+import { computeSectorIndustryClassification } from '../_shared/classification.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,51 +52,66 @@ Deno.serve(async (req: Request) => {
   const runId = (runRow as { id: number }).id
 
   try {
-    // Fetch unclassified active symbols
     const { data: candidates } = await supabase
       .from('symbols')
-      .select('symbol')
+      .select('symbol, primary_exchange, instrument_type, is_etf, is_adr')
       .eq('is_active', true)
       .or('canonical_sector.is.null,canonical_industry.is.null')
       .neq('support_level', 'etf_excluded')
       .limit(batchSize)
 
-    const symbols = (candidates ?? []).map(c => (c as { symbol: string }).symbol)
+    const rows = (candidates ?? []) as Array<Record<string, unknown>>
     let classified = 0
     let failed = 0
 
-    for (const sym of symbols) {
+    for (const row of rows) {
+      const sym = row.symbol as string
       try {
-        const enriched = await multiSourceEnrich(sym)
-        if (!enriched.canonical_sector || !enriched.canonical_industry) {
+        const enriched = await enrichSymbolMultiSource(sym)
+        const details = enriched.details
+
+        const result = computeSectorIndustryClassification({
+          rawSector: details?.sector ?? null,
+          rawIndustry: details?.industry ?? null,
+          sicCode: details?.sicCode ?? null,
+          sicDescription: details?.sicDescription ?? null,
+          primaryExchange: (row.primary_exchange as string | null) ?? null,
+          isCommonStock: details?.type === 'CS',
+          isEtf: Boolean(row.is_etf),
+          isAdr: Boolean(row.is_adr),
+        } as never)
+
+        if (!result.canonicalSector || !result.canonicalIndustry) {
           failed++
           await supabase.from('doctrine_failures').insert({
             symbol: sym,
-            attempted_sector: enriched.canonical_sector ?? null,
-            attempted_industry: enriched.canonical_industry ?? null,
-            failure_reason: 'No canonical GICS resolved by any source',
-            source: enriched.source ?? 'unknown',
+            attempted_sector: result.canonicalSector ?? details?.sector ?? null,
+            attempted_industry: result.canonicalIndustry ?? details?.industry ?? null,
+            failure_reason: `No canonical GICS resolved (source=${enriched.succeededVia ?? 'none'}, attempted=${enriched.attempted.join(',')})`,
+            source: enriched.succeededVia ?? 'none',
           })
           continue
         }
+
         const { error: upErr } = await supabase.from('symbols').update({
-          canonical_sector: enriched.canonical_sector,
-          canonical_industry: enriched.canonical_industry,
-          market_cap: enriched.market_cap ?? null,
-          description: enriched.description ?? null,
+          canonical_sector: result.canonicalSector,
+          canonical_industry: result.canonicalIndustry,
+          market_cap: details?.marketCap ?? null,
+          description: details?.description ?? null,
           enriched_at: new Date().toISOString(),
-          classification_status: 'classified',
+          classification_status: result.classificationStatus,
+          classification_confidence_level: result.confidenceLevel,
         }).eq('symbol', sym)
 
         if (upErr) {
           failed++
-          // Server-side guard rejected — capture into doctrine_failures
+          // Server-side guard rejected (or other DB error) — capture for admin review
           await supabase.from('doctrine_failures').insert({
             symbol: sym,
-            attempted_sector: enriched.canonical_sector,
-            attempted_industry: enriched.canonical_industry,
+            attempted_sector: result.canonicalSector,
+            attempted_industry: result.canonicalIndustry,
             failure_reason: upErr.message,
-            source: enriched.source ?? 'unknown',
+            source: enriched.succeededVia ?? 'unknown',
           })
         } else {
           classified++
@@ -105,19 +121,19 @@ Deno.serve(async (req: Request) => {
         const msg = err instanceof Error ? err.message : String(err)
         await supabase.from('doctrine_failures').insert({
           symbol: sym, failure_reason: msg, source: 'classifier-error',
-        }).then(() => undefined)
+        })
       }
     }
 
     await supabase.from('module_runs').update({
       status: failed > 0 && classified === 0 ? 'failed' : (failed > 0 ? 'partial' : 'success'),
       finished_at: new Date().toISOString(),
-      input_count: symbols.length,
+      input_count: rows.length,
       output_count: classified,
       failed_count: failed,
     }).eq('id', runId)
 
-    return json(200, { ok: true, run_id: runId, input: symbols.length, classified, failed })
+    return json(200, { ok: true, run_id: runId, input: rows.length, classified, failed })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     await supabase.from('module_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error_message: msg }).eq('id', runId)
