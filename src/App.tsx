@@ -16,6 +16,7 @@ const Admin = lazy(() => import("./pages/Admin"));
 const Backtest = lazy(() => import("./pages/Backtest"));
 const MarketSummary = lazy(() => import("./pages/MarketSummary"));
 const Industries = lazy(() => import("./pages/Industries"));
+const Doctrine = lazy(() => import("./pages/Doctrine"));
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/backtest" element={<Backtest />} />
               <Route path="/market-summary" element={<MarketSummary />} />
               <Route path="/industries" element={<Industries />} />
+              <Route path="/doctrine" element={<Doctrine />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

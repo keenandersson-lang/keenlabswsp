@@ -14,3 +14,12 @@ verify_jwt = false
 
 [functions.admin-pipeline]
 verify_jwt = false
+
+[functions.api-data-collector]
+verify_jwt = false
+
+[functions.universe-scan]
+verify_jwt = false
+
+[functions.gics-classifier]
+verify_jwt = false

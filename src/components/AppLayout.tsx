@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X, Table2, Factory } from 'lucide-react';
+import { Activity, BarChart3, Scan, Layers, Star, Search, Menu, X, Table2, Factory, BookOpen } from 'lucide-react';
 import { useSymbolSearch } from '@/hooks/use-symbol-search';
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { path: '/screener', label: 'Screener', icon: Scan },
   { path: '/market-summary', label: 'Market Summary', icon: Table2 },
   { path: '/watchlist', label: 'Watchlist', icon: Star },
+  { path: '/doctrine', label: 'Doktrin', icon: BookOpen },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
