@@ -6,6 +6,10 @@ import BootstrapPanel from '@/components/BootstrapPanel';
 import SourceAttributionPanel from '@/components/SourceAttributionPanel';
 import EnrichmentHistoryModal from '@/components/EnrichmentHistoryModal';
 import BootstrapStatusWidget from '@/components/BootstrapStatusWidget';
+import DoctrineComplianceWidget from '@/components/DoctrineComplianceWidget';
+import DataflowTrackerWidget from '@/components/DataflowTrackerWidget';
+import DoctrineFailuresWidget from '@/components/DoctrineFailuresWidget';
+import ProxyVerificationWidget from '@/components/ProxyVerificationWidget';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -648,6 +652,16 @@ export default function Admin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* DOCTRINE FRAMEWORK — Module 1+2+3 status, compliance, failures, proxies */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <DoctrineComplianceWidget />
+        <DataflowTrackerWidget />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <DoctrineFailuresWidget />
+        <ProxyVerificationWidget />
+      </div>
 
       {/* H. SOURCE ATTRIBUTION */}
       <SourceAttributionPanel />
