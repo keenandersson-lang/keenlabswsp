@@ -339,6 +339,39 @@ export type Database = {
         }
         Relationships: []
       }
+      doctrine_failures: {
+        Row: {
+          attempted_industry: string | null
+          attempted_sector: string | null
+          failed_at: string
+          failure_reason: string
+          id: number
+          resolved_at: string | null
+          source: string | null
+          symbol: string
+        }
+        Insert: {
+          attempted_industry?: string | null
+          attempted_sector?: string | null
+          failed_at?: string
+          failure_reason: string
+          id?: number
+          resolved_at?: string | null
+          source?: string | null
+          symbol: string
+        }
+        Update: {
+          attempted_industry?: string | null
+          attempted_sector?: string | null
+          failed_at?: string
+          failure_reason?: string
+          id?: number
+          resolved_at?: string | null
+          source?: string | null
+          symbol?: string
+        }
+        Relationships: []
+      }
       email_send_log: {
         Row: {
           created_at: string
@@ -676,6 +709,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      module_runs: {
+        Row: {
+          error_message: string | null
+          failed_count: number
+          finished_at: string | null
+          id: number
+          input_count: number
+          metadata: Json
+          module_name: string
+          output_count: number
+          source: string | null
+          started_at: string
+          status: string
+          triggered_by: string | null
+        }
+        Insert: {
+          error_message?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: number
+          input_count?: number
+          metadata?: Json
+          module_name: string
+          output_count?: number
+          source?: string | null
+          started_at?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Update: {
+          error_message?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: number
+          input_count?: number
+          metadata?: Json
+          module_name?: string
+          output_count?: number
+          source?: string | null
+          started_at?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Relationships: []
       }
       pattern_states: {
         Row: {
@@ -1623,6 +1701,19 @@ export type Database = {
         }[]
       }
       get_doctrine_compliance: { Args: never; Returns: Json }
+      get_doctrine_failures: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempted_industry: string
+          attempted_sector: string
+          attempts: number
+          failed_at: string
+          failure_reason: string
+          last_error: string
+          source: string
+          symbol: string
+        }[]
+      }
       get_equity_canonical_price_bar_range: { Args: never; Returns: Json }
       get_equity_dashboard_rows: {
         Args: never
@@ -1771,6 +1862,17 @@ export type Database = {
           wsp_setups: number
         }[]
       }
+      get_module_dataflow: { Args: never; Returns: Json }
+      get_proxy_verification: {
+        Args: never
+        Returns: {
+          current_support_level: string
+          expected_role: string
+          is_active: boolean
+          is_correct: boolean
+          symbol: string
+        }[]
+      }
       get_public_beta_snapshot_status: {
         Args: never
         Returns: {
@@ -1892,6 +1994,10 @@ export type Database = {
         Args: { p_as_of_date: string; p_run_label: string }
         Returns: number
       }
+      requeue_doctrine_failures: {
+        Args: { p_symbols: string[] }
+        Returns: Json
+      }
       resolve_canonical_industry: {
         Args: {
           p_canonical_industry: string
@@ -1920,6 +2026,7 @@ export type Database = {
       }
       run_pipeline_health_checks: { Args: never; Returns: string }
       scanner_operator_snapshot: { Args: never; Returns: Json }
+      validate_doctrine_triggers_views: { Args: never; Returns: Json }
       validate_equity_snapshot: {
         Args: { p_snapshot_id: number }
         Returns: Json
