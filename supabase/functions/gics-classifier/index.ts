@@ -51,19 +51,51 @@ Deno.serve(async (req: Request) => {
   if (runErr || !runRow) return json(500, { error: 'Failed to open run', details: runErr?.message })
   const runId = (runRow as { id: number }).id
 
-  try {
-    const { data: candidates } = await supabase
-      .from('symbols')
-      .select('symbol, primary_exchange, instrument_type, is_etf, is_adr')
-      .eq('is_active', true)
-      .or('canonical_sector.is.null,canonical_industry.is.null')
-      .neq('support_level', 'etf_excluded')
-      .limit(batchSize)
+  const checkpoint = async (step: string, status: string, rowsIn?: number | null, rowsOut?: number | null, meta: Record<string, unknown> = {}) => {
+    await supabase.rpc('add_module_checkpoint' as never, {
+      p_run_id: runId, p_step: step, p_status: status,
+      p_rows_in: rowsIn ?? null, p_rows_out: rowsOut ?? null, p_meta: meta,
+    } as never)
+  }
 
-    const rows = (candidates ?? []) as Array<Record<string, unknown>>
+  try {
+    // 1) First, pull retry candidates due for re-attempt (with backoff)
+    await checkpoint('auto_retry_doctrine_failures', 'started')
+    const { data: retryRows } = await supabase.rpc('auto_retry_doctrine_failures' as never, { p_max: Math.floor(batchSize / 2) } as never)
+    const retrySymbols = (Array.isArray(retryRows) ? retryRows : []).map((r: { symbol?: string }) => r.symbol).filter(Boolean) as string[]
+    await checkpoint('auto_retry_doctrine_failures', 'ok', null, retrySymbols.length, { sample: retrySymbols.slice(0, 10) })
+
+    // 2) Then fill the rest with new unclassified candidates
+    await checkpoint('select_unclassified', 'started')
+    const remaining = Math.max(0, batchSize - retrySymbols.length)
+    let candidates: Array<Record<string, unknown>> = []
+    if (remaining > 0) {
+      const { data: newCandidates } = await supabase
+        .from('symbols')
+        .select('symbol, primary_exchange, instrument_type, is_etf, is_adr')
+        .eq('is_active', true)
+        .or('canonical_sector.is.null,canonical_industry.is.null')
+        .neq('support_level', 'etf_excluded')
+        .limit(remaining)
+      candidates = (newCandidates ?? []) as Array<Record<string, unknown>>
+    }
+    await checkpoint('select_unclassified', 'ok', null, candidates.length, { remaining_slots: remaining })
+
+    // 3) Add retry candidates back as candidate rows (fetch their symbol metadata)
+    if (retrySymbols.length > 0) {
+      const { data: retryMeta } = await supabase
+        .from('symbols')
+        .select('symbol, primary_exchange, instrument_type, is_etf, is_adr')
+        .in('symbol', retrySymbols)
+      candidates = [...((retryMeta ?? []) as Array<Record<string, unknown>>), ...candidates]
+    }
+
+    const rows = candidates
     let classified = 0
     let failed = 0
+    let resolved = 0
 
+    await checkpoint('enrich_and_classify', 'started', rows.length, null)
     for (const row of rows) {
       const sym = row.symbol as string
       try {
@@ -105,7 +137,6 @@ Deno.serve(async (req: Request) => {
 
         if (upErr) {
           failed++
-          // Server-side guard rejected (or other DB error) — capture for admin review
           await supabase.from('doctrine_failures').insert({
             symbol: sym,
             attempted_sector: result.canonicalSector,
@@ -115,6 +146,14 @@ Deno.serve(async (req: Request) => {
           })
         } else {
           classified++
+          // If this symbol was a retry, mark its failures as resolved
+          if (retrySymbols.includes(sym)) {
+            await supabase.from('doctrine_failures')
+              .update({ resolved_at: new Date().toISOString() })
+              .eq('symbol', sym)
+              .is('resolved_at', null)
+            resolved++
+          }
         }
       } catch (err) {
         failed++
@@ -124,6 +163,7 @@ Deno.serve(async (req: Request) => {
         })
       }
     }
+    await checkpoint('enrich_and_classify', 'ok', rows.length, classified, { failed, resolved, retries_attempted: retrySymbols.length })
 
     await supabase.from('module_runs').update({
       status: failed > 0 && classified === 0 ? 'failed' : (failed > 0 ? 'partial' : 'success'),
@@ -131,11 +171,13 @@ Deno.serve(async (req: Request) => {
       input_count: rows.length,
       output_count: classified,
       failed_count: failed,
+      metadata: { retries_attempted: retrySymbols.length, retries_resolved: resolved },
     }).eq('id', runId)
 
-    return json(200, { ok: true, run_id: runId, input: rows.length, classified, failed })
+    return json(200, { ok: true, run_id: runId, input: rows.length, classified, failed, retried: retrySymbols.length, resolved })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    await checkpoint('fatal', 'error', null, null, { error: msg })
     await supabase.from('module_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error_message: msg }).eq('id', runId)
     return json(500, { error: msg, run_id: runId })
   }
