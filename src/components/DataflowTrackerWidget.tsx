@@ -99,6 +99,13 @@ function CheckpointList({ moduleName }: { moduleName: ModuleName }) {
 }
 
 export default function DataflowTrackerWidget() {
+  const [expanded, setExpanded] = useState<Set<ModuleName>>(new Set());
+  const toggle = (m: ModuleName) => {
+    const next = new Set(expanded);
+    if (next.has(m)) next.delete(m); else next.add(m);
+    setExpanded(next);
+  };
+
   const { data, isLoading } = useQuery<Dataflow | null>({
     queryKey: ['module-dataflow'],
     queryFn: async () => {
@@ -178,6 +185,14 @@ export default function DataflowTrackerWidget() {
                         Source: <span className="font-mono text-foreground">{lastSuccess.source}</span>
                       </div>
                     )}
+                    <button
+                      onClick={() => toggle(mod.name)}
+                      className="mt-1 flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground"
+                    >
+                      {expanded.has(mod.name) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                      Checkpoints (latest run)
+                    </button>
+                    {expanded.has(mod.name) && <CheckpointList moduleName={mod.name} />}
                   </div>
                   {idx < MODULES.length - 1 && (
                     <div className="flex justify-center py-0.5">
