@@ -67,7 +67,7 @@ function CheckpointList({ moduleName }: { moduleName: ModuleName }) {
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      const cps = (data as { checkpoints?: Checkpoint[] } | null)?.checkpoints ?? [];
+      const cps = (data as unknown as { checkpoints?: Checkpoint[] } | null)?.checkpoints ?? [];
       return Array.isArray(cps) ? cps : [];
     },
     refetchInterval: 30_000,
