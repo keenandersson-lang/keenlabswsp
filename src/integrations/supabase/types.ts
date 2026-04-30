@@ -346,7 +346,11 @@ export type Database = {
           failed_at: string
           failure_reason: string
           id: number
+          last_retry_at: string | null
+          next_retry_at: string | null
+          permanently_failed: boolean
           resolved_at: string | null
+          retry_count: number
           source: string | null
           symbol: string
         }
@@ -356,7 +360,11 @@ export type Database = {
           failed_at?: string
           failure_reason: string
           id?: number
+          last_retry_at?: string | null
+          next_retry_at?: string | null
+          permanently_failed?: boolean
           resolved_at?: string | null
+          retry_count?: number
           source?: string | null
           symbol: string
         }
@@ -366,7 +374,11 @@ export type Database = {
           failed_at?: string
           failure_reason?: string
           id?: number
+          last_retry_at?: string | null
+          next_retry_at?: string | null
+          permanently_failed?: boolean
           resolved_at?: string | null
+          retry_count?: number
           source?: string | null
           symbol?: string
         }
@@ -712,6 +724,7 @@ export type Database = {
       }
       module_runs: {
         Row: {
+          checkpoints: Json
           error_message: string | null
           failed_count: number
           finished_at: string | null
@@ -726,6 +739,7 @@ export type Database = {
           triggered_by: string | null
         }
         Insert: {
+          checkpoints?: Json
           error_message?: string | null
           failed_count?: number
           finished_at?: string | null
@@ -740,6 +754,7 @@ export type Database = {
           triggered_by?: string | null
         }
         Update: {
+          checkpoints?: Json
           error_message?: string | null
           failed_count?: number
           finished_at?: string | null
@@ -1359,6 +1374,36 @@ export type Database = {
         }
         Relationships: []
       }
+      wsp_eligible_universe_history: {
+        Row: {
+          canonical_industry: string | null
+          canonical_sector: string | null
+          id: number
+          is_active: boolean | null
+          support_level: string | null
+          symbol: string
+          taken_at: string
+        }
+        Insert: {
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          id?: number
+          is_active?: boolean | null
+          support_level?: string | null
+          symbol: string
+          taken_at?: string
+        }
+        Update: {
+          canonical_industry?: string | null
+          canonical_sector?: string | null
+          id?: number
+          is_active?: boolean | null
+          support_level?: string | null
+          symbol?: string
+          taken_at?: string
+        }
+        Relationships: []
+      }
       wsp_evaluations: {
         Row: {
           blockers: Json | null
@@ -1650,10 +1695,33 @@ export type Database = {
       }
     }
     Functions: {
+      _doctrine_backoff_minutes: {
+        Args: { p_attempt: number }
+        Returns: number
+      }
+      add_module_checkpoint: {
+        Args: {
+          p_meta?: Json
+          p_rows_in?: number
+          p_rows_out?: number
+          p_run_id: number
+          p_status?: string
+          p_step: string
+        }
+        Returns: undefined
+      }
       admin_tier1_price_coverage: {
         Args: { p_symbols: string[] }
         Returns: {
           bars: number
+          symbol: string
+        }[]
+      }
+      auto_retry_doctrine_failures: {
+        Args: { p_max?: number; p_max_attempts?: number }
+        Returns: {
+          next_retry_at: string
+          retry_count: number
           symbol: string
         }[]
       }
@@ -1679,6 +1747,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      export_compliance_report: { Args: never; Returns: Json }
       get_benchmark_prices: {
         Args: never
         Returns: {
@@ -1954,6 +2023,7 @@ export type Database = {
       }
       get_universe_coverage_detailed: { Args: never; Returns: Json }
       get_universe_coverage_stats: { Args: never; Returns: Json }
+      get_wsp_eligible_universe_diff: { Args: never; Returns: Json }
       materialize_wsp_indicators: {
         Args: { p_from_date?: string; p_to_date?: string }
         Returns: undefined
@@ -2028,11 +2098,19 @@ export type Database = {
       }
       run_pipeline_health_checks: { Args: never; Returns: string }
       scanner_operator_snapshot: { Args: never; Returns: Json }
+      snapshot_wsp_eligible_universe: {
+        Args: never
+        Returns: {
+          taken_at: string
+          total: number
+        }[]
+      }
       validate_doctrine_triggers_views: { Args: never; Returns: Json }
       validate_equity_snapshot: {
         Args: { p_snapshot_id: number }
         Returns: Json
       }
+      verify_universe_consistency: { Args: never; Returns: Json }
     }
     Enums: {
       pipeline_run_status:
