@@ -10,6 +10,8 @@ import DoctrineComplianceWidget from '@/components/DoctrineComplianceWidget';
 import DataflowTrackerWidget from '@/components/DataflowTrackerWidget';
 import DoctrineFailuresWidget from '@/components/DoctrineFailuresWidget';
 import ProxyVerificationWidget from '@/components/ProxyVerificationWidget';
+import UniverseDiffWidget from '@/components/UniverseDiffWidget';
+import ComplianceExportWidget from '@/components/ComplianceExportWidget';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -661,6 +663,10 @@ export default function Admin() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <DoctrineFailuresWidget />
         <ProxyVerificationWidget />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="lg:col-span-2"><UniverseDiffWidget /></div>
+        <ComplianceExportWidget />
       </div>
 
       {/* H. SOURCE ATTRIBUTION */}
