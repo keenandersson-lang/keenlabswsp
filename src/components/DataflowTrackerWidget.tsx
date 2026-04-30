@@ -1,10 +1,20 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Workflow, ArrowRight, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Workflow, ArrowRight, CheckCircle2, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
 type ModuleName = 'api-data-collector' | 'universe-scan' | 'gics-classifier';
+
+interface Checkpoint {
+  step: string;
+  status: string;
+  rows_in: number | null;
+  rows_out: number | null;
+  at: string;
+  meta?: Record<string, unknown>;
+}
 
 interface RunInfo {
   id: number;
@@ -43,6 +53,49 @@ function fmtAge(ts: string | null | undefined): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr}h sedan`;
   return `${Math.floor(hr / 24)}d sedan`;
+}
+
+function CheckpointList({ moduleName }: { moduleName: ModuleName }) {
+  const { data: checkpoints } = useQuery<Checkpoint[]>({
+    queryKey: ['module-checkpoints', moduleName],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('module_runs')
+        .select('checkpoints')
+        .eq('module_name', moduleName)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      const cps = (data as { checkpoints?: Checkpoint[] } | null)?.checkpoints ?? [];
+      return Array.isArray(cps) ? cps : [];
+    },
+    refetchInterval: 30_000,
+  });
+  if (!checkpoints || checkpoints.length === 0) {
+    return <div className="text-[10px] font-mono text-muted-foreground italic mt-1.5">Inga checkpoints loggade ännu.</div>;
+  }
+  return (
+    <div className="space-y-0.5 mt-1.5 border-t border-border pt-1.5">
+      {checkpoints.map((cp, i) => {
+        const ok = cp.status === 'ok';
+        const err = cp.status === 'error' || cp.status === 'mismatch';
+        const color = ok ? 'text-signal-success' : err ? 'text-signal-danger' : 'text-signal-caution';
+        return (
+          <div key={i} className="flex items-center gap-1.5 text-[10px] font-mono">
+            <span className={`${color} w-14 shrink-0 uppercase`}>{cp.status}</span>
+            <span className="flex-1 truncate text-foreground" title={cp.step}>{cp.step}</span>
+            <span className="text-muted-foreground tabular-nums">
+              {cp.rows_in ?? '—'}→{cp.rows_out ?? '—'}
+            </span>
+            <span className="text-muted-foreground text-[9px] w-14 text-right">
+              {cp.at?.slice(11, 19) ?? ''}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function DataflowTrackerWidget() {
